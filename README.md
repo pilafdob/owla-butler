@@ -1,98 +1,112 @@
-<p align="center">
-  <img src="assets/bird.svg" alt="OWLA Butler bird icon" width="72" height="72">
-</p>
+<p align="center"><img src="assets/bird.svg" alt="OWLA Butler bird" width="64" height="64"></p>
 
 # OWLA Butler
 
-[![CI](https://github.com/pilafdob/owla-butler/actions/workflows/ci.yml/badge.svg)](https://github.com/pilafdob/owla-butler/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
-![Platform](https://img.shields.io/badge/Obsidian-desktop-7c3aed)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+A native Obsidian assistant powered by your installed, signed-in Codex CLI. Ask naturally, attach screenshots or PDFs, work with your open note and review suggested changes. There are no chat modes to select.
 
-**OWLA** stands for **Obsidian Workspace Local Assistant**. OWLA Butler is a local-first AI chat sidebar for Obsidian desktop. The current Markdown note follows you into chat. Add selected text, other notes, or a screenshot, then review suggested edits before applying them.
+## Requirements and cost
+
+- **Desktop Obsidian 1.14.5 or newer.** This release is tested on macOS (8 GB M2 Air). Windows, Linux and mobile are not supported by this release.
+- **Codex CLI 0.162.1 or newer**, installed separately, and an eligible ChatGPT/Codex account. An internet connection is required for answers, sign-in, model discovery and quota checks.
+- OWLA is free and MIT licensed. OpenAI may require a paid plan or credits for your chosen model or usage; access and limits depend on your account. The tested account was ChatGPT Plus. There is no OWLA subscription or API-key billing integration. Check [current Codex access and pricing](https://learn.chatgpt.com/docs/pricing).
+
+OWLA is an independent project, unaffiliated with Obsidian or OpenAI. It is **not yet listed** in Community plugins. Install from the [GitHub release](https://github.com/pilafdob/owla-butler/releases/tag/1.0.0) while Community review is pending.
 
 ## Features
 
-- Right-sidebar chat with streamed Markdown and LaTeX rendering. Screenshot attachment selects a dedicated **Image → Markdown** mode with note-search tools disabled for faithful transcription.
-- Current editor contents and cursor/selection captured for each request, including unsaved changes.
-- Editor right-click action and command to add selected text to chat.
-- Image/PDF upload, clipboard paste, and drag-and-drop; up to two PNG/JPEG/WebP images, resized locally to a 1024 px maximum edge.
-- Add-note picker and read-only model tools for vault search and reading Markdown notes.
-- Model-proposed exact replacements, plus insert-at-cursor / replace-selection / append actions.
-- A preview is required before applying an edit. Newer edits cause an old proposal to be rejected. Applied edits have a guarded Undo action.
-- Ollama and OpenAI-compatible local endpoints. Only loopback URLs are accepted.
-- Installed-model picker in the composer.
-- OWLA can start an existing local Ollama executable on request. It does not install Ollama or models. Each generation uses `keep_alive: 0`; OWLA unloads the selected model and stops only the server copy it started when the turn ends or is cancelled.
-- A macOS memory guard: requires at least 40% reported free headroom to start, stops immediately on critical pressure or below 18% headroom, and stops after two low-headroom samples below 25%. It is a best-effort responsiveness guard, not an exact RAM cap.
-- The original supplied Phosphor bird SVG is bundled in `assets/bird.svg` and registered as the plugin icon. Its licence is in `assets/PHOSPHOR-LICENSE`.
+- Chat with your open note, including unsaved text, selections and additional notes.
+- Paste screenshots, attach images and select individual PDF pages.
+- Search allowed vault notes and the web, with source details.
+- Review proposed edits before applying them; recover with guarded Undo.
+- Choose Codex models and reasoning effort; see provider-reported usage limits.
+- Keep the same chat while the backend automatically stops between replies.
 
-## Use
+## Setup
 
-1. Enable OWLA Butler in the vault and run **OWLA Butler: Open chat**, or use its bird ribbon icon.
-2. Open a Markdown note. Its path appears above the chat. The note is captured when you send a request; focusing the sidebar does not switch the edit target.
-3. Ask a question, select text and choose **Add selection to OWLA Butler**, or attach an image.
-4. For changes, choose **Review edit** and inspect the proposed additions/removals before **Apply edit**. Use **Undo edit** only while that note has not been changed again.
+1. Install Codex CLI 0.162.1 or newer and sign in with ChatGPT. If Codex already works in your terminal, no additional account setup is needed. [Official Codex authentication](https://developers.openai.com/codex/auth).
+2. For manual installation, create `<vault>/.obsidian/plugins/owla-butler/` and copy **main.js**, **manifest.json** and **styles.css** from the same release into it. Alternatively, unzip the distribution and move its `owla-butler` folder there. Restart Obsidian or reload Community plugins, then enable OWLA Butler. Once the Community listing is approved, installation will be available through Obsidian’s Community plugins browser.
+3. Open Settings → OWLA Butler → **Connect Codex**. OWLA detects the CLI, reuses the existing login and loads the model/reasoning options. No API key is requested. A green dot means your Codex login is ready, even while the backend process is sleeping; red means disconnected or not authenticated. A signed-out account can use **Sign in** to open Codex’s browser login.
+4. Open the bird sidebar and send a message. Subsequent connection/startup is automatic. A red status dot can also be clicked to reconnect; green means connected. The dot has a tooltip and accessible label.
 
-Useful prompts:
+If detection fails, choose the Codex executable in settings. OWLA does not install or update Codex. This is a macOS desktop release candidate, tested on an 8 GB M2 Air. It uses the official Codex app-server protocol over local process pipes. Codex handles hosted inference and authentication; OWLA does not read/copy credentials or use a separately billed API key. Codex subscription limits and account/workspace policies apply.
 
-- “Explain the selected passage in the language of my note.”
-- “Find related notes about [topic], read the relevant parts, and cite their exact paths.”
-- “Transcribe this screenshot into Markdown and LaTeX. Mark unclear symbols and propose a small insertion into my note.”
-- “Improve this paragraph while preserving the citation keys and surrounding text. Propose an edit.”
+## Everyday use
 
-The current low-memory default is `qwen3.5:0.8b-q8_0` with a 2,048-token context. The 2B Q4 variant hit memory limits on this machine and is not recommended under the tested workload. The small default passed a current-note question and one simple printed-equation transcription earlier. A later PDF question was refused before loading because the memory admission threshold was not met. A later search trial was stopped by the memory guard; broad agent reliability is not established.
+The sidebar starts with a clean message area. Choose the **model** and **reasoning effort** beside the composer; options come from Codex, not a hard-coded list. Reply headings say **OWLA**. Send with Enter; Shift–Enter inserts a newline. Stop interrupts the active request.
 
-The audited 0.8B model missed a requested note-path citation and briefly reached critical memory pressure. The current guard was tightened afterward, but no repeat inference trial has established that the problem is resolved. A small local model can make mathematical, transcription and tool-use mistakes. Review the equation and the proposed edit against the source image. OWLA does not silently correct an ambiguous symbol.
+Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. Codex can search/read allowed Markdown notes itself and cite exact paths. No vault-wide upload or index is created.
 
-## Local model setup
+Attach/paste/drop PNG, JPEG or WebP images (up to two, 10 MB each); images are resized locally to 1024 px on the long edge. PDFs up to 20 MB open a physical-page picker: attach extracted text or a rendered page image. Up to two text pages per message; long page text is shortened. Codex chooses how to use the attachments. For transcription, ask it to preserve visible symbols and mark uncertainty. Whole-document/automatic multi-page and password-protected PDF handling are unsupported.
 
-Install [Ollama](https://ollama.com/download) separately, then install a model in Ollama before using OWLA. For a small Apple Silicon Mac, the current default is `qwen3.5:0.8b-q8_0`; run `ollama pull qwen3.5:0.8b-q8_0` in Terminal. This model has passed a narrow active-note question and one simple printed-equation transcription on an 8 GB M2 Air. It has not passed broad autonomous search or complex OCR acceptance tests. Larger models need more memory and may be stopped by OWLA's memory guard.
+Web search is enabled by default so Codex can check current facts when needed. Turn it off in settings if unwanted. Selected note contents, attachments and recent chat are processed by OpenAI; web queries may draw on that context. Responses expose readable activity, used note/page sources and linked web references. Source links do not guarantee that every interpretation is correct.
 
-In OWLA settings, select **Ollama** and set the local server address and exact installed model name. The default endpoint is `http://127.0.0.1:11434`. If Ollama is already running, OWLA connects to it and leaves the service running. The model picker lists models available from that server without loading their weights. You can also use an OpenAI-compatible server bound to localhost.
+## Privacy, network access and files outside the vault
 
-OWLA can start a separately installed Ollama executable when no service is running. Set its path in **Ollama executable** if automatic detection fails. For a manually managed server, turn off **Automatic Ollama startup**. OWLA does not download, install, or update Ollama, model weights, or plugin code. Managed service startup binds to localhost, disables Ollama cloud features, permits one model/request, and stops the server copy OWLA started when the turn ends or is cancelled. No login service is installed.
+**This is a cloud-backed assistant.** On sending a message, your current note snapshot (including unsaved text), explicit selections/attachments, bounded recent chat and any allowed notes requested by Codex are sent to OpenAI through Codex. It does not upload the whole vault. Web search is on by default; queries can include supplied context. Disable it in settings when needed. Provider processing, retention and account controls follow [OpenAI’s Codex data guidance](https://developers.openai.com/codex/security).
 
-The plugin requires Obsidian 1.14.5 or newer on desktop. Process management and the memory guard have been developed for macOS; other desktop environments should use an already-running compatible local server. No exact RAM cap is guaranteed.
+OWLA makes no separate telemetry or advertising requests. It explicitly disables optional Codex analytics, feedback uploads and OpenTelemetry exporters for its own child process and checks the effective settings before starting a conversation. This does not disable the network traffic needed to provide Codex authentication, model discovery, quota reporting, inference and optional web search. Global Codex settings are left unchanged.
 
-## OWLA instruction profile
+OWLA uses Node/Electron to discover and launch your selected Codex executable. The CLI uses its own account/configuration/application files, normally under `~/.codex`; OWLA does not read or copy credentials. Browser sign-in opens the URL returned by Codex. OWLA does not install or update Codex or other software.
 
-The built-in OWLA profile guides the selected base model to preserve note structure, YAML, wikilinks, citation keys and LaTeX; distinguish evidence from inference; and mark uncertain OCR. It is instructions supplied at inference time, not a newly trained model. It does not duplicate model weights or create a misleading renamed model.
+OWLA writes saved chats and pre-edit recovery snapshots **outside the vault**, by default under `~/Library/Application Support/OWLA Butler/vaults/<vault-id>/`. A storage folder retained from an earlier build remains in use. Private per-vault working directories are also created there for ephemeral Codex sessions. Plugin preferences live in Obsidian’s plugin `data.json`. No vault notes are moved. These files can contain note text: review them before sharing, syncing or deleting them. Codex may separately maintain its own diagnostic/application state; ephemeral agent conversations are requested by OWLA.
 
-Image OCR is available through the vision model and Image → Markdown mode. PDF attachments open a page picker. Choose **Add page text** for locally extracted text or **Add as image** for scanned pages/formulas. Filename and physical page references accompany the page. Up to two PDF text pages can be attached per message; large pages are shortened for the small model. PDF files are limited to 20 MB. Password-protected documents are unsupported. Obsidian’s bundled PDF.js handles extraction/rendering; no extra runtime is downloaded. Extraction may lose column order or mathematical layout, so use the page image when those matter. Bases/Canvas guidance is present, but tools currently read/write Markdown only. Whole-document PDF synthesis, automatic multi-page OCR and task-specific reference retrieval are future work; instructions alone do not provide those tools or guarantee model accuracy.
+## Actual usage limits
 
-## Privacy and safety
+Settings → OWLA Butler shows the account quota windows returned by Codex: percentage used/remaining, reset times and any reported available reset count. These are provider-reported limits, not a guessed message/token counter. The tracker refreshes after responses, when settings opens and with **Refresh usage**. It shows the report timestamp and preserves a clearly labelled last snapshot if refresh fails. Unavailable data stays unavailable rather than becoming “0% used.” No background polling, automatic purchases or reset redemption occur. [Codex quota protocol](https://developers.openai.com/codex/app-server).
 
-- Notes, selections and images are sent only to the configured localhost model service. A separately installed service controls its own downstream behavior. OWLA itself does not contact remote AI providers.
-- Model-generated image embeds are displayed as links rather than automatically fetched images.
-- Conversations and images are kept in memory, not saved into vault notes or a remote service automatically. New chat or plugin reload clears chat state. OWLA writes bounded pre-edit backups and local Ollama logs under Application Support/Logs outside the vault.
-- Vault search uses Obsidian's vault API and reads Markdown only. Hidden paths, traversal, configuration files and user-excluded folders are rejected. There is no shell-execution tool for the model.
-- Excluded folders are set in plugin settings, one vault-relative path per line. Exclusions apply to active context, added notes, search, reading, and applying edits.
-- The model can propose edits but cannot apply them. The plugin never deletes, renames or moves notes.
-- A proposal targets the captured file, not whichever tab happens to be open later. Every apply and Undo checks that the contents have not changed since its snapshot.
-- Keep normal vault backups and Obsidian File Recovery enabled. OWLA's Undo is kept in memory and is not a persistent backup system.
-- Chat history is bounded to limit memory use. Long notes and tool output are shortened; the model can request a relevant note through its read tool.
+## Edits and recovery
 
-## Installation
+Ask normally: “Improve this paragraph,” “Add the screenshot’s equation below this section,” or “Fix the notation while preserving citations.” Codex prepares exact proposals through OWLA tools. It cannot apply them directly.
 
-The Community directory listing is pending review. For manual testing, copy `main.js`, `manifest.json`, and `styles.css` from the same version into `<vault>/.obsidian/plugins/owla-butler/`, then enable OWLA Butler in Obsidian's Community plugins settings. Install Ollama and a model separately before sending a message.
+Open **Review edit**, inspect the diff, then **Apply edit** or Command–Enter. The review flags changed properties and removed citation keys/links. Invalid YAML, ambiguous replacements and stale snapshots are refused. Insert/append actions also prepare reviewed proposals.
+
+Every applied edit first writes a private recovery snapshot. **Undo edit** or the Undo command restores only if the note still matches the applied text, protecting newer work. Snapshots retain at most 20 entries within 5 MB per vault; oversize notes are refused rather than written without backup.
+
+Hidden/configuration files, excluded paths, traversal and symlinks escaping the vault are denied. Configure excluded vault-relative folders in settings. Codex shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions. File tools currently support Markdown read/search/reviewed updates, not arbitrary move/rename/delete or Bases/Canvas editing.
+
+## Chat and resources
+
+New chat clears transient conversation and attachments. Save/open/delete recent chats through the chat menu or command palette. Chats are saved only when you choose Save recent chat. Saves contain the last three exchanges, without images/attachments or edit buttons; at most 20 saves, with confirmed deletion. Runtime chat context uses up to six recent exchanges / 64,000 text characters and the two most recent images; shortening is announced. Recent PDF-page/selection/attached-note context and images stay in memory for follow-up questions across backend shutdowns, so you do not need to attach them again. Raw attachments are excluded from saved-chat files; quoted material in the saved answer remains ordinary chat text.
+
+Saved chats and recovery files live under `<storage>/vaults/<vault-id>/`. Earlier storage and recovery files are preserved during migration. A chosen folder can be synced by other software. Codex manages its own authentication and application state; OWLA uses ephemeral agent conversations.
+
+There are no downloaded models, Ollama servers or native OCR runtimes. OWLA starts its own Codex process on demand, then shuts down the whole owned process group after every response. The next message automatically restores recent chat context in a new backend process; no new chat or manual reconnect is needed. Stop, disabling the plugin and closing the chat terminate/interrupt only OWLA-owned work; your terminal or desktop Codex sessions are left running.
+
+## Skills and verification
+
+Original Obsidian Markdown, Bases and JSON Canvas skills, all references and licence are bundled. OWLA PDF, MathJax and image/transcription guidance is also retained and available through read_reference. These are instructions, not model training.
+
+See CAPABILITY-CHECKLIST.md and TESTING.md for the eight requested checks, real question results and limits. AUDIT.md and RELEASE-CANDIDATE.md identify the candidate and release gate.
+
+## Examples
+
+- “Compare my biology notes with Exam Plan; cite the exact paths and separate evidence from your suggested schedule.”
+- “What information is missing from this note? Don’t invent it.”
+- “Improve this paragraph without changing its citation keys, links or meaning.”
+- Attach an equation: “Transcribe this faithfully and prepare an insertion below Worked example.”
+- Attach a PDF page: “Summarise this page with its filename and page reference.”
+- “Check the official documentation for current Obsidian callout syntax and link the source.”
+
+## Update, stop and uninstall
+
+Disable OWLA, copy updated packaged files into the existing plugin folder, preserve `data.json`, then re-enable. For earlier local-inference development builds → 1.0, settings migrate to Codex and retain exclusions/storage; local-model configuration is removed. Original backups and saved work are preserved.
+
+Stop cancels the request. Disconnect is also available in settings. To uninstall, disable and remove the plugin folder. Keep or separately remove external saved chats/recovery files after reviewing them. OWLA does not uninstall Codex, erase its login or change global Codex configuration.
 
 ## Development
 
 ```sh
-npm install
+npm ci
 npm run check
+npm run lint
 npm test
 npm run build
+npm run check:release
+node scripts/package.mjs
 ```
 
-Install `main.js`, `manifest.json` and `styles.css` under `<vault>/.obsidian/plugins/owla-butler/`. Preserve existing `data.json` on updates. Test in a disposable vault before enabling the plugin in an important vault.
+The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. The initial release is 1.0.0. Community directory submission and approval are separate from the GitHub release; the plugin is not yet listed.
 
-See [TESTING.md](TESTING.md) and [AUDIT.md](AUDIT.md) for measured development results and limitations. Public release readiness requires a fresh test of this Community build.
+## Licence and credits
 
-## Uninstall
-
-Disable OWLA Butler in Obsidian; this cancels its request and stops the server it owns. Remove only the `owla-butler` plugin folder. The separately installed local model service and its models are managed independently. OWLA does not remove them. Review local pre-edit backups and logs separately before deleting them.
-
-## Third-party material
-
-The bird icon is derived from Phosphor Icons; see [its license](assets/PHOSPHOR-LICENSE). Bundled Obsidian skill references include material by Steph Ango; see [their license](assets/skills/OBSIDIAN-SKILLS-LICENSE). OWLA Butler itself is licensed under [MIT](LICENSE).
+OWLA Butler: [MIT](LICENSE). The bird icon is from [Phosphor Icons](https://github.com/phosphor-icons/core) (MIT). The original Obsidian Markdown, Bases and Canvas skills are from [Steph Ango’s Obsidian Skills](https://github.com/kepano/obsidian-skills) (MIT). Reviewed diffs use [jsdiff](https://github.com/kpdecker/jsdiff) (BSD-3-Clause). Complete notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), the assets folder and the built plugin. Obsidian and Codex are separate products with their own terms.

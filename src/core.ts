@@ -1,17 +1,7 @@
-export type Provider = 'ollama' | 'openai';
-export interface ButlerSettings {
- provider: Provider; endpoint: string; model: string; context: number; maxTokens: number;
- storageRoot: string; manageOllama: boolean; executable: string; memoryGuard: boolean; excludedFolders: string;
-}
-export const DEFAULTS: ButlerSettings = {
- provider:'ollama',endpoint:'http://127.0.0.1:11434',model:'qwen3.5:0.8b-q8_0',context:2048,maxTokens:384,
- storageRoot:'',manageOllama:true,executable:'',memoryGuard:true,excludedFolders:''
-};
-export function endpoint(value:string):string {
- const u=new URL(value);
- if(!['http:','https:'].includes(u.protocol)||!['127.0.0.1','localhost','[::1]'].includes(u.hostname)||u.username||u.password||u.search||u.hash)throw Error('Use a localhost URL, such as http://127.0.0.1:11434.');
- return u.toString().replace(/\/$/,'');
-}
+import {createHash} from 'node:crypto';
+export interface ButlerSettings {schemaVersion:2;codexExecutable:string;model:string;reasoning:string;webSearch:boolean;storageRoot:string;excludedFolders:string;}
+export const DEFAULTS:ButlerSettings={schemaVersion:2,codexExecutable:'',model:'',reasoning:'',webSearch:true,storageRoot:'',excludedFolders:''};
+export function migrateSettings(value:any):ButlerSettings{return {...DEFAULTS,storageRoot:typeof value?.storageRoot==='string'?value.storageRoot:'',excludedFolders:typeof value?.excludedFolders==='string'?value.excludedFolders:'',...(value?.schemaVersion===2?{codexExecutable:value.codexExecutable||'',model:value.model||'',reasoning:value.reasoning||'',webSearch:value.webSearch!==false}:{})};}
 export function allowedPath(path:string,excluded=''):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(!path.toLowerCase().endsWith('.md'))return false;
@@ -48,16 +38,13 @@ export function insertion(path:string,before:string,content:string,start:number,
 }
 export function parseJsonLine(line:string):any {if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
 
-export interface MemoryStatus {level:number;freePercent:number;}
-export function canStartModel(s:MemoryStatus):boolean{return s.level<4&&s.freePercent>=40;}
-export function mustStopModel(s:MemoryStatus):boolean{return s.level>=4||s.freePercent<18;}
+export function vaultStorageKey(identity:string):string{return createHash('sha256').update(identity).digest('hex').slice(0,20);}
 
-/** Character-based headroom estimate, not an exact tokenizer. Keep requests and source context ahead of history. */
-export function turnBudget(contextTokens:number,maxTokens:number,request:string,history:{role:string;content:string}[]){
- const total=Math.max(600,Math.floor((contextTokens-maxTokens-900)*2.5));
- const bounded=(value:string,max:number)=>value.length<=max?value:value.slice(0,Math.max(0,max-13))+'… [shortened]';
- const prompt=bounded(request,Math.min(900,Math.floor(total*.35)));
- const recent=history.slice(-2).map(m=>({...m,content:bounded(m.content,Math.floor(total*.1))}));
- const contextChars=Math.max(200,total-prompt.length-recent.reduce((n,m)=>n+m.content.length,0));
- return {prompt,recent,contextChars};
+export function editWarnings(before:string,after:string):string[]{
+ const warnings:string[]=[];const cite=(s:string)=>new Set([...s.matchAll(/(?<![\w@])@([A-Za-z0-9_:.#$%&+?<>~\/-]+)/g)].map(m=>m[1]));const remaining=cite(after),removed=[...cite(before)].filter(key=>!remaining.has(key));if(removed.length)warnings.push('Citation keys removed: '+removed.join(', '));
+ const properties=(s:string)=>s.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0]??'';if(properties(before)!==properties(after))warnings.push('Note properties are changed.');
+ const links=[...before.matchAll(/!?\[\[[^\]]+\]\]/g)].map(m=>m[0]);if(links.some(link=>!after.includes(link)))warnings.push('One or more wikilinks or embeds are removed or changed.');return warnings;
 }
+
+/** An explicitly quoted replacement can be prepared without trusting model tool use. */
+export function requestedReplacement(request:string):{oldText:string;newText:string}|null{const m=request.match(/replace exactly ["“]([^"”]+)["”] with ["“]([^"”]*)["”]/i);return m?{oldText:m[1],newText:m[2]}:null;}

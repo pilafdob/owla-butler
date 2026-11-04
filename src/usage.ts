@@ -1,0 +1,9 @@
+export interface LimitWindow{usedPercent:number;windowDurationMins?:number|null;resetsAt?:number|null;}
+export interface LimitBucket{limitId?:string|null;limitName?:string|null;normalModelSlug?:string|null;planType?:string|null;primary?:LimitWindow|null;secondary?:LimitWindow|null;credits?:{hasCredits:boolean;unlimited:boolean;balance?:string|null}|null;rateLimitReachedType?:string|null;}
+export interface UsageSnapshot{rateLimits?:LimitBucket|null;rateLimitsByLimitId?:Record<string,LimitBucket>|null;rateLimitResetCredits?:{availableCount:number}|null;}
+export function updateUsage(previous:UsageSnapshot|null,incoming:UsageSnapshot,replace=false):UsageSnapshot{
+ if(replace)previous=null;
+ const buckets={...previous?.rateLimitsByLimitId,...incoming.rateLimitsByLimitId};if(incoming.rateLimits){const key=incoming.rateLimits.limitId||'codex';buckets[key]={...buckets[key],...incoming.rateLimits};}
+ return {...previous,...incoming,rateLimitsByLimitId:buckets};
+}
+export function usageWindows(data:UsageSnapshot|null){const rows:{bucket:string;window:string;used:number;remaining:number;resetsAt:number|null}[]=[];for(const [id,bucket]of Object.entries(data?.rateLimitsByLimitId??{})){for(const name of ['primary','secondary'] as const){const window=bucket[name];if(!window||typeof window.usedPercent!=='number'||!Number.isFinite(window.usedPercent))continue;const mins=window.windowDurationMins;const label=mins&&mins%1440===0?`${mins/1440}-day window`:mins&&mins%60===0?`${mins/60}-hour window`:mins?`${mins}-minute window`:name==='primary'?'Primary window':'Secondary window';rows.push({bucket:bucket.limitName||(bucket.limitId==='codex'?'Codex':bucket.limitId)||id,window:label,used:window.usedPercent,remaining:Math.max(0,100-window.usedPercent),resetsAt:typeof window.resetsAt==='number'?window.resetsAt:null});}}return rows;}

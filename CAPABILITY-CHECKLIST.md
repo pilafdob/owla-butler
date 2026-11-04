@@ -1,0 +1,20 @@
+# OWLA Butler 1.0.0 — capability checklist
+
+Verified 4 November 2026 in a disposable test vault, Obsidian 1.14.5, Codex CLI 0.162.1, ChatGPT login, GPT-6.1 Sol with low reasoning. Tests used Obsidian’s terminal interface; no screen automation was needed.
+
+| Requirement | Status | Evidence and scope |
+| --- | --- | --- |
+| 1. Obsidian skills | PASS | Original Markdown, Bases and JSON Canvas packages, complete references and licence retained. Codex actually called read_reference for all three, plus all three OWLA guides. Base/Canvas guidance is available; file tools currently update Markdown only. |
+| 2. PDF skills | PASS | Selected-page text and page-image attachment retained through Obsidian PDF.js. Codex quoted the supplied page and exact filename/page correctly. PDF reading-order caveats are included. Whole-document and encrypted-PDF processing remain outside this implementation. |
+| 3. Markdown understanding | PASS | Real generated note had YAML, wikilink, citation key and display math. Reviewed edits preserved all other content. Invalid YAML/CRLF properties and stale edits were refused. |
+| 4. Obsidian LaTeX | PASS | Fraction addition and quadratic solutions correct; actual response rendered as four math containers with zero MathJax errors. Original Markdown math reference and OWLA guide retained. This is representative testing, not a guarantee of every mathematical answer. |
+| 5. OCR and image skills | PASS | Codex transcribed the printed equation screenshot correctly, with inline LaTeX. Attach/paste/drop and selected PDF page images remain supported. Unclear symbols should be marked; arbitrary handwriting, dense layouts and every image type are not certified. No local OCR model/runtime remains. |
+| 6. Editing and context | PASS | Real two-note comparison cited exact paths and preserved the citation key, separating source facts from its proposed revision plan. Free-form request produced the exact intended replacement without writing. Approval, backup, guarded Undo, stale rejection and path/exclusion guards passed. |
+| 7. Reliability, files, storage, chats | PASS within scope | Nine real scenarios completed accurately, including safe denied access. Live cancellation preserved the draft and stopped the owned process; retry reconnected. V1 additionally verified zero owned processes after each answer, transparent same-chat continuation, replay of recent PDF/image attachments without manual reattachment, and actual provider-reported quota tracking. Saved-chat roundtrip and image stripping passed. Recovery is bounded and per-vault. File operations are safe Markdown read/search/reviewed updates, not arbitrary shell, rename/move/delete automation. |
+| 8. UI and scaling | PASS | Empty new-chat message area; no modes or suggestion cards. Replies labelled OWLA. Green/red connection dot verified. Model/reasoning controls fit 240, 280, 360 and 600 px widths. Native Obsidian styling and original Phosphor bird retained. Full assistive-technology/theme/device coverage was not performed. |
+
+50 automated tests pass, plus 22 in-app lifecycle/layout assertions. The live skills exercise read all six guides. Existing login, tools, image input, web search, cancellation and reconnection were tested live; signed-out/API-key/quota failures were tested deterministically without signing out the shared account.
+
+Codex is a capable model, not an infallible source. Check citations and review edits. Model availability, reasoning levels and usage depend on the connected account. Settings displays Codex’s actual quota windows/reset times with a report timestamp; it does not estimate a message allowance. No API keys or separate API billing are used by OWLA.
+
+Community preflight: the final three-file installation passed live math/skill consultation, same-chat continuation, privacy restrictions, searchable settings/quota rendering and zero-owned-process shutdown. Full notices/references are embedded; no runtime assets folder is needed. See TESTING.md and COMMUNITY-RELEASE.md.

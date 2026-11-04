@@ -1,1 +1,36 @@
-{"name":"owla-butler","version":"0.1.0","private":true,"description":"A local-first Obsidian sidebar assistant","scripts":{"build":"node esbuild.config.mjs","check":"tsc --noEmit","test":"node --import tsx --test tests/*.test.ts"},"devDependencies":{"@types/node":"^22.0.0","esbuild":"^0.25.0","obsidian":"latest","tsx":"^4.0.0","typescript":"^5.8.0"},"dependencies":{"diff":"^8.0.0"}}
+{
+  "name": "owla-butler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Codex-powered Obsidian sidebar assistant",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "lint": "eslint src",
+    "check:release": "node scripts/check-release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.2",
+    "obsidian": "latest",
+    "tsx": "^4.0.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.72.1"
+  },
+  "dependencies": {
+    "diff": "^8.0.0"
+  },
+  "author": "Filip (@pilafdob)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pilafdob/owla-butler.git"
+  },
+  "homepage": "https://github.com/pilafdob/owla-butler#readme",
+  "bugs": {
+    "url": "https://github.com/pilafdob/owla-butler/issues"
+  }
+}

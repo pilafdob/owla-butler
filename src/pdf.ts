@@ -7,4 +7,6 @@ export function pdfPageText(items:any[]):string{
  }return text.replace(/[ \t]+\n/g,'\n').trim();
 }
 export function pdfPageNumber(value:string,total:number):number{if(!/^\d+$/.test(value))throw Error('Enter a page number.');const page=Number(value);if(page<1||page>total)throw Error(`Choose a page from 1 to ${total}.`);return page;}
-export function pdfSource(name:string,page:number):string{return name.replace(/[\r\n\[\]<>`]/g,'_')+', p. '+page;}
+export function pdfSource(name:string,page:number):string{return name.replace(/[\r\n\x00-\x1f]/g,' ')+', p. '+page;}
+
+export function markdownSource(value:string):string{return value.replace(/([\\`*_[\]<>])/g,'\\$1');}

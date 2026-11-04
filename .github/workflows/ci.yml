@@ -16,7 +16,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm run lint
       - run: npm test
       - run: npm run build
+      - run: npm run check:release
       - name: Verify plugin assets
         run: node -e 'const fs=require("fs"); for(const f of ["main.js","manifest.json","styles.css"]) if(!fs.existsSync(f)||!fs.statSync(f).size) process.exit(1);'
