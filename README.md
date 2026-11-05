@@ -17,7 +17,7 @@ OWLA is an independent project, unaffiliated with Obsidian or OpenAI. Install **
 - Chat with your open note, including unsaved text, selections and additional notes.
 - Paste screenshots, attach images and select individual PDF pages.
 - Search allowed vault notes and the web, with source details.
-- Review proposed edits before applying them; recover with guarded Undo.
+- Accept or decline provisional note edits in the chat, with an optional source diff.
 - Choose Codex models and reasoning effort; see provider-reported usage limits.
 - Keep the same chat while the backend automatically stops between replies.
 
@@ -48,7 +48,7 @@ OWLA makes no separate telemetry or advertising requests. It explicitly disables
 
 OWLA uses Node/Electron to check executable paths, launch the Codex CLI directly with fixed arguments, and verify that note paths resolve inside the vault. The assistant cannot supply shell commands or access native files. The plugin reads note contents and applies approved edits through Obsidian’s API. Clipboard access is limited to an explicit copy action and attachments supplied in a paste event; OWLA does not inspect the clipboard in the background. The CLI uses its own account/configuration/application files, normally under `~/.codex`; OWLA does not read or copy credentials. Browser sign-in opens the URL returned by Codex. OWLA does not install or update Codex or other software.
 
-OWLA writes saved chats and pre-edit recovery snapshots **outside the vault**, by default under `~/Library/Application Support/OWLA Butler/vaults/<vault-id>/`. A storage folder retained from an earlier build remains in use. Private per-vault working directories are also created there for ephemeral Codex sessions. Plugin preferences live in Obsidian’s plugin `data.json`. No vault notes are moved. These files can contain note text: review them before sharing, syncing or deleting them. Codex may separately maintain its own diagnostic/application state; ephemeral agent conversations are requested by OWLA.
+OWLA writes saved chats, pending edit decisions and pre-edit recovery snapshots **outside the vault**, by default under `~/Library/Application Support/OWLA Butler/vaults/<vault-id>/`. A storage folder retained from an earlier build remains in use. Private per-vault working directories are also created there for ephemeral Codex sessions. Plugin preferences live in Obsidian’s plugin `data.json`. No vault notes are moved. These files can contain note text: review them before sharing, syncing or deleting them. Codex may separately maintain its own diagnostic/application state; ephemeral agent conversations are requested by OWLA.
 
 ## Actual usage limits
 
@@ -56,13 +56,11 @@ Settings → OWLA Butler shows the account quota windows returned by Codex: perc
 
 ## Edits and recovery
 
-Ask normally: “Improve this paragraph,” “Add the screenshot’s equation below this section,” or “Fix the notation while preserving citations.” Codex prepares exact proposals through OWLA tools. It cannot apply them directly.
+Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
 
-Open **Review edit**, inspect the diff, then **Apply edit** or Command–Enter. The review flags changed properties and removed citation keys/links. Invalid YAML, ambiguous replacements and stale snapshots are refused. Insert/append actions also prepare reviewed proposals.
+OWLA stores each pending decision and a private recovery snapshot before writing. Pending decisions return when you reopen the sidebar or restart Obsidian. Decline only restores a note that still matches the applied text. If you edit the note while deciding, you can accept the current text. The Undo command for an accepted edit also checks the applied snapshot before restoring. Snapshots retain at most 20 entries within 5 MB per vault. The pending record is capped at 10 MB.
 
-Every applied edit first writes a private recovery snapshot. **Undo edit** or the Undo command restores only if the note still matches the applied text, protecting newer work. Snapshots retain at most 20 entries within 5 MB per vault; oversize notes are refused rather than written without backup.
-
-Hidden/configuration files, excluded paths, traversal and symlinks escaping the vault are denied. Configure excluded vault-relative folders in settings. Codex shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions. File tools currently support Markdown read/search/reviewed updates, not arbitrary move/rename/delete or Bases/Canvas editing.
+Hidden/configuration files, excluded paths, traversal and symlinks escaping the vault are denied. Configure excluded vault-relative folders in settings. Codex shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions. File tools currently support Markdown reads, searches and provisional updates, not arbitrary move/rename/delete or Bases/Canvas editing.
 
 ## Chat and resources
 

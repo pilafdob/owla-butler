@@ -23,6 +23,25 @@ export function proposal(path:string,before:string,oldText:string,newText:string
  if(oldText===newText)throw Error('This edit does not change the note.');
  return {path,before,after:before.slice(0,index)+newText+before.slice(index+oldText.length),reason};
 }
+export interface EditBatch {
+ edit: Proposal;
+ reasons: string[];
+}
+
+export function stageProposal(
+ snapshot: string,
+ change: {path:string;oldText:string;newText:string;reason:string},
+ pending?: EditBatch,
+ excluded = ''
+): EditBatch {
+ const {path, oldText, newText, reason} = change;
+ const next = proposal(path, pending?.edit.after ?? snapshot, oldText, newText, reason, excluded);
+ return {
+  edit: {...next, before:pending?.edit.before ?? snapshot},
+  reasons: [...(pending?.reasons ?? []), reason]
+ };
+}
+
 export function assertFresh(current:string,expected:string):void {if(current!==expected)throw Error('The note changed since this proposal. Ask for a fresh edit; your newer text was preserved.');}
 export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\n([\s\S]*?)\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all:string,body:string)=>'$$\n'+body.trim()+'\n$$');}
 export function formatTranscription(text:string):string {

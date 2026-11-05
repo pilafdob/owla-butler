@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1
+
+- Apply each note’s suggested changes provisionally when the reply finishes.
+- Accept or decline changes in chat and open the exact Markdown diff on demand.
+- Lock the composer until all pending edits have a decision.
+- Restore pending decisions on restart and protect newer note text when declining or undoing changes.
+
 ## 1.2.0
 
 - Tighten Markdown spacing around headings, lists and quotes while keeping code indentation and wide blocks scrollable.

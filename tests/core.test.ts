@@ -23,3 +23,37 @@ test('invalid persisted setting values fall back to safe defaults',async()=>{
  const {migrateSettings}=await import('../src/core');const prefs=migrateSettings({schemaVersion:2,codexExecutable:{path:'/unexpected'},model:42,reasoning:false,excludedFolders:'Private',webSearch:false});
  assert.equal(prefs.codexExecutable,'');assert.equal(prefs.model,'');assert.equal(prefs.reasoning,'');assert.equal(prefs.excludedFolders,'Private');assert.equal(prefs.webSearch,false);
 });
+
+test('separate replacements and appends produce one proposal against the original note', async () => {
+ const {stageProposal} = await import('../src/core');
+ const before = 'First paragraph.\n\nSecond paragraph.\n';
+ const first = stageProposal(before, {
+  path:'A.md', oldText:'First paragraph.', newText:'## First', reason:'Add heading'
+ });
+ const second = stageProposal(before, {
+  path:'A.md', oldText:'Second paragraph.', newText:'## Second', reason:'Add another heading'
+ }, first);
+ const combined = stageProposal(before, {
+  path:'A.md', oldText:'', newText:'## Conclusion', reason:'Append conclusion'
+ }, second);
+ assert.equal(combined.edit.before, before);
+ assert.equal(combined.edit.after, '## First\n\n## Second\n\n## Conclusion');
+ assert.deepEqual(combined.reasons, ['Add heading', 'Add another heading', 'Append conclusion']);
+});
+
+test('a follow-up change can use staged text and a conflicting replacement keeps the earlier batch intact', async () => {
+ const {stageProposal} = await import('../src/core');
+ const before = 'Original sentence.';
+ const first = stageProposal(before, {
+  path:'A.md', oldText:'Original sentence.', newText:'Draft sentence.', reason:'Rewrite'
+ });
+ assert.throws(() => stageProposal(before, {
+  path:'A.md', oldText:'Original sentence.', newText:'Conflicting sentence.', reason:'Old snapshot'
+ }, first), /not found/);
+ assert.equal(first.edit.after, 'Draft sentence.');
+ const revised = stageProposal(before, {
+  path:'A.md', oldText:'Draft sentence.', newText:'Final sentence.', reason:'Refine'
+ }, first);
+ assert.equal(revised.edit.before, before);
+ assert.equal(revised.edit.after, 'Final sentence.');
+});
