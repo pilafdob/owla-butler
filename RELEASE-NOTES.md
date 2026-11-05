@@ -1,14 +1,7 @@
-# OWLA Butler 1.0.0
+# OWLA Butler 1.0.1
 
-Chat with your open Obsidian note, selections, screenshots, PDF pages and allowed vault notes using your existing Codex ChatGPT login. Review every suggested edit before applying it, with a backup and guarded Undo.
+Sending a message clears the composer and attachment chips immediately. **Copy** on a sent message copies its text, including in reopened saved chats. Stop or a failed request restores the draft and attachments. If you have started another draft, recover the earlier one using **Restore draft** on the failed reply.
 
-- Automatic chat with model/reasoning controls, linked sources and optional web search.
-- Obsidian Markdown, Bases, Canvas, PDF, MathJax and image-transcription guidance included.
-- Provider-reported usage limits in settings.
-- Backend stops after each reply; follow-up messages keep the recent chat automatically.
+PDF page images can render when Obsidian is in the background. This patch also validates Codex and saved chat data, removes shell-based executable discovery, and applies the source checks flagged by Obsidian’s review. It keeps the same Codex login and storage and preserves saved chats and settings.
 
-**Requirements:** macOS, Obsidian 1.14.5+, Codex CLI 0.162.1+ installed separately, internet and an eligible ChatGPT/Codex account. OWLA is free; provider plan/usage charges and limits may apply. It does not support API-key login or local inference. Note context and attachments are processed by OpenAI. See the README’s requirements and privacy disclosures before enabling.
-
-**Manual install:** copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/owla-butler/`, then enable the plugin. The ZIP is an alternative that also includes guides and licences. Preserve `data.json` when updating.
-
-This release has representative automated and live macOS testing; Windows, Linux and mobile are unsupported. Selected PDF pages are supported, not automatic whole-document processing. AI answers and transcriptions still need review. Full results and limitations: TESTING.md and CAPABILITY-CHECKLIST.md.
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json`. The optional manual-install ZIP and checksums are stored separately in the release workflow run. Requirements remain macOS desktop, Obsidian 1.14.5+, Codex CLI 0.162.1+ and an eligible ChatGPT account.

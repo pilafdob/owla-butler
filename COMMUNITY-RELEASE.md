@@ -1,8 +1,14 @@
-# Community submission — OWLA Butler 1.0.0
+# Community release and updates — OWLA Butler
 
 Prepared 2026-11-04. This is a maintainer checklist, not proof of Community acceptance. Public release was authorized after preparation. Verify the [1.0.0 GitHub release](https://github.com/pilafdob/owla-butler/releases/tag/1.0.0) and the checks below before submitting. Community account linking and submission remain the owner’s steps.
 
-## Listing information
+## Updating the existing listing
+
+The 1.0.0 release and initial listing instructions below are historical. The composer and review fixes are in the [1.0.1 release](https://github.com/pilafdob/owla-butler/releases/tag/1.0.1). For an update, verify the current build, push the matching tag without a `v` prefix, then verify and publish the draft. Starting with 1.0.1, attach only `main.js`, `manifest.json` and `styles.css`; the optional manual ZIP and checksums are a separate workflow artifact. Keep executable asset attestations. Use **Check for new releases** in the existing Community entry if the update is not detected. There is no need to submit a duplicate listing.
+
+The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
+
+## Initial listing information (1.0.0)
 
 | Field | Value |
 | --- | --- |

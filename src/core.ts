@@ -1,7 +1,11 @@
 import {createHash} from 'node:crypto';
+import {record} from './validation';
 export interface ButlerSettings {schemaVersion:2;codexExecutable:string;model:string;reasoning:string;webSearch:boolean;storageRoot:string;excludedFolders:string;}
 export const DEFAULTS:ButlerSettings={schemaVersion:2,codexExecutable:'',model:'',reasoning:'',webSearch:true,storageRoot:'',excludedFolders:''};
-export function migrateSettings(value:any):ButlerSettings{return {...DEFAULTS,storageRoot:typeof value?.storageRoot==='string'?value.storageRoot:'',excludedFolders:typeof value?.excludedFolders==='string'?value.excludedFolders:'',...(value?.schemaVersion===2?{codexExecutable:value.codexExecutable||'',model:value.model||'',reasoning:value.reasoning||'',webSearch:value.webSearch!==false}:{})};}
+export function migrateSettings(value:unknown):ButlerSettings{
+ const data=record(value);const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
+ return {...DEFAULTS,storageRoot:string('storageRoot'),excludedFolders:string('excludedFolders'),...(data.schemaVersion===2?{codexExecutable:string('codexExecutable'),model:string('model'),reasoning:string('reasoning'),webSearch:data.webSearch!==false}:{})};
+}
 export function allowedPath(path:string,excluded=''):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(!path.toLowerCase().endsWith('.md'))return false;
@@ -20,11 +24,11 @@ export function proposal(path:string,before:string,oldText:string,newText:string
  return {path,before,after:before.slice(0,index)+newText+before.slice(index+oldText.length),reason};
 }
 export function assertFresh(current:string,expected:string):void {if(current!==expected)throw Error('The note changed since this proposal. Ask for a fresh edit; your newer text was preserved.');}
-export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\n([\s\S]*?)\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all,body)=>'$$\n'+body.trim()+'\n$$');}
+export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\n([\s\S]*?)\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all:string,body:string)=>'$$\n'+body.trim()+'\n$$');}
 export function formatTranscription(text:string):string {
  return stripFence(text).split('\n').map(line=>{
   if(line.includes('$'))return line;
-  const m=line.trim().match(/^(?:([^=:$]{1,40}:)\s*)?([a-zA-Z0-9.+\-*\/\^(){}\[\] \\]+=[a-zA-Z0-9.+\-*\/\^(){}\[\] \\]+)$/);
+  const m=line.trim().match(/^(?:([^=:$]{1,40}:)\s*)?([a-zA-Z0-9.+\-*/^(){}[\] \\]+=[a-zA-Z0-9.+\-*/^(){}[\] \\]+)$/);
   if(!m)return line;const equation=m[2].trim();if((equation.match(/[A-Za-z]{5,}/g)??[]).length)return line;
   return (m[1]?m[1]+'\n\n':'')+'$$\n'+equation+'\n$$';
  }).join('\n');
@@ -36,12 +40,12 @@ export function insertion(path:string,before:string,content:string,start:number,
  let markdown=stripFence(content);if(markdown.includes('\n')){if(start>0&&before[start-1]!=='\n')markdown='\n\n'+markdown;if(end<before.length&&before[end]!=='\n')markdown+='\n\n';}
  return {path,before,after:before.slice(0,start)+markdown+before.slice(end),reason:start===end?'Insert at the captured cursor':'Replace the captured selection'};
 }
-export function parseJsonLine(line:string):any {if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
+export function parseJsonLine(line:string):unknown {if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
 
 export function vaultStorageKey(identity:string):string{return createHash('sha256').update(identity).digest('hex').slice(0,20);}
 
 export function editWarnings(before:string,after:string):string[]{
- const warnings:string[]=[];const cite=(s:string)=>new Set([...s.matchAll(/(?<![\w@])@([A-Za-z0-9_:.#$%&+?<>~\/-]+)/g)].map(m=>m[1]));const remaining=cite(after),removed=[...cite(before)].filter(key=>!remaining.has(key));if(removed.length)warnings.push('Citation keys removed: '+removed.join(', '));
+ const warnings:string[]=[];const cite=(s:string)=>new Set([...s.matchAll(/(?<![\w@])@([A-Za-z0-9_:.#$%&+?<>~/-]+)/g)].map(m=>m[1]));const remaining=cite(after),removed=[...cite(before)].filter(key=>!remaining.has(key));if(removed.length)warnings.push('Citation keys removed: '+removed.join(', '));
  const properties=(s:string)=>s.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0]??'';if(properties(before)!==properties(after))warnings.push('Note properties are changed.');
  const links=[...before.matchAll(/!?\[\[[^\]]+\]\]/g)].map(m=>m[0]);if(links.some(link=>!after.includes(link)))warnings.push('One or more wikilinks or embeds are removed or changed.');return warnings;
 }

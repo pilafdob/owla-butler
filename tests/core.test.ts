@@ -18,3 +18,8 @@ test('vault recovery and chat namespaces are stable and separated',async()=>{con
 test('edit review flags removed citations, links and changed properties',async()=>{const {editWarnings}=await import('../src/core');const before='---\ncitekey: smith2024\n---\nQuote [@smith2024, p. 3] [[Related]]';assert.equal(editWarnings(before,before).length,0);const warnings=editWarnings(before,'New paragraph');assert.ok(warnings.some(w=>w.includes('smith2024')));assert.ok(warnings.some(w=>w.includes('properties')));assert.ok(warnings.some(w=>w.includes('wikilinks')));});
 
 test('explicit quoted edits are exact user instructions, not model prose',async()=>{const {requestedReplacement}=await import('../src/core');assert.deepEqual(requestedReplacement('replace exactly "Revise biology." with "Use active recall."'),{oldText:'Revise biology.',newText:'Use active recall.'});assert.equal(requestedReplacement('Improve my note'),null);});
+
+test('invalid persisted setting values fall back to safe defaults',async()=>{
+ const {migrateSettings}=await import('../src/core');const prefs=migrateSettings({schemaVersion:2,codexExecutable:{path:'/unexpected'},model:42,reasoning:false,excludedFolders:'Private',webSearch:false});
+ assert.equal(prefs.codexExecutable,'');assert.equal(prefs.model,'');assert.equal(prefs.reasoning,'');assert.equal(prefs.excludedFolders,'Private');assert.equal(prefs.webSearch,false);
+});

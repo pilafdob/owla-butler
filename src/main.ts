@@ -1,27 +1,29 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
-import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TFile,PluginSettingTab,Setting,SettingDefinitionItem,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,EditorPosition,setIcon,addIcon,loadPdfJs,Menu,parseYaml} from 'obsidian';
+import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TFile,FileSystemAdapter,PluginSettingTab,Setting,SettingDefinitionItem,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,addIcon,loadPdfJs,Menu,parseYaml} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DEFAULTS,migrateSettings,allowedPath,clip,proposal,Proposal,assertFresh,insertion,stripFence,formatTranscription,displayMarkdown,vaultStorageKey,editWarnings,requestedReplacement} from './core';
-import {CodexBridge,CodexModel,ChatMessage,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec} from './codex';
+import {ButlerSettings,DEFAULTS,migrateSettings,allowedPath,clip,proposal,Proposal,assertFresh,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings} from './core';
+import {CodexBridge,ChatMessage,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec} from './codex';
 import {usageWindows} from './usage';
 import {searchScore} from './search';
 import {ChatStore,SavedChat} from './chats';
 import {join,relative,sep} from 'node:path';
 import {realpathSync} from 'node:fs';
-const {shell,webUtils}=require('electron');
+import {shell,webUtils} from 'electron';
 import {backupEdit} from './recovery';
 import {readReference,taskReference} from './knowledge';
-import {pdfPageText,pdfPageNumber,pdfSource,markdownSource} from './pdf';
+import {pdfPageText,pdfPageNumber,pdfSource,PdfJs,PdfDocument,PdfLoadingTask,PdfRenderTask} from './pdf';
+import {record} from './validation';
 import {BIRD_ICON} from './icon';
 const VIEW='owla-butler-chat';
 type Captured={path:string;text:string;start:number;end:number};
 type Attachment={name:string;base64:string;url:string;source?:string};
 type PdfText={name:string;source:string;text:string};
+type Draft={text:string;images:Attachment[];pdfs:PdfText[];selections:{path:string;text:string}[];notes:[string,string][]};
 export default class Butler extends Plugin {
  private ownedModals=new Set<Modal>();private saveQueue:Promise<void>=Promise.resolve();prefs:ButlerSettings={...DEFAULTS};bridge=new CodexBridge();connecting=false;view:ButlerView|null=null;settingsTab:ButlerSettingsTab|null=null;last:MarkdownView|null=null;
  async onload(){
   addIcon('owla-bird',BIRD_ICON);
-  const previous=await this.loadData();this.prefs=migrateSettings(previous);if(previous?.schemaVersion!==2)await this.save();this.bridge.onStatus=()=>{this.view?.renderConnection();this.settingsTab?.renderConnectionStatus();};
+  const previous:unknown=await this.loadData();this.prefs=migrateSettings(previous);if(record(previous).schemaVersion!==2)await this.save();this.bridge.onStatus=()=>{this.view?.renderConnection();this.settingsTab?.renderConnectionStatus();};
   this.registerView(VIEW,leaf=>new ButlerView(leaf,this));
   this.addRibbonIcon('owla-bird','Open OWLA Butler',()=>void this.open());
   this.addCommand({id:'open-chat',name:'Open chat',callback:()=>void this.open()});
@@ -50,14 +52,15 @@ export default class Butler extends Plugin {
   return {path:v.file.path,text:v.editor.getValue(),start:v.editor.posToOffset(v.editor.getCursor('from')),end:v.editor.posToOffset(v.editor.getCursor('to'))};
  }
  async open(){let leaf=this.app.workspace.getLeavesOfType(VIEW)[0];if(!leaf){leaf=this.app.workspace.getRightLeaf(false)!;if(!leaf)throw Error('Could not open the sidebar.');await leaf.setViewState({type:VIEW,active:true});}await this.app.workspace.revealLeaf(leaf);return leaf.view as ButlerView;}
- save(){const snapshot=JSON.parse(JSON.stringify(this.prefs));this.saveQueue=this.saveQueue.catch(()=>{}).then(()=>this.saveData(snapshot));return this.saveQueue;}
+ save(){const snapshot={...this.prefs};this.saveQueue=this.saveQueue.catch(()=>{}).then(()=>this.saveData(snapshot));return this.saveQueue;}
  onunload(){for(const modal of [...this.ownedModals])modal.close();this.view?.stop();this.bridge.disconnect();}
- allowedNote(path:string){if(!allowedPath(path,this.prefs.excludedFolders))return false;try{const base=(this.app.vault.adapter as any).getBasePath?.();if(!base)return false;const root=realpathSync(base),file=realpathSync(join(base,path));return file.startsWith(root+sep)&&allowedPath(relative(root,file).split(sep).join('/'),this.prefs.excludedFolders);}catch{return false;}}
+ private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
+ allowedNote(path:string){if(!allowedPath(path,this.prefs.excludedFolders))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=realpathSync(base),file=realpathSync(join(base,path));return file.startsWith(root+sep)&&allowedPath(relative(root,file).split(sep).join('/'),this.prefs.excludedFolders);}catch{return false;}}
  async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.read(f);}
- vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey((this.app.vault.adapter as any).getBasePath?.()||this.app.vault.getName()));}
+ vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
  async apply(p:Proposal){
   if(!this.allowedNote(p.path))throw Error('This note is excluded from OWLA Butler.');
-  const frontmatter=p.after.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(frontmatter&&frontmatter[1].trim()){let properties;try{properties=parseYaml(frontmatter[1]);}catch{throw Error('The proposed note properties contain invalid YAML. Ask for a corrected edit.');}if(properties!==null&&(typeof properties!=='object'||Array.isArray(properties)))throw Error('Note properties must be a YAML mapping.');}
+  const frontmatter=p.after.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(frontmatter&&frontmatter[1].trim()){let properties:unknown;try{properties=parseYaml(frontmatter[1]);}catch{throw Error('The proposed note properties contain invalid YAML. Ask for a corrected edit.');}if(properties!==null&&(typeof properties!=='object'||Array.isArray(properties)))throw Error('Note properties must be a YAML mapping.');}
   if(p.before.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)&&/^---\r?\n/.test(p.after)&&!frontmatter)throw Error('The proposed properties block is not closed.');
   const file=this.app.vault.getAbstractFileByPath(p.path);if(!(file instanceof TFile))throw Error('The target note no longer exists.');
   const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===p.path) as MarkdownView|undefined;
@@ -68,7 +71,7 @@ export default class Butler extends Plugin {
 }
 function commonChange(before:string,after:string){let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;let end=before.length,newEnd=after.length;while(end>start&&newEnd>start&&before[end-1]===after[newEnd-1]){end--;newEnd--;}return {start,end,text:after.slice(start,newEnd)};}
 class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}getItems(){return this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
-class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void){super(app);butler.ownModal(this);this.setPlaceholder('Choose a Codex model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){this.accept(m);}}
+class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a Codex model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 class EditReview extends Modal {
  constructor(app:App,private butler:Butler,private edit:Proposal,private onApplied:()=>void){super(app);this.butler.ownModal(this);}
  onOpen(){this.modalEl.addClass('owla-review');this.setTitle('Review note edit');this.contentEl.createEl('p',{text:this.edit.path,cls:'owla-review-path'});this.contentEl.createEl('p',{text:this.edit.reason});for(const warning of editWarnings(this.edit.before,this.edit.after))this.contentEl.createEl('p',{text:warning,cls:'owla-review-warning'});const diff=this.contentEl.createDiv('owla-diff');for(const part of diffLines(this.edit.before,this.edit.after)){diff.createEl('pre',{text:part.value,cls:part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged'});}const row=this.contentEl.createDiv('owla-review-actions');row.createEl('button',{text:'Cancel'}).onclick=()=>this.close();const apply=row.createEl('button',{text:'Apply edit',cls:'mod-cta'});const applyEdit=async()=>{if(apply.disabled)return;apply.disabled=true;try{await this.butler.apply(this.edit);this.onApplied();new Notice('Edit applied. You can undo it from the chat.');this.close();}catch(e){new Notice((e as Error).message);apply.disabled=false;}};apply.onclick=()=>void applyEdit();this.scope.register(['Mod'],'Enter',()=>{void applyEdit();return false;});}
@@ -95,9 +98,24 @@ export class ButlerView extends ItemView {
  async chooseModel(){if(this.controller)return;try{await this.butler.connect();}catch(e){if(!this.butler.bridge.models.length){new Notice(friendlyError(e));return;}}const models=this.butler.bridge.models;new ModelPicker(this.app,this.butler,models.map(m=>m.model||m.id),async id=>{const model=models.find(m=>(m.model||m.id)===id)!;this.butler.prefs.model=id;this.butler.prefs.reasoning=model.defaultReasoningEffort;await this.butler.save();this.refreshModel();}).open();}
  renderConnection(){if(!this.connectButton)return;const connected=/^(Connected|Ready)/.test(this.butler.bridge.status);this.connectButton.classList.toggle('is-connected',connected);const label=this.butler.connecting?'Connecting to Codex…':connected?(this.butler.bridge.status.startsWith('Ready')?'Codex ready · starts automatically':'Codex connected')+' · '+this.butler.bridge.plan:'Codex disconnected · click to connect';this.connectButton.title=label;this.connectButton.setAttribute('aria-label',label);this.connectButton.disabled=this.butler.connecting||this.isBusy();}
  newChat(){this.historyShortened=false;this.snapshots.clear();this.turnSources.clear();this.turnAllowsEdits=false;this.turnProposed=false;this.latestReview=null;this.latestUndo=null;this.attachmentEpoch++;this.pdfModal?.close();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.renderAttachments();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat · your open note is the context');}
+ private copyButton(parent:HTMLElement,text:string,label:string,visibleLabel=label){
+  const button=parent.createEl('button',{text:visibleLabel,attr:{title:label,'aria-label':label}});
+  button.onclick=()=>void (async()=>{try{
+   const clipboard=button.ownerDocument.defaultView?.navigator.clipboard;
+   if(!clipboard)throw Error('Clipboard unavailable');
+   await clipboard.writeText(text);new Notice('Copied to clipboard.');
+  }catch{new Notice('Could not copy. Select the message text and copy it manually.');}})();
+ }
+ private userMessage(text:string,images:Attachment[]=[]){
+  const row=this.feed.createDiv('owla-user');row.createDiv({text,cls:'owla-user-text'});
+  for(const image of images)row.createEl('img',{cls:'owla-message-image',attr:{src:image.url,alt:image.name}});
+  this.copyButton(row.createDiv('owla-message-actions'),text,'Copy sent message','Copy');
+ }
+ private canRestoreDraft(){return !this.composer.value&&!this.images.length&&!this.pdfs.length&&!this.selections.length&&!this.notes.size;}
+ private restoreDraft(draft:Draft){this.composer.value=draft.text;this.images=draft.images;this.pdfs=draft.pdfs;this.selections=draft.selections;this.notes=new Map(draft.notes);this.renderAttachments();}
  private chatStore(){return new ChatStore(this.butler.vaultStorage());}
  saveChat(){if(this.controller){new Notice('Wait for the reply or stop before saving.');return;}if(!this.history.length){new Notice('Send a message before saving.');return;}new ChatNameModal(this.app,this.butler,this.history.find(m=>m.role==='user')?.content.slice(0,60)||'Chat',title=>{try{this.chatStore().save(title,this.history);new Notice('Recent chat saved locally. Only the last three exchanges are saved; attachments are not stored.');}catch(e){new Notice((e as Error).message);}}).open();}
- openSavedChat(remove=false){if(this.controller){new Notice('Finish or stop this reply first.');return;}try{const store=this.chatStore(),chats=store.list();if(!chats.length){new Notice('No saved chats yet.');return;}new SavedChatPicker(this.app,this.butler,chats,async chat=>{if(remove){new ChatDeleteModal(this.app,this.butler,chat.title,()=>{try{store.remove(chat.id);new Notice('Saved chat deleted.');}catch(e){new Notice((e as Error).message);}}).open();return;}this.newChat();this.history=chat.messages.map(m=>({...m}));this.feed.empty();const epoch=this.attachmentEpoch;for(const message of this.history){if(epoch!==this.attachmentEpoch)return;const row=this.feed.createDiv(message.role==='user'?'owla-user':'owla-assistant');if(message.role==='user')row.setText(message.content);else await MarkdownRenderer.render(this.app,displayMarkdown(message.content),row,'',this);}this.status.setText('Saved chat · attachments were not restored; your current note supplies new context');}).open();}catch(e){new Notice((e as Error).message);}}
+ openSavedChat(remove=false){if(this.controller){new Notice('Finish or stop this reply first.');return;}try{const store=this.chatStore(),chats=store.list();if(!chats.length){new Notice('No saved chats yet.');return;}new SavedChatPicker(this.app,this.butler,chats,async chat=>{if(remove){new ChatDeleteModal(this.app,this.butler,chat.title,()=>{try{store.remove(chat.id);new Notice('Saved chat deleted.');}catch(e){new Notice((e as Error).message);}}).open();return;}this.newChat();this.history=chat.messages.map(m=>({...m}));this.feed.empty();const epoch=this.attachmentEpoch;for(const message of this.history){if(epoch!==this.attachmentEpoch)return;if(message.role==='user')this.userMessage(message.content);else{const row=this.feed.createDiv('owla-assistant');row.createDiv({text:'OWLA',cls:'owla-speaker'});await MarkdownRenderer.render(this.app,displayMarkdown(message.content),row.createDiv('owla-message-content'),'',this);this.copyButton(row.createDiv('owla-message-actions'),stripFence(message.content),'Copy Markdown');}}this.status.setText('Saved chat · attachments were not restored; your current note supplies new context');}).open();}catch(e){new Notice((e as Error).message);}}
  refreshModel(){const prefs=this.butler.prefs;this.modelLabel?.setText(prefs.model||'Choose Codex model');this.modelLabel?.setAttribute('title',prefs.model);if(this.effortSelect){this.effortSelect.empty();const model=this.butler.bridge.models.find(m=>(m.model||m.id)===prefs.model);for(const e of model?.supportedReasoningEfforts??[])this.effortSelect.createEl('option',{value:e.reasoningEffort,text:e.reasoningEffort});if(!model)this.effortSelect.createEl('option',{value:prefs.reasoning,text:prefs.reasoning||'Reasoning'});this.effortSelect.value=prefs.reasoning;this.effortSelect.disabled=this.isBusy();}}
  isBusy(){return !!this.controller;}
  renderContext(){if(!this.contextEl)return;this.contextEl.empty();const c=this.butler.capture();const icon=this.contextEl.createSpan();setIcon(icon,'file-text');this.contextEl.createSpan({text:c?c.path:'Open a Markdown note to give it context',cls:'owla-current-path'});this.contextEl.setAttribute('title',c?.path??'No note selected');}
@@ -109,9 +127,9 @@ export class ButlerView extends ItemView {
  async addImages(files:File[]){const epoch=this.attachmentEpoch;for(const file of files){if(this.images.length>=2){new Notice('Use at most two images per message.');break;}if(file.size>10*1024*1024){new Notice('Choose an image smaller than 10 MB.');continue;}try{const url=await resizedImage(file);if(epoch!==this.attachmentEpoch)return;this.images.push({name:file.name||'Screenshot',url,base64:url.split(',')[1]});}catch(e){new Notice((e as Error).message);}}this.renderAttachments();}
  renderAttachments(){if(!this.chips)return;this.chips.empty();const chip=(label:string,remove:()=>void,image?:string)=>{const e=this.chips.createDiv('owla-chip');if(image)e.createEl('img',{attr:{src:image,alt:label}});e.createSpan({text:label});const b=e.createEl('button',{text:'×',attr:{'aria-label':'Remove '+label}});b.onclick=()=>{remove();this.renderAttachments();};};this.selections.forEach((s,i)=>chip('Selection · '+s.path,()=>this.selections.splice(i,1)));for(const [path]of this.notes)chip(path,()=>this.notes.delete(path));this.pdfs.forEach((pdf,i)=>chip(pdf.source,()=>this.pdfs.splice(i,1)));this.images.forEach((im,i)=>chip(im.name,()=>this.images.splice(i,1),im.url));}
  stop(){this.controller?.abort();}
- private async tool(name:string,args:any,log:HTMLElement):Promise<string>{
-  const p=this.butler.prefs,epoch=this.attachmentEpoch;
-  if(name==='read_reference'){if(typeof args.name!=='string')throw Error('Choose a reference name.');const text=readReference(args.name,args.offset??0);log.createDiv({text:'Consulted '+args.name,cls:'owla-activity'});return text;}
+ private async tool(name:string,value:unknown,log:HTMLElement):Promise<string>{
+  const args=record(value),p=this.butler.prefs,epoch=this.attachmentEpoch;
+  if(name==='read_reference'){if(typeof args.name!=='string')throw Error('Choose a reference name.');const offset=args.offset??0;if(typeof offset!=='number')throw Error('Provide a numeric reference offset.');const text=readReference(args.name,offset);log.createDiv({text:'Consulted '+args.name,cls:'owla-activity'});return text;}
   if(name==='search_vault'){
    if(typeof args.query!=='string'||!args.query.trim())throw Error('Provide a search query.');const query=args.query.trim().slice(0,200);log.createDiv({text:'Searching your vault…',cls:'owla-activity'});
    const found:{path:string;score:number}[]=[];const files=this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));
@@ -123,7 +141,7 @@ export class ButlerView extends ItemView {
    if(typeof args.path!=='string'||!this.butler.allowedNote(args.path))throw Error('Provide an allowed vault-relative Markdown path.');const text=await this.butler.currentText(args.path);if(epoch!==this.attachmentEpoch||this.controller?.signal.aborted)throw Error('Stopped.');this.turnSources.add('Read note: '+args.path);this.snapshots.set(args.path,text);log.createDiv({text:'Read '+args.path,cls:'owla-activity'});return clip(text,4000);
   }
   if(name==='propose_edit'){if(!this.turnAllowsEdits)throw Error('No active request permits edit proposals.');
-   if(!['path','oldText','newText','reason'].every(k=>typeof args[k]==='string'))throw Error('Provide path, oldText, newText and reason as strings.');const before=this.snapshots.get(args.path);if(before===undefined)throw Error('Read this note before proposing an edit.');const edit=proposal(args.path,before,args.oldText,args.newText,args.reason,p.excludedFolders);this.proposalCard(log,edit);this.turnProposed=true;return 'Edit proposed for user review. No file was changed.';
+   const {path,oldText,newText,reason}=args;if(typeof path!=='string'||typeof oldText!=='string'||typeof newText!=='string'||typeof reason!=='string')throw Error('Provide path, oldText, newText and reason as strings.');const before=this.snapshots.get(path);if(before===undefined)throw Error('Read this note before proposing an edit.');const edit=proposal(path,before,oldText,newText,reason,p.excludedFolders);this.proposalCard(log,edit);this.turnProposed=true;return 'Edit proposed for user review. No file was changed.';
   }
   throw Error('Unknown tool. Use read_reference, search_vault, read_note or propose_edit.');
  }
@@ -134,11 +152,14 @@ export class ButlerView extends ItemView {
  b.onclick=review;this.latestReview=review;
  }
  async send(request?:string){
- if(this.controller)return;const prompt=(request??this.composer.value).trim()||(this.images.length?'Transcribe the attached image into Obsidian Markdown and LaTeX.':this.pdfs.length?'Summarise the attached PDF page and cite its filename and page.':'');if(!prompt)return;
+ if(this.controller)return;const draftText=request??this.composer.value;const prompt=draftText.trim()||(this.images.length?'Transcribe the attached image into Obsidian Markdown and LaTeX.':this.pdfs.length?'Summarise the attached PDF page and cite its filename and page.':'');if(!prompt)return;
  const web=this.butler.prefs.webSearch;
  const captured=this.butler.capture(),images=[...this.images],pdfs=[...this.pdfs],selected=[...this.selections],notes=[...this.notes.entries()],epoch=this.attachmentEpoch;
- const user=this.feed.createDiv('owla-user');user.createDiv({text:prompt});for(const image of images)user.createEl('img',{cls:'owla-message-image',attr:{src:image.url,alt:image.name}});const answer=this.feed.createDiv('owla-assistant');answer.createDiv({text:'OWLA',cls:'owla-speaker'});const activity=answer.createDiv('owla-activities'),content=answer.createDiv('owla-message-content'),actions=answer.createDiv('owla-message-actions');
- this.controller=new AbortController();const signal=this.controller.signal;this.sendBtn.setText('Stop');this.refreshModel();this.renderConnection();this.turnAllowsEdits=true;this.turnProposed=false;this.turnSources.clear();this.snapshots.clear();if(captured)this.snapshots.set(captured.path,captured.text);let text='',pendingText='';let streamTimer:ReturnType<typeof nodeTimeout>|undefined;const streamNode=document.createTextNode('');content.appendChild(streamNode);
+ const draft:Draft={text:draftText,images,pdfs,selections:selected,notes};
+ if(request===undefined||this.composer.value===draftText)this.composer.value='';
+ this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.renderAttachments();
+ this.userMessage(prompt,images);const answer=this.feed.createDiv('owla-assistant');answer.createDiv({text:'OWLA',cls:'owla-speaker'});const activity=answer.createDiv('owla-activities'),content=answer.createDiv('owla-message-content'),actions=answer.createDiv('owla-message-actions');
+ this.controller=new AbortController();const signal=this.controller.signal;this.sendBtn.setText('Stop');this.refreshModel();this.renderConnection();this.turnAllowsEdits=true;this.turnProposed=false;this.turnSources.clear();this.snapshots.clear();if(captured)this.snapshots.set(captured.path,captured.text);let text='',pendingText='';let streamTimer:ReturnType<typeof nodeTimeout>|undefined;const streamNode=content.ownerDocument.createTextNode('');content.appendChild(streamNode);
  try{
  this.status.setText('Connecting to Codex…');await this.butler.connect(true);signal.throwIfAborted();
  let context='';if(captured){context+='\nACTIVE NOTE: '+captured.path+'\n'+clip(captured.text,20000)+'\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.turnSources.add('Current note: '+captured.path);}
@@ -155,9 +176,11 @@ export class ButlerView extends ItemView {
  text=result.text;if(signal.aborted||epoch!==this.attachmentEpoch||this.closing)throw Error('Stopped.');if(this.turnProposed)text='An edit is ready for your review. No note has been changed.';if(!text.trim())throw Error('Codex returned no answer. Your draft is preserved.');
  if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}content.empty();await MarkdownRenderer.render(this.app,displayMarkdown(text),content,captured?.path??'',this);if(signal.aborted||epoch!==this.attachmentEpoch||this.closing)throw Error('Stopped.');
  if(this.turnSources.size||result.sources.length){const sources=answer.createEl('details',{cls:'owla-sources'});sources.createEl('summary',{text:'Sources & activity'});for(const source of this.turnSources)sources.createDiv({text:source});for(const source of result.sources)sources.createEl('a',{text:source.title,attr:{href:source.url,target:'_blank',rel:'noopener noreferrer'}});}
- this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('Codex now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);if(this.composer.value.trim()===prompt)this.composer.value='';this.images=this.images.filter(i=>!images.includes(i));this.pdfs=this.pdfs.filter(p=>!pdfs.includes(p));this.selections=this.selections.filter(s=>!selected.includes(s));for(const [path,body]of notes)if(this.notes.get(path)===body)this.notes.delete(path);this.renderAttachments();
- const copy=actions.createEl('button',{text:'Copy Markdown'});copy.onclick=()=>void navigator.clipboard.writeText(stripFence(text));if(captured&&!this.turnProposed){actions.createEl('button',{text:captured.start===captured.end?'Insert at cursor…':'Replace selection…'}).onclick=()=>{try{this.proposalCard(answer,insertion(captured.path,captured.text,text,captured.start,captured.end));}catch(e){new Notice(friendlyError(e));}};actions.createEl('button',{text:'Append to note…'}).onclick=()=>this.proposalCard(answer,proposal(captured.path,captured.text,'',stripFence(text),'Append Codex response',this.butler.prefs.excludedFolders));}this.status.setText('Done · Codex · edits need review');
- }catch(e){if(epoch!==this.attachmentEpoch||this.closing)return;const message=signal.aborted?'Stopped. Your draft and attachments are preserved.':friendlyError(e);content.createDiv({text:message,cls:'owla-error'});this.status.setText(message);if(!this.composer.value)this.composer.value=prompt;}
+ this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('Codex now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);
+ this.copyButton(actions,stripFence(text),'Copy Markdown');if(captured&&!this.turnProposed){actions.createEl('button',{text:captured.start===captured.end?'Insert at cursor…':'Replace selection…'}).onclick=()=>{try{this.proposalCard(answer,insertion(captured.path,captured.text,text,captured.start,captured.end));}catch(e){new Notice(friendlyError(e));}};actions.createEl('button',{text:'Append to note…'}).onclick=()=>this.proposalCard(answer,proposal(captured.path,captured.text,'',stripFence(text),'Append Codex response',this.butler.prefs.excludedFolders));}this.status.setText('Done · Codex · edits need review');
+ }catch(e){if(epoch!==this.attachmentEpoch||this.closing)return;const message=signal.aborted?'Stopped.':friendlyError(e);content.createDiv({text:message,cls:'owla-error'});
+ if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText('Draft restored · '+message);}
+ else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:'Restore draft'});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice('Send or clear the current draft before restoring this one.');return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
  finally{if(streamTimer)clearNodeTimeout(streamTimer);this.turnAllowsEdits=false;await this.butler.bridge.rest();this.controller=null;this.sendBtn.setText('Send');this.refreshModel();this.renderConnection();}
  }
  async onClose(){this.attachmentEpoch++;this.closing=true;this.pdfModal?.close();this.stop();this.butler.bridge.disconnect();this.butler.view=null;this.contentEl.empty();}
@@ -176,7 +199,7 @@ class ButlerSettingsTab extends PluginSettingTab {
  {name:'Codex connection',desc:'Codex 0.162.1 or newer must be installed. No API key is needed.',render:setting=>{
  const status=setting.descEl.createEl('p',{text:this.butler.bridge.status,attr:{role:'status'}});this.connectionEl=status;
  setting.addButton(b=>b.setButtonText('Connect Codex').setCta().onClick(async()=>{b.setDisabled(true);try{await this.butler.connect();}catch(e){new Notice(friendlyError(e));}finally{b.setDisabled(false);status.setText(this.butler.bridge.status);}}))
- .addButton(b=>b.setButtonText('Sign in').onClick(async()=>{try{await this.butler.bridge.connect(this.butler.prefs.codexExecutable,join(this.butler.vaultStorage(),'codex-session'),this.butler.prefs.webSearch);await this.butler.bridge.signIn(url=>void shell.openExternal(url));status.setText(this.butler.bridge.status);}catch(e){new Notice(friendlyError(e));}}))
+ .addButton(b=>b.setButtonText('Sign in').onClick(async()=>{try{await this.butler.bridge.connect(this.butler.prefs.codexExecutable,join(this.butler.vaultStorage(),'codex-session'),this.butler.prefs.webSearch);await this.butler.bridge.signIn(url=>void shell.openExternal(url).catch(e=>new Notice(friendlyError(e))));status.setText(this.butler.bridge.status);}catch(e){new Notice(friendlyError(e));}}))
  .addButton(b=>b.setButtonText('Disconnect').onClick(()=>{if(this.butler.view?.isBusy()){new Notice('Stop the current reply first.');return;}this.butler.bridge.disconnect();status.setText(this.butler.bridge.status);}));
  return ()=>{if(this.connectionEl===status)this.connectionEl=null;};}},
  {name:'Codex executable',desc:this.butler.prefs.codexExecutable||'Automatically detected from your Mac.',render:setting=>{setting.addButton(b=>b.setButtonText('Choose executable…').onClick(()=>{const input=setting.settingEl.createEl('input',{type:'file',cls:'owla-hidden'});input.onchange=async()=>{try{const file=input.files?.[0];if(file){this.butler.bridge.disconnect();this.butler.prefs.codexExecutable=webUtils.getPathForFile(file);await this.butler.save();this.update();}}finally{input.remove();}};input.click();}));}},
@@ -192,34 +215,37 @@ class ButlerSettingsTab extends PluginSettingTab {
 }
 
 class PdfPageModal extends Modal {
- private document:any=null;private loading:any=null;private closed=false;private rendering:any=null;
+ private document:PdfDocument|null=null;private loading:PdfLoadingTask|null=null;private closed=false;private rendering:PdfRenderTask|null=null;
  constructor(app:App,private view:ButlerView,private file:File){super(app);this.view.butler.ownModal(this);}
  async onOpen(){
  this.setTitle('Add a PDF page');const el=this.contentEl;const status=el.createEl('p',{text:'Opening PDF locally…',attr:{role:'status'}});
  try{
  if(this.file.size>20*1024*1024)throw Error('Choose a PDF smaller than 20 MB.');
- const pdf=await loadPdfJs();if(this.closed)return;
- this.loading=pdf.getDocument({data:new Uint8Array(await this.file.arrayBuffer()),isEvalSupported:false,useSystemFonts:true});
- this.loading.onPassword=()=>{status.setText('Password-protected PDF files are not supported. Use an unlocked copy.');void this.loading.destroy();};
- this.document=await this.loading.promise;if(this.closed){await this.document.destroy();return;}
- let number='1';new Setting(el).setName('Page').setDesc('Choose one page at a time, from 1 to '+this.document.numPages+'.').addText(t=>t.setValue(number).onChange(v=>number=v));
+ const pdf:unknown=await loadPdfJs();if(this.closed)return;const data=new Uint8Array(await this.file.arrayBuffer());if(this.closed)return;
+ if(typeof record(pdf).getDocument!=='function')throw Error('The Obsidian PDF reader is unavailable.');
+ const loading=(pdf as PdfJs).getDocument({data,isEvalSupported:false,useSystemFonts:true});this.loading=loading;
+ loading.onPassword=()=>{status.setText('Password-protected PDF files are not supported. Use an unlocked copy.');void loading.destroy().catch(()=>{});};
+ const doc=await loading.promise;if(this.closed){await doc.destroy();return;}this.document=doc;
+ let number='1';new Setting(el).setName('Page').setDesc('Choose one page at a time, from 1 to '+doc.numPages+'.').addText(t=>t.setValue(number).onChange(v=>number=v));
  el.createEl('p',{text:'Use text for ordinary documents. Use an image for scanned pages, formulas or layouts where extraction loses meaning.'});
  const row=el.createDiv('owla-review-actions');const text=row.createEl('button',{text:'Add page text',cls:'mod-cta'});const image=row.createEl('button',{text:'Add as image'});
- status.setText(this.file.name+' · '+this.document.numPages+' pages');
+ status.setText(this.file.name+' · '+doc.numPages+' pages');
  const attach=async(asImage:boolean)=>{text.disabled=image.disabled=true;try{
- const n=pdfPageNumber(number,this.document.numPages),page=await this.document.getPage(n),source=pdfSource(this.file.name,n);if(this.closed)return;
+ const n=pdfPageNumber(number,doc.numPages),page=await doc.getPage(n),source=pdfSource(this.file.name,n);if(this.closed)return;
  if(asImage){const base=page.getViewport({scale:1}),viewport=page.getViewport({scale:Math.min(2,1024/Math.max(base.width,base.height))});const canvas=createEl('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);const context=canvas.getContext('2d');if(!context)throw Error('Could not render this page.');
- this.rendering=page.render({canvasContext:context,viewport,background:'rgb(255,255,255)'});await this.rendering.promise;if(this.closed)return;
- const url=canvas.toDataURL('image/png');this.view.attachPdfImage({name:source,url,base64:url.split(',')[1],source});canvas.width=canvas.height=0;
+ // Export a page snapshot without waiting for a frame in a hidden window.
+ this.rendering=page.render({canvasContext:context,viewport,background:'rgb(255,255,255)',intent:'print'});
+ try{await this.rendering.promise;if(this.closed)return;const url=canvas.toDataURL('image/png');this.view.attachPdfImage({name:source,url,base64:url.split(',')[1],source});}
+ finally{this.rendering=null;canvas.width=canvas.height=0;}
  }else{const extracted=pdfPageText((await page.getTextContent()).items);if(this.closed)return;if(!extracted.trim())throw Error('This page has no readable text. Use Add as image for OCR.');this.view.attachPdfText({name:this.file.name,source,text:clip(extracted,3500)});if(extracted.length>3500)new Notice('This page was shortened. Ask about a focused passage.');}
  page.cleanup();this.close();
  }catch(e){if(!this.closed)status.setText((e as Error).message);}finally{text.disabled=image.disabled=false;}};
  text.onclick=()=>void attach(false);image.onclick=()=>void attach(true);
  }catch(e){if(!this.closed)status.setText('Could not open PDF: '+(e as Error).message);}
  }
- onClose(){this.closed=true;this.rendering?.cancel();void (this.document??this.loading)?.destroy();this.contentEl.empty();}
+ onClose(){this.closed=true;this.rendering?.cancel();void (this.document??this.loading)?.destroy().catch(()=>{});this.contentEl.empty();}
 }
 
-class SavedChatPicker extends FuzzySuggestModal<SavedChat>{constructor(app:App,butler:Butler,private chats:SavedChat[],private accept:(chat:SavedChat)=>void){super(app);butler.ownModal(this);this.setPlaceholder('Choose a saved chat…');}getItems(){return this.chats;}getItemText(chat:SavedChat){return chat.title+' · '+new Date(chat.created).toLocaleDateString();}onChooseItem(chat:SavedChat){this.accept(chat);}}
+class SavedChatPicker extends FuzzySuggestModal<SavedChat>{constructor(app:App,butler:Butler,private chats:SavedChat[],private accept:(chat:SavedChat)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a saved chat…');}getItems(){return this.chats;}getItemText(chat:SavedChat){return chat.title+' · '+new Date(chat.created).toLocaleDateString();}onChooseItem(chat:SavedChat){void Promise.resolve(this.accept(chat)).catch(e=>new Notice(friendlyError(e)));}}
 class ChatNameModal extends Modal{constructor(app:App,butler:Butler,private name:string,private accept:(title:string)=>void){super(app);butler.ownModal(this);}onOpen(){this.setTitle('Save recent chat');this.contentEl.createEl('p',{text:'Save the last three exchanges locally. Images, attachments and edit buttons are not saved. Up to 20 chats can be saved. Delete an unwanted saved chat before adding more.'});new Setting(this.contentEl).setName('Chat name').addText(t=>t.setValue(this.name).onChange(v=>this.name=v));new Setting(this.contentEl).addButton(b=>b.setButtonText('Save chat').setCta().onClick(()=>{this.accept(this.name);this.close();}));}onClose(){this.contentEl.empty();}}
 class ChatDeleteModal extends Modal{constructor(app:App,butler:Butler,private name:string,private accept:()=>void){super(app);butler.ownModal(this);}onOpen(){this.setTitle('Delete saved chat?');this.contentEl.createEl('p',{text:'Delete “'+this.name+'” from local saved chats? This cannot be undone. Notes are not affected.'});new Setting(this.contentEl).addButton(b=>b.setButtonText('Cancel').onClick(()=>this.close())).addButton(b=>b.setButtonText('Delete chat').setDestructive().onClick(()=>{this.accept();this.close();}));}onClose(){this.contentEl.empty();}}

@@ -1,5 +1,12 @@
 # OWLA Butler 1.0.0 final audit
 
+## 1.0.1 review follow-up — 2026-11-05
+
+The reported source lint checks are enabled and pass locally. Codex messages, model metadata, settings, saved chats, quota data and PDF input are typed or checked at their boundaries. The CLI is found in common install locations or PATH, or by explicit user selection; OWLA no longer runs a shell to discover it. It still launches the chosen Codex CLI directly, checks filesystem containment, stores local chats/backups, enumerates eligible Markdown for search, and handles explicit copy/paste. The corresponding behavior notices may remain. Details and observed limits are in README.md and TESTING.md.
+
+Only the three supported assets are attached to future Community releases. ZIP and checksums are a separate workflow artifact. The 1.0.1 changes are locally tested and prepared, with no new release or Community review yet. The sections below document 1.0.0.
+
+
 ## Community preparation — 2026-11-04
 
 The final three-file Agentbrain install passed live skill/math, context continuation, optional-telemetry isolation, searchable settings, actual quota rendering and automatic process shutdown checks. Current gates: 50 tests, strict TypeScript, Community-specific lint with zero warnings/errors, build and embedded-reference/licence checks. Production audit: zero advisories; the unbundled development lint toolchain reports 13 moderate advisories. See TESTING.md for exact methods, evidence and limits.

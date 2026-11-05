@@ -1,4 +1,16 @@
-# OWLA Butler 1.0.0 verification
+# OWLA Butler verification
+
+## 1.0.1 composer and Community review regression — 2026-11-05
+
+The three runtime files were backed up and installed in Agentbrain via Obsidian CLI. Existing data.json was preserved. The School vault and the user’s clipboard were left untouched.
+
+- **55 automated tests**, strict TypeScript, the reported Community source lint rules (zero errors/warnings), build and release metadata/licence/reference checks passed. New cases cover malformed persisted settings/chats, malformed quota data, unknown inherited integration config and executable discovery without a shell. No dependency versions changed.
+- **15 in-app composer checks** passed against a controlled backend: immediate text/chip clearing, sent image and outbound attachment preservation, preserving a matching newer draft, Stop/error recovery, no overwrite on restore, New chat cancellation, sent and saved-chat copy, selectable text, and 240 px copy control. Copy used a clipboard test double in Obsidian; the real system clipboard was not overwritten.
+- **10 live integration checks** passed on Codex CLI 0.162.1. A synthetic PDF was extracted as text and rendered with visible content while Obsidian was hidden. Display rendering stalled in the hidden window before the fix; the attachment snapshot now uses PDF.js print intent. A synthetic screenshot and PDF were sent together: immediate clearing, dynamic guide call, correct screenshot code and exact quote/page reference, shutdown, same-chat follow-up and actual provider quota decoding passed. Response samples were 12.15 s and 4.66 s.
+- Release workflow config keeps attestations for the three runtime files and ZIP, stores ZIP/checksums separately, and attaches only main.js, manifest.json and styles.css to the GitHub release. The 1.0.1 remote workflow and new Community scan have not run; the patch is not published.
+
+Local evidence: `work/review-unit-tests.log`, `work/review-draft-result.txt`, `work/review-live-result.txt` and `work/review-patch-install.json`. The sections below retain historical 1.0.0 evidence.
+
 
 ## Community preparation — 2026-11-04
 

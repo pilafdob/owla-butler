@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+- Clear sent text and attachments immediately while Codex responds. Restore failed or stopped drafts without overwriting new work.
+- Add Copy to sent messages, including saved chats, and make message text selectable.
+- Render PDF page images even when Obsidian is in the background.
+- Validate Codex responses, model settings, saved chats and PDF data. Run the source checks identified by Obsidian’s review in local lint and CI.
+- Discover and launch Codex directly without a shell lookup. Keep the optional ZIP and checksums separate from the three Community release assets.
+
 ## 1.0.0 — 2026-11-04
 
 First public release for Community submission. Replaces the earlier local-model development builds with Codex using an existing ChatGPT login.

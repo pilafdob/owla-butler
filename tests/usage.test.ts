@@ -3,3 +3,9 @@ test('reported quotas preserve actual percentages, windows and Unix reset timest
 test('sparse notifications update their bucket without fabricating or losing other windows',()=>{const initial=updateUsage(null,{rateLimitsByLimitId:{codex:{primary:{usedPercent:10},secondary:{usedPercent:20}},other:{primary:{usedPercent:5}}}});const next=updateUsage(initial,{rateLimits:{limitId:'codex',primary:{usedPercent:12}}});assert.equal(usageWindows(next).length,3);assert.equal(usageWindows(next)[0].used,12);assert.equal(usageWindows(next)[1].used,20);});
 test('unknown or missing data is unavailable, never assumed zero usage',()=>{assert.deepEqual(usageWindows(null),[]);assert.deepEqual(usageWindows(updateUsage(null,{rateLimits:{primary:null,secondary:null}})),[]);const old=updateUsage(null,{rateLimits:{primary:{usedPercent:50}}});assert.deepEqual(usageWindows(updateUsage(old,{},true)),[]);});
 test('over-limit usage remains visible and remaining allowance cannot become negative',()=>{const rows=usageWindows(updateUsage(null,{rateLimits:{limitId:'codex',primary:{usedPercent:105}}}));assert.equal(rows[0].used,105);assert.equal(rows[0].remaining,0);});
+
+test('malformed Codex usage data does not fabricate or coerce counters',async()=>{
+ const {decodeUsage}=await import('../src/usage');assert.equal(decodeUsage({unrelated:true}),null);
+ const actual=decodeUsage({rateLimits:{limitId:'codex',primary:{usedPercent:'80'},secondary:{usedPercent:45,windowDurationMins:10080,resetsAt:1794000000}},rateLimitResetCredits:{availableCount:2}});
+ const rows=usageWindows(updateUsage(null,actual??{}));assert.deepEqual(rows.map(row=>[row.used,row.resetsAt]),[[45,1794000000]]);assert.equal(actual?.rateLimitResetCredits?.availableCount,2);
+});

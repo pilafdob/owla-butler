@@ -1,4 +1,6 @@
-# OWLA Butler 1.0.0 — RC.1
+# OWLA Butler 1.0.1 — patch candidate
+
+The 1.0.1 patch fixes immediate composer clearing, sent-message copy and safe draft recovery. It addresses the 1.0.0 Community source findings, separates optional archives from release assets and fixes background PDF snapshot rendering. See TESTING.md for the final local checks. This patch is not published. The older 1.0.0 candidate evidence follows.
 
 ## Community preparation — 2026-11-04
 

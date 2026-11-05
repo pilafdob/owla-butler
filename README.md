@@ -10,7 +10,7 @@ A native Obsidian assistant powered by your installed, signed-in Codex CLI. Ask 
 - **Codex CLI 0.162.1 or newer**, installed separately, and an eligible ChatGPT/Codex account. An internet connection is required for answers, sign-in, model discovery and quota checks.
 - OWLA is free and MIT licensed. OpenAI may require a paid plan or credits for your chosen model or usage; access and limits depend on your account. The tested account was ChatGPT Plus. There is no OWLA subscription or API-key billing integration. Check [current Codex access and pricing](https://learn.chatgpt.com/docs/pricing).
 
-OWLA is an independent project, unaffiliated with Obsidian or OpenAI. It is **not yet listed** in Community plugins. Install from the [GitHub release](https://github.com/pilafdob/owla-butler/releases/tag/1.0.0) while Community review is pending.
+OWLA is an independent project, unaffiliated with Obsidian or OpenAI. Install **OWLA Butler** from Community plugins, or use the three files from the [latest GitHub release](https://github.com/pilafdob/owla-butler/releases/latest).
 
 ## Features
 
@@ -24,17 +24,17 @@ OWLA is an independent project, unaffiliated with Obsidian or OpenAI. It is **no
 ## Setup
 
 1. Install Codex CLI 0.162.1 or newer and sign in with ChatGPT. If Codex already works in your terminal, no additional account setup is needed. [Official Codex authentication](https://developers.openai.com/codex/auth).
-2. For manual installation, create `<vault>/.obsidian/plugins/owla-butler/` and copy **main.js**, **manifest.json** and **styles.css** from the same release into it. Alternatively, unzip the distribution and move its `owla-butler` folder there. Restart Obsidian or reload Community plugins, then enable OWLA Butler. Once the Community listing is approved, installation will be available through Obsidian’s Community plugins browser.
+2. Search for **OWLA Butler** in Settings → Community plugins, install and enable it. For manual installation, create `<vault>/.obsidian/plugins/owla-butler/` and copy **main.js**, **manifest.json** and **styles.css** from the same release into it. Alternatively, unzip the distribution and move its `owla-butler` folder there. Restart Obsidian or reload Community plugins, then enable OWLA Butler.
 3. Open Settings → OWLA Butler → **Connect Codex**. OWLA detects the CLI, reuses the existing login and loads the model/reasoning options. No API key is requested. A green dot means your Codex login is ready, even while the backend process is sleeping; red means disconnected or not authenticated. A signed-out account can use **Sign in** to open Codex’s browser login.
 4. Open the bird sidebar and send a message. Subsequent connection/startup is automatic. A red status dot can also be clicked to reconnect; green means connected. The dot has a tooltip and accessible label.
 
-If detection fails, choose the Codex executable in settings. OWLA does not install or update Codex. This is a macOS desktop release candidate, tested on an 8 GB M2 Air. It uses the official Codex app-server protocol over local process pipes. Codex handles hosted inference and authentication; OWLA does not read/copy credentials or use a separately billed API key. Codex subscription limits and account/workspace policies apply.
+OWLA checks common install directories and its inherited PATH. If detection fails, choose the Codex executable in settings. OWLA does not run a login shell to discover it or install or update Codex. This release supports macOS desktop and was tested on an 8 GB M2 Air. It uses the official Codex app-server protocol over local process pipes. Codex handles hosted inference and authentication; OWLA does not read/copy credentials or use a separately billed API key. Codex subscription limits and account/workspace policies apply.
 
 ## Everyday use
 
-The sidebar starts with a clean message area. Choose the **model** and **reasoning effort** beside the composer; options come from Codex, not a hard-coded list. Reply headings say **OWLA**. Send with Enter; Shift–Enter inserts a newline. Stop interrupts the active request.
+The sidebar starts with a clean message area. Choose the **model** and **reasoning effort** beside the composer; options come from Codex, not a hard-coded list. Reply headings say **OWLA**. Send with Enter; Shift–Enter inserts a newline. Sending clears the text and attachments from the composer immediately. Use **Copy** on a sent message to copy its text. **Copy Markdown** copies an OWLA reply. Stop or a failed request restores the original draft and attachments if the composer is empty. If you have started a newer draft, **Restore draft** on the failed reply lets you recover the earlier one after sending or clearing the newer draft.
 
-Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. Codex can search/read allowed Markdown notes itself and cite exact paths. No vault-wide upload or index is created.
+Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. Codex can search/read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
 
 Attach/paste/drop PNG, JPEG or WebP images (up to two, 10 MB each); images are resized locally to 1024 px on the long edge. PDFs up to 20 MB open a physical-page picker: attach extracted text or a rendered page image. Up to two text pages per message; long page text is shortened. Codex chooses how to use the attachments. For transcription, ask it to preserve visible symbols and mark uncertainty. Whole-document/automatic multi-page and password-protected PDF handling are unsupported.
 
@@ -46,7 +46,7 @@ Web search is enabled by default so Codex can check current facts when needed. T
 
 OWLA makes no separate telemetry or advertising requests. It explicitly disables optional Codex analytics, feedback uploads and OpenTelemetry exporters for its own child process and checks the effective settings before starting a conversation. This does not disable the network traffic needed to provide Codex authentication, model discovery, quota reporting, inference and optional web search. Global Codex settings are left unchanged.
 
-OWLA uses Node/Electron to discover and launch your selected Codex executable. The CLI uses its own account/configuration/application files, normally under `~/.codex`; OWLA does not read or copy credentials. Browser sign-in opens the URL returned by Codex. OWLA does not install or update Codex or other software.
+OWLA uses Node/Electron to check executable paths, launch the Codex CLI directly with fixed arguments, and verify that note paths resolve inside the vault. The assistant cannot supply shell commands or access native files. The plugin reads note contents and applies approved edits through Obsidian’s API. Clipboard access is limited to an explicit copy action and attachments supplied in a paste event; OWLA does not inspect the clipboard in the background. The CLI uses its own account/configuration/application files, normally under `~/.codex`; OWLA does not read or copy credentials. Browser sign-in opens the URL returned by Codex. OWLA does not install or update Codex or other software.
 
 OWLA writes saved chats and pre-edit recovery snapshots **outside the vault**, by default under `~/Library/Application Support/OWLA Butler/vaults/<vault-id>/`. A storage folder retained from an earlier build remains in use. Private per-vault working directories are also created there for ephemeral Codex sessions. Plugin preferences live in Obsidian’s plugin `data.json`. No vault notes are moved. These files can contain note text: review them before sharing, syncing or deleting them. Codex may separately maintain its own diagnostic/application state; ephemeral agent conversations are requested by OWLA.
 
@@ -105,7 +105,7 @@ npm run check:release
 node scripts/package.mjs
 ```
 
-The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. The initial release is 1.0.0. Community directory submission and approval are separate from the GitHub release; the plugin is not yet listed.
+The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. Starting with 1.0.1, GitHub release attachments contain only the three files Obsidian installs. The optional ZIP and checksum list are stored separately with the release workflow run; you can also generate them locally with the commands above.
 
 ## Licence and credits
 

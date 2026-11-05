@@ -35,3 +35,16 @@ test('session privacy fails closed for inherited or missing analytics and export
  assert.throws(()=>assertSessionPrivacy({...safe,feedback:{enabled:true}}),/telemetry/);
  for(const key of ['exporter','trace_exporter','metrics_exporter'])assert.throws(()=>assertSessionPrivacy({...safe,otel:{...safe.otel,[key]:'otlp-http'}}),/telemetry/);
 });
+
+test('Codex discovery uses executable files in absolute directories',async()=>{
+ const {mkdtempSync,mkdirSync,writeFileSync,chmodSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,delimiter}=await import('node:path');const {findCodexExecutable}=await import('../src/codex');
+ if(process.platform==='win32')return;
+ const root=mkdtempSync(join(tmpdir(),'owla-codex-discovery-'));
+ try{const first=join(root,'first'),second=join(root,'second');mkdirSync(first);mkdirSync(second);writeFileSync(join(first,'codex'),'not executable',{mode:0o600});writeFileSync(join(second,'codex'),'#!/bin/sh\nexit 0\n',{mode:0o700});
+ assert.equal(findCodexExecutable(['.',first,second].join(delimiter),[]),join(second,'codex'));chmodSync(join(second,'codex'),0o600);assert.equal(findCodexExecutable([first,second].join(delimiter),[]),'');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('unknown inherited integration config is rejected instead of treated as disabled',async()=>{
+ const {integrationOverrides}=await import('../src/codex');assert.throws(()=>integrationOverrides({plugins:[{enabled:true}]}),/unsupported integration/);
+});
