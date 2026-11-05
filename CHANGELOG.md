@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Tighten Markdown spacing around headings, lists and quotes while keeping code indentation and wide blocks scrollable.
+- Open vault links from replies in Obsidian and retain the source note path for relative links in new saved chats.
+- Use Obsidian's sidebar background and divider colors, remove the current-note strip, and group completed activity with sources.
+- Place copy icons inline and remove hover labels from the chat area and composer.
+
 ## 1.0.1
 
 - Clear sent text and attachments immediately while Codex responds. Restore failed or stopped drafts without overwriting new work.

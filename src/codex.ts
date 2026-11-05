@@ -6,7 +6,7 @@ import {setTimeout,clearTimeout} from 'node:timers';
 import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
 import {list,record} from './validation';
 import manifest from '../manifest.json';
-export type ChatMessage={role:'user'|'assistant';content:string;context?:string;images?:string[]};
+export type ChatMessage={role:'user'|'assistant';content:string;context?:string;images?:string[];sourcePath?:string};
 export type CodexModel={id:string;model:string;displayName:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[];inputModalities?:string[]};
 export type ToolSpec={type:'function';name:string;description:string;inputSchema:unknown};
 export const DEFAULT_STORAGE=join(homedir(),'Library','Application Support','OWLA Butler');

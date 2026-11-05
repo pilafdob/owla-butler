@@ -1,7 +1,8 @@
-# OWLA Butler 1.0.1
+# OWLA Butler 1.2.0
 
-Sending a message clears the composer and attachment chips immediately. **Copy** on a sent message copies its text, including in reopened saved chats. Stop or a failed request restores the draft and attachments. If you have started another draft, recover the earlier one using **Restore draft** on the failed reply.
+- Headings, lists and quotes take up less space in the sidebar. Code indentation is preserved and wide code blocks and tables scroll locally.
+- Vault links in replies open in Obsidian. New saved chats retain the source note path so relative links resolve when reopened.
+- The pane follows Obsidian's sidebar theme color. Copy icons sit inline, and completed activity is grouped under **Sources & activity**.
+- The current-note strip and hover tooltips over the chat area and composer are removed.
 
-PDF page images can render when Obsidian is in the background. This patch also validates Codex and saved chat data, removes shell-based executable discovery, and applies the source checks flagged by Obsidian’s review. It keeps the same Codex login and storage and preserves saved chats and settings.
-
-Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json`. The optional manual-install ZIP and checksums are stored separately in the release workflow run. Requirements remain macOS desktop, Obsidian 1.14.5+, Codex CLI 0.162.1+ and an eligible ChatGPT account.
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. The optional ZIP and checksums are available in the release workflow run.

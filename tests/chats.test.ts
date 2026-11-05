@@ -9,3 +9,21 @@ test('invalid saved messages are skipped and unrecognized stored fields are igno
  assert.deepEqual(store.list(),[good]);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test('reopened replies retain their source note path for relative links', () => {
+ const root = mkdtempSync(join(tmpdir(), 'owla-chat-source-'));
+ try {
+  const store = new ChatStore(root);
+  const sourcePath = 'Schoolwork/Source.md';
+  store.save('Relative link', [
+   {role:'user', content:'Find the related note'},
+   {role:'assistant', content:'[[Sibling note#Section]]', sourcePath}
+  ]);
+  assert.deepEqual(store.list()[0].messages, [
+   {role:'user', content:'Find the related note'},
+   {role:'assistant', content:'[[Sibling note#Section]]', sourcePath}
+  ]);
+ } finally {
+  rmSync(root, {recursive:true, force:true});
+ }
+});
