@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2
+
+- Prevent suggested edits from repeating the filename as a top Markdown heading when Obsidian shows the inline title.
+- Preserve the top title during body edits if the inline title setting cannot be read.
+
 ## 1.2.1
 
 - Apply each note’s suggested changes provisionally when the reply finishes.

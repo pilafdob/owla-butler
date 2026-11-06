@@ -1,6 +1,6 @@
 {
   "name": "owla-butler",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "A Codex-powered Obsidian sidebar assistant",
   "scripts": {

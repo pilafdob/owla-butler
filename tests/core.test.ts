@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {allowedPath,proposal,assertFresh,insertion,stripFence,parseJsonLine,formatTranscription,displayMarkdown} from '../src/core';
+import {allowedPath,proposal,assertFresh,assertNoteTitle,insertion,stripFence,parseJsonLine,formatTranscription,displayMarkdown} from '../src/core';
 test('vault boundary and excluded folders',()=>{assert.ok(allowedPath('Math/Equations.md'));for(const p of ['../Note.md','/tmp/Note.md','.obsidian/config.md','Notes/.env.md','a/../Note.md','a\\note.md','image.png','Private/Note.md'])assert.equal(allowedPath(p,'Private'),false,p);});
 test('small replacement preserves academic metadata and untouched content',()=>{const s='---\ncitekey: smith2024\n---\n[[Related]]\nThe result is 4.\n![[image.png]]\n';const p=proposal('A.md',s,'The result is 4.','The result is $x=4$.','Format math');assert.equal(p.after,s.replace('The result is 4.','The result is $x=4$.'));});
 test('ambiguous and missing replacements are rejected',()=>{assert.throws(()=>proposal('A.md','same same','same','new','why'));assert.throws(()=>proposal('A.md','hello','missing','new','why'));});
@@ -56,4 +56,28 @@ test('a follow-up change can use staged text and a conflicting replacement keeps
  }, first);
  assert.equal(revised.edit.before, before);
  assert.equal(revised.edit.after, 'Final sentence.');
+});
+
+test('inline titles reject a matching leading heading and allow body edits', () => {
+ const properties = '---\r\ntags: [history]\r\n---\r\n\r\n';
+ const body = '## Merkmale\r\n\r\nText.';
+ const edit = {path:'History/Merkmale einer Zivilisation.md',before:properties+body,after:properties+body,reason:'Improve the note'};
+ for (const heading of ['# Merkmale einer Zivilisation', '## merkmale einer zivilisation ##', 'Merkmale einer Zivilisation\r\n===']) {
+  const duplicate = {...edit,after:properties+heading+'\r\n\r\n'+body};
+  assert.throws(() => assertNoteTitle(duplicate,true), /filename/);
+  assert.doesNotThrow(() => assertNoteTitle(duplicate,false));
+ }
+ assert.doesNotThrow(() => assertNoteTitle({...edit,after:properties+body.replace('Text.','Revised.')},true));
+ const existing = {...edit,before:properties+'# Merkmale einer Zivilisation\r\n\r\n'+body};
+ assert.doesNotThrow(() => assertNoteTitle(existing,true));
+ assert.doesNotThrow(() => assertNoteTitle({...existing,after:existing.before.replace('Text.','Revised.')},true));
+});
+
+test('unknown inline title setting protects the existing top title while allowing section edits', () => {
+ const edit = {path:'Note.md',before:'# Existing title\n\n## Section\n\nBody.',after:'',reason:'Edit the note'};
+ assert.throws(() => assertNoteTitle({...edit,after:edit.before.replace('Existing title','New title')},undefined), /Preserve the top title/);
+ assert.throws(() => assertNoteTitle({...edit,after:'## Section\n\nBody.'},undefined), /Preserve the top title/);
+ assert.throws(() => assertNoteTitle({...edit,before:'Body.',after:edit.before},undefined), /Preserve the top title/);
+ assert.doesNotThrow(() => assertNoteTitle({...edit,after:edit.before.replace('## Section','## Details')},undefined));
+ assert.doesNotThrow(() => assertNoteTitle({...edit,before:'## Section',after:'## Details'},undefined));
 });

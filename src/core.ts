@@ -28,6 +28,32 @@ export interface EditBatch {
  reasons: string[];
 }
 
+function topHeading(markdown:string) {
+ const body = markdown.replace(/^\uFEFF?---[ \t]*\r?\n(?:[^\n]*\n)*?---[ \t]*(?:\r?\n|$)/, '').replace(/^\uFEFF?(?:[ \t]*\r?\n)*/, '');
+ const atx = body.match(/^ {0,3}(#{1,6})[ \t]+([^\r\n]+)/);
+ if (atx) return {level:atx[1].length, title:atx[2].trim().replace(/[ \t]+#+$/, ''), source:atx[0]};
+ const setext = body.match(/^ {0,3}([^\s#>`~][^\r\n]*)\r?\n {0,3}(=+|-+)[ \t]*(?=\r?\n|$)/);
+ if (setext && !/^(?:[-+*]|\d+[.)])[ \t]/.test(setext[1])) {
+  return {level:setext[2][0]==='=' ? 1 : 2, title:setext[1].trim(), source:setext[0]};
+ }
+}
+
+export function assertNoteTitle(edit:Proposal, inlineTitle:boolean|undefined):void {
+ if (inlineTitle===false) return;
+ const before = topHeading(edit.before);
+ const after = topHeading(edit.after);
+ if (before?.source===after?.source) return;
+ const normalize = (title:string) => title.normalize('NFC').trim().replace(/\s+/g,' ').toLowerCase();
+ const filename = normalize(edit.path.slice(edit.path.lastIndexOf('/')+1,-3));
+ const matchesFilename = (heading:ReturnType<typeof topHeading>) => heading && normalize(heading.title)===filename;
+ if (matchesFilename(after)) {
+  throw Error('Keep the filename out of the top Markdown heading. Revise the proposal to edit the note body.');
+ }
+ if (inlineTitle===undefined && (before?.level===1 || after?.level===1 || matchesFilename(before))) {
+  throw Error('The inline title setting is unavailable. Preserve the top title and edit the note body.');
+ }
+}
+
 export function stageProposal(
  snapshot: string,
  change: {path:string;oldText:string;newText:string;reason:string},
