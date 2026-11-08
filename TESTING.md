@@ -86,3 +86,32 @@ Initial Codex tests exposed inherited integration configuration, disabled native
 Skills are instructions rather than training. These are representative tests, not guarantees for every scientific claim, mathematical proof, handwriting or complex layout. PDF handling is selected-page only. Markdown file updates are reviewed; arbitrary rename/move/delete and Base/Canvas file editing are unsupported. Additional Codex versions/models, other platforms, exhaustive accessibility/themes and long-term quota/network behavior have not all been certified.
 
 Evidence in source work/: codex-auto-qa-results.json, codex-skills-qa-results.json, codex-lifecycle-result.json, codex-cancel-reconnect-result.txt, codex-math-render-result.json, codex-final-regression-results.json, codex-final-resources.json, codex-final-storage.json, codex-cleanup-record.json and codex-unit-tests.log. Sanitized user-facing evidence and checksums accompany the ZIP. Real-model tests preceded the final one-time history-shortening notice; that UI-only addition passed the final build/check/test run.
+
+
+## Attachment conversion and PDF review local verification
+
+65 automated tests pass with typecheck, lint, build and three-file release checks. Agentbrain CLI tests used disposable fixtures and no screen automation.
+
+Fourteen attachment/editor assertions covered real Word DOCX and Pages content, PowerPoint slide XML, spreadsheet shared strings, a 12 MB BMP, unsupported status, unrestricted file selection, text drops, grouped edits, editor overlays and Accept/Decline cleanup. Four more assertions verified cancellation within five seconds, no late attachments after reset, multiple documents and no horizontal overflow. Native Pages, Keynote and Numbers exports returned the expected codes, and hashes of all four original Office/iWork fixtures stayed unchanged. A real Codex answer correctly identified all four codes with file citations.
+
+Fourteen PDF assertions covered all text pages, page wikilinks, scanned page rendering, grouping comments, zero writes before acceptance, the composer lock, accepted annotation objects in a separate copy, unchanged source hashes, Decline, stale-source rejection, excluded files, a PDF over 20 MB, the context menu and adding its actual page. No Obsidian errors were captured.
+
+The first live scanned-PDF question returned an unclear result from a dynamic page image. Automatic scanned-page images were then prepared before inference. The final live answer correctly returned SCAN-314 on page 2 and END-982 on page 3 with citations. Automatic page images are capped at 12 per attachment batch. More pages can be selected explicitly. General handwriting and layout accuracy remains model-dependent.
+
+Conversion bounds are explicit. Prepared text is capped at 64,000 characters per document, Office archive content at 32 MB, and non-PDF conversion inputs at 512 MB. Native conversions have timeouts and cancellation. Quick Look previews are labelled as partial. Office text extraction does not preserve every diagram or chart. Apple app export requires installed apps and may request Automation permission. Original iWork documents are copied before native opening.
+
+The PDF page menu uses an Obsidian DOM menu with Add page, Copy page link and Copy selected text. PDF annotation proposals remain in memory until resolved or plugin unload. They use standard PDF text comments, with source freshness checks and a separate output file on acceptance. No OCR layer is written into the PDF. The experimental editor overlay is temporary, uses theme colors and is hidden on stale text. Tests cover the default theme on this Mac, rather than every theme and PDF layout.
+
+Evidence is in work/attachments-live-result.txt, work/attachments-model-result.txt, work/attachment-final-qa-result.txt, work/pdf-live-qa-result.txt, work/pdf-model-result.txt and work/pdf-features-unit.log.
+
+### Muted experimental diff styling
+
+Removed the added/removed emoji widgets. Additions and removals now use 12% theme-green/theme-red backgrounds. Removed text uses the normal text color. Typecheck, lint, build and release checks passed. A live Agentbrain disposable-note check confirmed no diff emojis, both translucent colors, normal text color and preservation of the existing chat. The installed files and running stylesheet were updated without restarting the chat. Evidence is in work/muted-diff-live-result.txt and work/muted-diff-style-result.txt.
+
+### Diff selector and normal workspace split
+
+The Diff view setting offers Highlights in editor, None and Split diff view. Legacy enabled toggles migrate to highlights, disabled toggles to none. All 66 automated tests, typecheck, lint, build and release checks passed. Eight live Agentbrain assertions verified one normal workspace leaf to the right of the note, source Markdown rendering, exact match to the modal diff, mutually exclusive editor highlights, switching modes and Accept in chat closing the resolved pane. The initial acceptance check ran before the asynchronous UI update finished. Waiting for the composer to unlock verified the completed behavior. No Obsidian errors were captured. Evidence is in work/split-diff-qa-result.txt and work/split-diff-unit.log.
+
+### 1.3.0 release build
+
+The exact 1.3.0 build passed 66 automated tests, eight workspace split checks, fourteen PDF checks and a send-path regression check confirming that all three current image attachments reached the Codex bridge. No Obsidian errors were captured. Previous image history remains bounded separately from the current attachments. Evidence is in work/release-1.3.0-*.

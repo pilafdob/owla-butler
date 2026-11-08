@@ -81,3 +81,12 @@ test('unknown inline title setting protects the existing top title while allowin
  assert.doesNotThrow(() => assertNoteTitle({...edit,after:edit.before.replace('## Section','## Details')},undefined));
  assert.doesNotThrow(() => assertNoteTitle({...edit,before:'## Section',after:'## Details'},undefined));
 });
+
+test('diff view settings preserve the legacy toggle and validate selector values',async()=>{
+ const {migrateSettings}=await import('../src/core');
+ assert.equal(migrateSettings({editingViewDiff:true}).diffView,'highlights');
+ assert.equal(migrateSettings({editingViewDiff:false}).diffView,'none');
+ assert.equal(migrateSettings({diffView:'split',editingViewDiff:true}).diffView,'split');
+ assert.equal(migrateSettings({diffView:'none',editingViewDiff:true}).diffView,'none');
+ assert.equal(migrateSettings({diffView:'unexpected'}).diffView,'none');
+});

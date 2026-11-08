@@ -108,3 +108,22 @@ The generated ZIP includes an `owla-butler/` root, required plugin files, guides
 ## Licence and credits
 
 OWLA Butler: [MIT](LICENSE). The bird icon is from [Phosphor Icons](https://github.com/phosphor-icons/core) (MIT). The original Obsidian Markdown, Bases and Canvas skills are from [Steph Ango’s Obsidian Skills](https://github.com/kepano/obsidian-skills) (MIT). Reviewed diffs use [jsdiff](https://github.com/kpdecker/jsdiff) (BSD-3-Clause). Complete notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), the assets folder and the built plugin. Obsidian and Codex are separate products with their own terms.
+
+
+### Attachments and experimental editor diff
+
+Drop files into chat or use Attach. OWLA prepares files locally before Send becomes available. PNG/JPEG/WebP images are resized, and macOS image conversion handles formats such as HEIC, TIFF and BMP, including images over 10 MB. PDF page selection also accepts larger PDFs.
+
+Word DOCX, PowerPoint PPTX, Excel XLSX and OpenDocument files provide extracted text. On macOS, Pages, Keynote and Numbers use an installed Apple app to export a temporary copy to Office format. macOS may request Automation permission. The original file is never opened for conversion. Temporary copies and exports are deleted afterward. If full extraction fails, an embedded or Quick Look preview is labelled **Preview only**. Unsupported files stay attached with **Content unavailable**, so the assistant can explain the limitation. Audio, video and arbitrary binary formats do not gain full understanding from an attachment alone.
+
+Extraction retains paragraph, slide and sheet source names. It does not preserve every diagram, chart or page layout. Text is bounded and explicitly labelled when shortened. Large originals are converted locally, with only the prepared text/images included on Send.
+
+Choose **Highlights in editor**, **None** or **Split diff view** in the Diff view setting. Highlights in editor shows temporary subtle green additions and red removed-text blocks in the Markdown editor. Split diff view opens the same source diff as View diff in a normal Obsidian split to the right of the note. Accept and Decline remain in chat, and resolving the last pending edit closes the diff pane. The overlay uses theme colors, clears on Accept/Decline, and hides when the pending text changes. It never writes markers into the Markdown. Source View diff remains available in chat.
+
+### PDFs
+
+Whole PDFs are accepted on drop. Text is extracted with page labels, with explicit truncation for long documents. Choose page remains available for a particular page image or text. The read_pdf tool can inspect an attached or allowed vault PDF and return a rendered image for scanned pages or diagrams. References such as [[Books/Study.pdf#page=3]] resolve through the vault. OCR uses Codex's visual input and does not rewrite the PDF.
+
+Right-click a PDF page in the Obsidian viewer to add it to OWLA, copy its page link, or copy selected text. This plugin menu provides those actions for PDF pages. The ordinary PDF toolbar remains available.
+
+PDF comments follow a stricter review path than Markdown. Suggested comments are grouped per PDF and shown with page numbers. Review and accept them to create a separate annotated copy, or Decline to discard them. No PDF annotations are applied before acceptance. The source bytes are checked again before saving. Resolve PDF proposals before sending the next message. Annotation proposals stay in memory until resolved or the plugin is unloaded. Comments use standard PDF text annotations. They do not yet support arbitrary ink drawings, redactions or editing PDF text.

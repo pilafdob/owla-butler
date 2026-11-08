@@ -1,4 +1,6 @@
-# OWLA Butler 1.0.0 — capability checklist
+# OWLA Butler capability checklist
+
+The local working build adds Office/iWork attachment conversion, whole-PDF reading, scanned page images, reviewed annotation copies and experimental editor diffs. See TESTING.md for the November 8 verification and limits. The historical 1.0.0 checks below describe that release.
 
 Verified 4 November 2026 in a disposable test vault, Obsidian 1.14.5, Codex CLI 0.162.1, ChatGPT login, GPT-6.1 Sol with low reasoning. Tests used Obsidian’s terminal interface; no screen automation was needed.
 

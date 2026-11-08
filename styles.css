@@ -173,3 +173,23 @@
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
+
+.owla-editor-added {
+ background-color: rgba(60, 160, 90, 0.12);
+ background-color: color-mix(in srgb, var(--color-green) 12%, transparent);
+ box-shadow: inset 0 -1px color-mix(in srgb, var(--color-green) 40%, transparent);
+}
+.owla-editor-removed {
+ white-space: pre-wrap;
+ color: var(--text-normal);
+ background-color: rgba(200, 70, 70, 0.12);
+ background-color: color-mix(in srgb, var(--color-red) 12%, transparent);
+ border-left: 2px solid color-mix(in srgb, var(--color-red) 40%, transparent);
+ padding: 4px 8px;
+ text-decoration: line-through;
+ user-select: text;
+}
+
+.owla-split-diff { display: flex; flex-direction: column; gap: 8px; }
+.owla-split-diff-content { min-height: 0; overflow: auto; flex: 1; }
+.owla-split-diff .owla-diff { max-height: none; }

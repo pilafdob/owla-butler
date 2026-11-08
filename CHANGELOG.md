@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+- Accept arbitrary file drops and convert larger images and Office/iWork documents locally, with explicit preview or unsupported status.
+- Read whole PDFs, resolve page wikilinks and add pages from the PDF viewer context menu.
+- Review grouped PDF comments before accepting a separate annotated copy. Protect originals and reject stale sources.
+- Choose editor highlights, no automatic diff or a normal split diff pane to the right of the note. Use muted colors without emoji markers.
+
 ## 1.2.2
 
 - Prevent suggested edits from repeating the filename as a top Markdown heading when Obsidian shows the inline title.

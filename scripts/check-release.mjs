@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {isBuiltin} from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -23,7 +24,7 @@ for (const path of ['main.js', 'manifest.json', 'styles.css', 'README.md', 'LICE
   assert.ok(statSync(resolve(root, path)).size > 0, `missing ${path}`);
 }
 const main = read('main.js');
-for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE']) {
+for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE', 'assets/FFLATE-LICENSE', 'assets/PDF-LIB-LICENSE', 'assets/PDF-FONTS-LICENSE', 'assets/PDF-UPNG-LICENSE', 'assets/PAKO-LICENSE', 'assets/TSLIB-COPYRIGHT', 'assets/TSLIB-LICENSE']) {
   assert.ok(main.includes(read(path).trim().replace(/\*\//g, '* /')), `built bundle lacks full notice: ${path}`);
 }
 for (const name of ['obsidian-markdown', 'obsidian-bases', 'json-canvas', 'owla-pdf', 'owla-math', 'owla-ocr']) assert.ok(main.includes(name), `missing embedded guide: ${name}`);
@@ -34,9 +35,9 @@ const embedded = runInNewContext('(' + literal[1] + ')', Object.create(null), { 
 for (const [name, content] of Object.entries(referencePack)) {
   assert.equal(embedded[name], content, `reference not fully embedded: ${name}`);
 }
-// Only the Obsidian host, Electron and Node built-ins may be required at runtime.
+// Obsidian supplies its editor modules alongside Electron and Node built-ins.
 for (const [, module] of main.matchAll(/\brequire\(["']([^"']+)["']\)/g)) {
-  assert.ok(module === 'obsidian' || module === 'electron' || module.startsWith('node:'), `unbundled runtime dependency: ${module}`);
+  assert.ok(module === 'obsidian' || module === 'electron' || module === '@codemirror/state' || module === '@codemirror/view' || isBuiltin(module), `unbundled runtime dependency: ${module}`);
 }
 assert.ok(!/readFileSync\([^\n]*reference-pack/.test(main), 'references must not require a runtime asset directory');
 console.log(`Release checks passed: ${manifest.id} ${manifest.version}; three-file bundle and full notices verified.`);

@@ -93,3 +93,13 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+## fflate
+
+fflate extracts Office and iWork ZIP document contents. MIT licence. The full notice is embedded in main.js and retained in assets/FFLATE-LICENSE.
+
+## PDF annotation support
+
+pdf-lib, @pdf-lib/standard-fonts and @pdf-lib/upng use the MIT licence. Full notices are embedded in main.js and retained in assets/PDF-LIB-LICENSE, assets/PDF-FONTS-LICENSE and assets/PDF-UPNG-LICENSE.
+
+The PDF dependencies include pako (MIT/Zlib) and tslib (Zero-Clause BSD). Their full notices are retained in assets/PAKO-LICENSE, assets/TSLIB-COPYRIGHT and assets/TSLIB-LICENSE and embedded in main.js.
