@@ -26,15 +26,15 @@ export function loadPendingEdits(root:string):EditBatch[] {
  const paths = new Set<string>();
  for (const value of data as unknown[]) {
   const entry = record(value);
-  const {path,before,after,reason} = record(entry.edit);
+  const {path,before,after,reason,create} = record(entry.edit);
   const reasons:unknown[] = Array.isArray(entry.reasons) ? entry.reasons : [];
   if (typeof path !== 'string' || typeof before !== 'string' || typeof after !== 'string' ||
       typeof reason !== 'string' || !reasons.length || !reasons.every(item => typeof item === 'string') ||
-      paths.has(path)) {
+      paths.has(path) || (create!==undefined&&(create!==true||before!==''))) {
    throw Error('The pending edit record is invalid.');
   }
   paths.add(path);
-  edits.push({edit:{path,before,after,reason},reasons});
+  edits.push({edit:{path,before,after,reason,...(create===true?{create:true as const}:{})},reasons});
  }
  return edits;
 }

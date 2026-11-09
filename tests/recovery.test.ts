@@ -19,3 +19,13 @@ test('pending edit decisions survive a new read and can be cleared independently
   rmSync(root,{recursive:true,force:true});
  }
 });
+
+test('new-note drafts retain their creation action in the pending journal',async()=>{
+ const {loadPendingEdits,savePendingEdits}=await import('../src/recovery');
+ const root=mkdtempSync(join(tmpdir(),'owla-new-note-'));
+ const draft={edit:{path:'New.md',before:'',after:'New note body',reason:'Create note',create:true as const},reasons:['Create note']};
+ try{
+  savePendingEdits(root,[draft]);
+  assert.deepEqual(loadPendingEdits(root),[draft]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

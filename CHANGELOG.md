@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Attach whole PDFs without a page picker. Codex can fetch later page ranges automatically.
+- Attach a folder or a selection of files from the File Explorer. Drag multiple vault or Finder files into chat.
+- Draft new Markdown notes from chat and create them on acceptance.
+
 ## 1.3.0
 
 - Accept arbitrary file drops and convert larger images and Office/iWork documents locally, with explicit preview or unsupported status.

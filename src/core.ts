@@ -7,13 +7,13 @@ export function migrateSettings(value:unknown):ButlerSettings{
  const data=record(value);const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
  return {...DEFAULTS,diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',storageRoot:string('storageRoot'),excludedFolders:string('excludedFolders'),...(data.schemaVersion===2?{codexExecutable:string('codexExecutable'),model:string('model'),reasoning:string('reasoning'),webSearch:data.webSearch!==false}:{})};
 }
-export function allowedPath(path:string,excluded='',extension='md'):boolean {
+export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
- if(!path.toLowerCase().endsWith('.'+extension))return false;
+ if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  return !excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).some(s=>path===s||path.startsWith(s+'/'));
 }
 export function clip(text:string,max:number):string {return text.length<=max?text:text.slice(0,max)+'\n[Context shortened. Read a specific passage if needed.]';}
-export interface Proposal {path:string;before:string;after:string;reason:string;}
+export interface Proposal {path:string;before:string;after:string;reason:string;create?:true;}
 export function proposal(path:string,before:string,oldText:string,newText:string,reason:string,excluded=''):Proposal {
  if(!allowedPath(path,excluded))throw Error('This note is outside the allowed Markdown context.');
  if(newText.length>24000)throw Error('The proposed edit is too large. Make a smaller edit.');
