@@ -22,7 +22,7 @@ test('disconnect during connection discovery cannot start a background agent',as
 
 test('integration overrides preserve dotted IDs without copying credentials to process arguments',async()=>{const {integrationOverrides}=await import('../src/codex');const args=integrationOverrides({mcp_servers:{'com.example.tool':{enabled:true,env:{SECRET:'private'}},disabled:{enabled:false}},plugins:{'tool@vendor.example':{enabled:true}}});assert.equal(args[0],'mcp_servers={"com.example.tool"={enabled=false}}');assert.equal(args[1],'plugins={"tool@vendor.example"={enabled=false}}');assert.equal(args.join('').includes('private'),false);});
 
-test('a metadata refresh is allowed to finish before the shared process sleeps',async()=>{const b=new CodexBridge() as any;b.accountType='chatgpt';b.child={stdin:{write:()=>{},end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};const request=b.request('account/rateLimits/read',{});const sleeping=b.rest();await new Promise(resolve=>setTimeout(resolve,20));assert.ok(b.child);b.receive({id:1,result:{rateLimits:null}});await request;await sleeping;assert.equal(b.child,null);assert.match(b.status,/Ready/);});
+test('a metadata refresh is allowed to finish before the shared process sleeps',async()=>{const b=new CodexBridge() as any;b.accountType='chatgpt';b.child={stdin:{write:()=>{},end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};const request=b.request('account/rateLimits/read',{});const sleeping=b.rest();await new Promise(resolve=>setTimeout(resolve,20));assert.ok(b.child);b.receive({id:1,result:{rateLimits:null}});await request;await sleeping;assert.equal(b.child,null);assert.match(b.status,/resting/);});
 
 test('ephemeral replay retains recent attachment context and image references within the text budget',()=>{const image='data:image/png;base64,fixture';const replay=replayHistory([{role:'user',content:'Read this page',context:'PDF SOURCE: Example.pdf, p. 1\nVisible text',images:[image]},{role:'assistant',content:'First answer'}]);assert.match(replay.messages[0].context??'',/Example.pdf/);assert.equal(replay.messages[0].images?.[0],image);assert.ok(replayHistory([{role:'user',content:'q',context:'x'.repeat(64001)}]).shortened);});
 
@@ -47,4 +47,32 @@ test('Codex discovery uses executable files in absolute directories',async()=>{
 
 test('unknown inherited integration config is rejected instead of treated as disabled',async()=>{
  const {integrationOverrides}=await import('../src/codex');assert.throws(()=>integrationOverrides({plugins:[{enabled:true}]}),/unsupported integration/);
+});
+
+test('warm startup and Send share a handshake and only the last owner stops the process', async()=>{
+ const bridge=new CodexBridge();
+ const internals=bridge as any;
+ let complete!:()=>void;
+ let starts=0;
+ internals.start=async()=>{
+  starts++;
+  internals.child={stdin:{end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};
+  await new Promise<void>(resolve=>{complete=resolve;});
+  internals.initialized=true;
+  bridge.accountType='chatgpt';
+ };
+ const warm=bridge.hold();
+ const ready=bridge.connect();
+ await Promise.resolve();
+ const reply=bridge.hold();
+ const sent=bridge.connect();
+ await warm();
+ assert.equal(starts,1);
+ assert.equal(bridge.ready,false);
+ complete();
+ await Promise.all([ready,sent]);
+ assert.equal(bridge.ready,true);
+ await reply();
+ assert.equal(bridge.ready,false);
+ assert.equal(internals.child,null);
 });

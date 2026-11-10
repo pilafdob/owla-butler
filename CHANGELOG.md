@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- Review file and folder moves, renames and bulk organization before applying them with Obsidian’s internal link updates.
+- Prewarm Codex while typing and show when OWLA’s Codex process is ready or resting.
+- Show OWLA in the sidebar, collapse activity during replies, and place Copy Markdown beside Sources & activity.
+- Confirm before starting a new chat, with an option to save recent messages.
+
 ## 1.4.0
 
 - Attach whole PDFs without a page picker. Codex can fetch later page ranges automatically.
