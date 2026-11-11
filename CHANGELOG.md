@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0
+
+- Optionally use Apple’s on-device model to choose a compatible Codex model and reasoning effort for each request. Show the chosen model and effort or the fallback in the sidebar.
+- Require an explicit first connection in each vault, remember it across reloads, and show only Disconnect when connected.
+- Show clickable change cards for reviewed notes, moves, deletions, and PDF annotations.
+- Follow Obsidian’s new-note location for bare filenames and preview files or folders before moving them to Trash.
+- Add native Markdown formatting and Mermaid guidance, including Obsidian’s colored highlights.
+
 ## 1.5.1
 
 - Show PDFs and folders as single attachments. Read PDF pages, folder notes and converted document text on demand.

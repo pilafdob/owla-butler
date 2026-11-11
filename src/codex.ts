@@ -7,13 +7,13 @@ import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
 import {list,record} from './validation';
 import manifest from '../manifest.json';
 export type ChatMessage={role:'user'|'assistant';content:string;context?:string;images?:string[];sourcePath?:string};
-export type CodexModel={id:string;model:string;displayName:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[];inputModalities?:string[]};
+export type CodexModel={id:string;model:string;displayName:string;description?:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[];inputModalities?:string[]};
 export type ToolOutput=string|{text:string;imageUrl:string};
 export type ToolSpec={type:'function';name:string;description:string;inputSchema:unknown};
 export const DEFAULT_STORAGE=join(homedir(),'Library','Application Support','OWLA Butler');
 export function supportedVersion(v:string){const m=v.match(/(?:codex-cli\s+)?(\d+)\.(\d+)\.(\d+)/);return !!m&&(Number(m[1])>0||Number(m[2])>162||(Number(m[2])===162&&Number(m[3])>=1));}
 export function replayHistory(history:ChatMessage[]){let used=0;const result:ChatMessage[]=[];for(const m of history.slice(-12).reverse()){const size=m.content.length+(m.context?.length??0);if(used+size>64000)break;result.unshift(m);used+=size;}return {messages:result,shortened:result.length<history.length};}
-export function friendlyError(e:unknown):string{const text=e instanceof Error?e.message:String(e);if(/429|quota|usage.limit|rate.limit/i.test(text))return 'Codex usage limit reached. Wait for your subscription allowance to reset.';if(/401|unauthorized|authentication|expired.*token/i.test(text))return 'Codex needs you to sign in again. Use Connect Codex.';return text.slice(0,800);}
+export function friendlyError(e:unknown):string{const text=e instanceof Error?e.message:String(e);if(/429|quota|usage.limit|rate.limit/i.test(text))return 'Codex usage limit reached. Wait for your subscription allowance to reset.';if(/401|unauthorized|authentication|expired.*token/i.test(text))return 'Codex needs you to sign in again with ChatGPT.';return text.slice(0,800);}
 const command=(file:string,args:string[],env:NodeJS.ProcessEnv,signal?:AbortSignal)=>new Promise<string>((resolve,reject)=>execFile(file,args,{env,shell:false,timeout:10000,maxBuffer:100000,signal},(error,stdout)=>error?reject(new Error(error.message)):resolve(stdout)));
 const defaultBinDirectories=()=>['/usr/local/bin','/opt/homebrew/bin',join(homedir(),'.local/bin')];
 function isExecutable(file:string){if(!isAbsolute(file))return false;try{accessSync(file,constants.X_OK);return statSync(file).isFile();}catch{return false;}}
@@ -31,14 +31,17 @@ function decodeModel(value:unknown):CodexModel|null{
  if(!model||typeof data.defaultReasoningEffort!=='string')return null;
  const supportedReasoningEfforts=list(data.supportedReasoningEfforts).flatMap(value=>{const item=record(value);return typeof item.reasoningEffort==='string'?[{reasoningEffort:item.reasoningEffort,description:typeof item.description==='string'?item.description:''}]:[];});
  if(!supportedReasoningEfforts.some(e=>e.reasoningEffort===data.defaultReasoningEffort))return null;
- return {id,model,displayName:typeof data.displayName==='string'?data.displayName:model,isDefault:data.isDefault===true,defaultReasoningEffort:data.defaultReasoningEffort,supportedReasoningEfforts,...(Array.isArray(data.inputModalities)?{inputModalities:list(data.inputModalities).filter((item):item is string=>typeof item==='string')}:{})};
+ return {id,model,displayName:typeof data.displayName==='string'?data.displayName:model,description:typeof data.description==='string'?data.description:undefined,isDefault:data.isDefault===true,defaultReasoningEffort:data.defaultReasoningEffort,supportedReasoningEfforts,...(Array.isArray(data.inputModalities)?{inputModalities:list(data.inputModalities).filter((item):item is string=>typeof item==='string')}:{})};
 }
 export class CodexBridge{
  private child:ChildProcessWithoutNullStreams|null=null;private connectionKey='';private initialized=false;private startupAbort:AbortController|null=null;private holders=new Set<symbol>();private generation=0;private closing:Promise<void>=Promise.resolve();private nextId=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>();private buffer='';private idle:ReturnType<typeof setTimeout>|undefined;private connecting:Promise<void>|null=null;private active:{threadId:string;turnId?:string;event:(method:string,params:Record<string,unknown>)=>void;tool:(name:string,args:unknown)=>Promise<ToolOutput>;reject:(e:Error)=>void}|null=null;
- usage:UsageSnapshot|null=null;usageUpdatedAt=0;usageError='';onUsage:()=>void=()=>{};models:CodexModel[]=[];accountType='';plan='';version='';status='Not connected';executable='';onStatus:(status:string)=>void=()=>{};
+ usage:UsageSnapshot|null=null;usageUpdatedAt=0;usageError='';onUsage:()=>void=()=>{};models:CodexModel[]=[];accountType:string|undefined;plan='';version='';status='Not connected';executable='';onStatus:(status:string)=>void=()=>{};
+ private finishSignIn:(()=>void)|undefined;
  private env(){const env:NodeJS.ProcessEnv={...process.env,PATH:[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter)};for(const key of ['OPENAI_API_KEY','CODEX_API_KEY','AZURE_OPENAI_API_KEY'])delete env[key];return env;}
  private setStatus(s:string){this.status=s;this.onStatus(s);}
  get ready(){return !!this.child&&this.initialized&&this.accountType==='chatgpt';}
+ get needsSignIn(){return this.accountType==='';}
+ get signInPending(){return !!this.idle;}
 
  hold():()=>Promise<void>{
   const owner=Symbol();
@@ -76,14 +79,27 @@ export class CodexBridge{
  if(inherited.length&&!extra.length){this.disconnect('Isolating OWLA tools…',true);const next=this.generation;await this.closing;if(next!==this.generation)throw Error('Codex connection cancelled.');return this.start(file,cwd,inherited,web);}
  if(inherited.length||features.shell_tool!==false||features.apps!==false)throw Error('Codex could not isolate OWLA tools from your global configuration. No conversation was started.');
  assertSessionPrivacy(config);
- await this.readAccount();let cursor:string|undefined;const seen=new Set<string>();this.models=[];
+ await this.readAccount();this.models=[];
+ if(this.needsSignIn){this.initialized=true;this.setStatus('Sign in to Codex');return;}
+ let cursor:string|undefined;const seen=new Set<string>();
  do{const response=record(await this.request('model/list',{limit:100,includeHidden:false,...(cursor?{cursor}:{})}));for(const value of list(response.data)){const model=decodeModel(value);if(model)this.models.push(model);}
  cursor=typeof response.nextCursor==='string'&&response.nextCursor?response.nextCursor:undefined;
  if(cursor){if(seen.has(cursor))throw Error('Codex returned a repeated model catalog page.');seen.add(cursor);}}while(cursor);
- if(!this.models.length)throw Error('Codex returned no usable models for this account.');this.initialized=true;this.setStatus(this.accountType==='chatgpt'?'Codex ready · '+this.plan:'Sign in to Codex');
+ if(!this.models.length)throw Error('Codex returned no usable models for this account.');this.initialized=true;this.setStatus(this.plan?'Connected to Codex · '+this.plan:'Connected to Codex');
  }catch(e){if(generation!==this.generation)throw Error('Codex connection cancelled.');this.disconnect(friendlyError(e));throw e;}finally{if(this.startupAbort===startup)this.startupAbort=null;}}
  private async readAccount(){const response=record(await this.request('account/read',{refreshToken:false})),account=record(response.account);this.accountType=typeof account.type==='string'?account.type:'';this.plan=typeof account.planType==='string'?account.planType:'';if(response.account!=null&&this.accountType!=='chatgpt')throw Error('OWLA requires Codex signed in with ChatGPT. API-key authentication is not supported.');}
- async signIn(open:(url:string)=>void){if(this.active||this.holders.size>1||this.idle)throw Error('Wait for the current Codex operation to finish.');if(!this.child)throw Error('Connect Codex first.');const response=record(await this.request('account/login/start',{type:'chatgpt'}));if(typeof response.authUrl!=='string')throw Error('Codex did not return a sign-in link.');const url=new URL(response.authUrl);if(url.protocol!=='https:')throw Error('Codex returned an invalid sign-in link.');open(url.href);this.idle=setTimeout(()=>this.disconnect('Codex sign-in timed out. Try signing in again.'),180000);this.setStatus('Complete sign-in in your browser, then Connect Codex.');}
+ async signIn(open:(url:string)=>void,complete:()=>void){
+  if(this.active||this.holders.size>1||this.idle)throw Error('Wait for the current Codex operation to finish.');
+  if(!this.child)throw Error('Connect Codex first.');
+  const response=record(await this.request('account/login/start',{type:'chatgpt'}));
+  if(typeof response.authUrl!=='string')throw Error('Codex did not return a sign-in link.');
+  const url=new URL(response.authUrl);
+  if(url.protocol!=='https:')throw Error('Codex returned an invalid sign-in link.');
+  open(url.href);
+  this.finishSignIn=complete;
+  this.idle=setTimeout(()=>this.disconnect('Codex sign-in timed out. Try signing in again.'),180000);
+  this.setStatus('Complete sign-in in your browser.');
+ }
  private notify(method:string,params?:Record<string,unknown>){this.child?.stdin.write(JSON.stringify({method,...(params?{params}:{})})+'\n');}
  private request(method:string,params:Record<string,unknown>,timeout=20000):Promise<unknown>{const child=this.child;if(!child)return Promise.reject(Error('Codex is disconnected.'));const id=this.nextId++;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('Codex timed out during '+method+'. Reconnect and retry.'));},timeout);this.pending.set(id,{resolve,reject,timer});child.stdin.write(JSON.stringify({id,method,params})+'\n');});}
  private reply(id:string|number,result:unknown){this.child?.stdin.write(JSON.stringify({id,result})+'\n');}
@@ -118,7 +134,12 @@ export class CodexBridge{
    return;
   }
   if(active&&params.threadId===active.threadId)active.event(method,params);
-  if(method==='account/login/completed')this.disconnect(params.success===true?'Signed in · Connect Codex to refresh':'Codex sign-in did not complete.');
+  if(method==='account/login/completed'&&this.signInPending){
+   const complete=this.finishSignIn;
+   const success=params.success===true;
+   this.disconnect(success?'Signed in to Codex':'Codex sign-in did not complete.');
+   if(success)complete?.();
+  }
  }
 
  async run(options:{executable:string;cwd:string;model:string;effort:string;instructions:string;text:string;images:string[];tools:ToolSpec[];web:boolean;requireWeb?:boolean;signal:AbortSignal;onText:(delta:string)=>void;onActivity:(text:string)=>void;tool:(name:string,args:unknown)=>Promise<ToolOutput>}):Promise<{text:string;sources:{url:string;title:string}[]}>{
@@ -138,7 +159,7 @@ export class CodexBridge{
  const forceStop=()=>{
   if(settled)return;
   end(Error('Stopped.'));
-  this.disconnect('Codex stopped · starts automatically');
+  this.disconnect('Connected to Codex · stopped until needed');
  };
  const interrupt=()=>{
   const turnId=this.active?.turnId;
@@ -197,12 +218,12 @@ export class CodexBridge{
   }
   if(this.child!==owner||this.holders.size||this.active||this.idle)return;
   const status=this.initialized&&this.accountType!=='chatgpt'
-   ?'Sign in to Codex':'Codex resting · starts automatically';
+   ?'Sign in to Codex':'Connected to Codex · resting until needed';
   this.disconnect(owner?'Codex stopping…':status);
   const generation=this.generation;
   await this.closing;
   if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus(status);
  }
  private fail(e:Error){this.disconnect(friendlyError(e));}
- disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;const child=this.child;this.child=null;this.buffer='';const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>{try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}catch{try{child.kill(signal);}catch{/* The owned process has already exited. */}}};if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
+ disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;this.finishSignIn=undefined;const child=this.child;this.child=null;this.buffer='';const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>{try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}catch{try{child.kill(signal);}catch{/* The owned process has already exited. */}}};if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
 }

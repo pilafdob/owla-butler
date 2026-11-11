@@ -26,8 +26,8 @@ OWLA is an independent project, unaffiliated with Obsidian or OpenAI. Install **
 
 1. Install Codex CLI 0.162.1 or newer and sign in with ChatGPT. If Codex already works in your terminal, no additional account setup is needed. [Official Codex authentication](https://developers.openai.com/codex/auth).
 2. Search for **OWLA Butler** in Settings → Community plugins, install and enable it. For manual installation, create `<vault>/.obsidian/plugins/owla-butler/` and copy **main.js**, **manifest.json** and **styles.css** from the same release into it. Alternatively, unzip the distribution and move its `owla-butler` folder there. Restart Obsidian or reload Community plugins, then enable OWLA Butler.
-3. Open Settings → OWLA Butler → **Connect Codex**. OWLA detects the CLI, reuses the existing login and loads the model/reasoning options. No API key is requested. A green dot means OWLA’s Codex process is running and ready. The dot is gray while the process starts, stops or rests. Hover to see the current state or connection error. A signed-out account can use **Sign in** to open Codex’s browser login.
-4. Open the bird sidebar and send a message. Subsequent connection/startup is automatic. A red status dot can also be clicked to reconnect; green means connected. The dot has a tooltip and accessible label.
+3. Open Settings → OWLA Butler and choose **Connect Codex** once per vault. OWLA waits for this action before starting Codex. It detects the CLI, reuses the existing ChatGPT login and loads the available models. If Codex is signed out, choose **Sign in** when it appears and complete the browser login.
+4. Open the bird sidebar and send a message. OWLA remembers the connection across reloads and starts Codex on demand. A green sidebar dot means the process is running and ready. Hover over the dot for its status. The connection row shows **Disconnect** while the connection is active, including while Codex is resting. Disconnect clears the saved connection for that vault.
 
 OWLA checks common install directories and its inherited PATH. If detection fails, choose the Codex executable in settings. OWLA does not run a login shell to discover it or install or update Codex. This release supports macOS desktop and was tested on an 8 GB M2 Air. It uses the official Codex app-server protocol over local process pipes. Codex handles hosted inference and authentication; OWLA does not read/copy credentials or use a separately billed API key. Codex subscription limits and account/workspace policies apply.
 
@@ -40,6 +40,10 @@ Your current Markdown note includes unsaved editor text and the captured cursor/
 Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. Codex reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page. For transcription, ask it to preserve visible symbols and mark uncertainty.
 
 Web search is enabled by default so Codex can check current facts when needed. Turn it off in settings if unwanted. Selected note contents, attachments and recent chat are processed by OpenAI; web queries may draw on that context. Responses expose readable activity, used note/page sources and linked web references. Source links do not guarantee that every interpretation is correct.
+
+### Automatic model and reasoning effort
+
+In OWLA settings, **Automatic model and reasoning effort (experimental)** replaces the manual selectors with the model and reasoning effort chosen for each turn. It is off by default. On supported macOS 27 Macs, OWLA uses Apple's on-device Foundation Models CLI. The router receives the typed prompt and a catalog of compatible models. Notes, chat history and attachment contents are supplied separately to Codex for its answer. Codex receives the original typed prompt. If local selection is unavailable or times out, OWLA displays the compatible fallback it used. Turn the setting off to restore manual selection.
 
 ## Privacy, network access and files outside the vault
 
@@ -57,7 +61,7 @@ Settings → OWLA Butler shows the account quota windows returned by Codex: perc
 
 ## Edits and recovery
 
-Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
+Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. Change cards above **Sources & activity** show affected files and folders. Open an existing file, reveal a folder in File Explorer, or preview a new note draft. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
 
 OWLA stores each pending decision and a private recovery snapshot before writing. Pending decisions return when you reopen the sidebar or restart Obsidian. Decline only restores a note that still matches the applied text. If you edit the note while deciding, you can accept the current text. The Undo command for an accepted edit also checks the applied snapshot before restoring. Snapshots retain at most 20 entries within 5 MB per vault. The pending record is capped at 10 MB.
 
@@ -65,7 +69,7 @@ Hidden/configuration files, excluded paths, traversal and symlinks escaping the 
 
 ### Organize files and folders
 
-Ask OWLA to move or rename files and folders. Open **Review paths** to see each old and new path, the folders to create, and Markdown notes whose links may change. **Accept** runs the batch through Obsidian’s file manager. **Decline** clears the proposal. Organization always needs a path review, regardless of the Markdown Diff view setting, and is submitted separately from content edits.
+Ask OWLA to move or rename files and folders. Open **Review paths** to see each old and new path, the folders to create, and Markdown notes whose links may change. **Accept** runs the batch through Obsidian’s file manager. **Decline** clears the proposal. Organization always needs a path review, regardless of the Markdown Diff view setting, and is submitted separately from content edits. OWLA can also suggest deleting files and folders. Review the target, folder contents, and known backlinks, then choose **Move to trash** or **Decline**. The proposal stays in the open chat until you decide or close it.
 
 Turn on **Automatically update internal links** in Obsidian’s Files and links settings to accept a batch. OWLA refuses conflicting, overlapping or excluded paths and batches that could update links in an excluded Markdown note. If relevant files or links changed after review, reopen the preview. OWLA records progress and backs up affected Markdown before applying. If a partial failure cannot be safely reversed, the chat shows the recovery record so you can inspect the paths before continuing.
 
@@ -79,7 +83,7 @@ There are no downloaded models, Ollama servers or native OCR runtimes. Typing in
 
 ## Skills and verification
 
-Original Obsidian Markdown, Bases and JSON Canvas skills, all references and licence are bundled. OWLA PDF, MathJax and image/transcription guidance is also retained and available through read_reference. These are instructions, not model training.
+Original Obsidian Markdown, Bases and JSON Canvas skills, all references and licence are bundled. OWLA also includes guidance for Mermaid diagrams and native note formatting, including coloured highlights. OWLA PDF, MathJax and image/transcription guidance is also retained and available through read_reference. These are instructions, not model training.
 
 See CAPABILITY-CHECKLIST.md and TESTING.md for the eight requested checks, real question results and limits. AUDIT.md and RELEASE-CANDIDATE.md identify the candidate and release gate.
 
@@ -129,7 +133,7 @@ Extraction retains paragraph, slide and sheet source names. It does not preserve
 
 Choose **Highlights in editor**, **None** or **Split diff view** in the Diff view setting. Highlights in editor shows temporary subtle green additions and red removed-text blocks in the Markdown editor. Split diff view opens the same source diff as View diff in a normal Obsidian split to the right of the note. Accept and Decline remain in chat, and resolving the last pending edit closes the diff pane. The overlay uses theme colors, clears on Accept/Decline, and hides when the pending text changes. It never writes markers into the Markdown. Source View diff remains available in chat.
 
-Ask OWLA to create a note from the conversation. It drafts the Markdown at a new path in the vault root or an existing folder you specify. Use **View diff** to review the draft, then **Accept** to create it or **Decline** to discard it. Existing files are protected.
+Ask OWLA to create a note from the conversation. If you leave the location unspecified, OWLA follows Obsidian’s new-note location setting. You can also name an existing folder or request the vault root. Use **View diff** to review the draft, then **Accept** to create it or **Decline** to discard it. Existing files are protected.
 
 ### PDFs
 

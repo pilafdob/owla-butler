@@ -27,7 +27,7 @@ const main = read('main.js');
 for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE', 'assets/FFLATE-LICENSE', 'assets/PDF-LIB-LICENSE', 'assets/PDF-FONTS-LICENSE', 'assets/PDF-UPNG-LICENSE', 'assets/PAKO-LICENSE', 'assets/TSLIB-COPYRIGHT', 'assets/TSLIB-LICENSE']) {
   assert.ok(main.includes(read(path).trim().replace(/\*\//g, '* /')), `built bundle lacks full notice: ${path}`);
 }
-for (const name of ['obsidian-markdown', 'obsidian-bases', 'json-canvas', 'owla-pdf', 'owla-math', 'owla-ocr']) assert.ok(main.includes(name), `missing embedded guide: ${name}`);
+for (const name of ['obsidian-markdown', 'obsidian-bases', 'json-canvas', 'owla-pdf', 'owla-math', 'owla-ocr', 'owla-formatting', 'owla-mermaid']) assert.ok(main.includes(name), `missing embedded guide: ${name}`);
 const referencePack = JSON.parse(read('assets/reference-pack.json'));
 const literal = main.match(/var reference_pack_default = (\{[\s\S]*?\n\});/);
 assert.ok(literal, 'embedded reference table missing');

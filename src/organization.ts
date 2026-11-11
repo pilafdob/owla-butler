@@ -13,6 +13,14 @@ export type OrganizationReview={
  affected:string[];
  fingerprint:string;
 };
+export type RemovalReview={
+ path:string;
+ reason:string;
+ folder:boolean;
+ children:string[];
+ backlinks:string[];
+ fingerprint:string;
+};
 type Progress={
  completed:number;
  created:string[];
@@ -150,6 +158,31 @@ export class Organization {
    const stat=this.stat(folder);
    if(stat&&(!stat.isDirectory()||stat.isSymbolicLink()||!this.allowed(folder)))throw Error('A destination folder is blocked or unsafe.');
   }
+ }
+
+ async previewRemoval(path:string,reason:string):Promise<RemovalReview>{
+  const target=this.app.vault.getAbstractFileByPath(path);
+  if(!validPath(path)||!target||!this.safeSource(path))throw Error('Choose an existing, allowed file or folder.');
+  const tree=this.tree(path);
+  for(const [entry] of tree){
+   const note=this.app.vault.getFileByPath(entry);
+   if(note?.extension.toLowerCase()==='md'&&await this.read(entry)!==await this.app.vault.read(note)){
+    throw Error('Save open changes before proposing deletion: '+entry);
+   }
+  }
+  const backlinks=Object.entries(this.app.metadataCache.resolvedLinks)
+   .filter(([note,links])=>!under(note,path)&&this.allowed(note)&&Object.keys(links).some(link=>under(link,path)))
+   .map(([note])=>note).sort();
+  return {path,reason,folder:target instanceof TFolder,children:tree.slice(1).map(([entry])=>entry),backlinks,fingerprint:hash([tree,backlinks])};
+ }
+
+ async trash(review:RemovalReview){
+  const fresh=await this.previewRemoval(review.path,review.reason);
+  const target=this.app.vault.getAbstractFileByPath(review.path);
+  if(!target||fresh.fingerprint!==review.fingerprint)throw Error('This path or its known backlinks changed. Decline and request a fresh review.');
+  // The review promises recoverable trash even if Obsidian is set to delete permanently.
+  // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
+  await this.app.vault.trash(target,true);
  }
 
  async preview(moves:PathMove[],reason:string):Promise<OrganizationReview>{

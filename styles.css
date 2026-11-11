@@ -248,3 +248,43 @@
  font-size: var(--font-ui-smaller);
  line-height: 1.4;
 }
+
+.owla-change-summary {
+ display: grid;
+ gap: 5px;
+ margin: 8px 0;
+}
+.owla-change-summary:empty { display: none; }
+.owla-change-summary .owla-change-card {
+ display: flex;
+ align-items: center;
+ justify-content: flex-start;
+ gap: 8px;
+ width: 100%;
+ min-width: 0;
+ height: auto;
+ padding: 7px 9px;
+ border: 1px solid var(--background-modifier-border);
+ border-radius: var(--radius-s);
+ background: var(--background-secondary);
+ color: var(--text-normal);
+ text-align: start;
+ white-space: normal;
+}
+.owla-change-summary .owla-change-card:hover:enabled { background: var(--background-modifier-hover); }
+.owla-change-card:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.owla-change-icon { display: inline-flex; flex: none; color: var(--text-muted); }
+.owla-change-icon svg { width: 16px; height: 16px; }
+.owla-change-details { display: grid; min-width: 0; gap: 2px; overflow-wrap: anywhere; }
+.owla-change-path { line-height: 1.35; }
+.owla-change-status { color: var(--text-muted); font-size: var(--font-ui-smaller); line-height: 1.35; }
+
+.owla-toolbar .owla-automatic-model {
+ grid-area: 2 / 1 / 3 / -1;
+ min-width: 0;
+ color: var(--text-muted);
+ font-size: var(--font-ui-smaller);
+ overflow-wrap: anywhere;
+ padding: 2px 3px;
+}
+.owla-toolbar .owla-hidden { display: none; }

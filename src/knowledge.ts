@@ -8,6 +8,8 @@ export function readReference(name:string,offset=0):string{
 }
 
 export function taskReference(request:string):{name:string;text:string}|null{
+ if(/\b(mermaid|diagrams?|flowcharts?|graphs?|sequence diagram|timelines?|diagramm|flussdiagramm)\b/i.test(request))return {name:'owla-mermaid',text:readReference('owla-mermaid')};
+ if(/highlight|formatting|formatier|markier/i.test(request))return {name:'owla-formatting',text:readReference('owla-formatting')};
  if(/latex|math|equation|solve|algebra|gleichung|\\frac|\$/.test(request.toLowerCase())){const doc=(references as Record<string,string>)['obsidian-markdown'];const section=doc.split('## Math (LaTeX)')[1]?.split('\n## ')[0]??'';return {name:'obsidian-markdown / Math',text:section.trim().slice(0,500)};}
  if(/frontmatter|yaml|properties|wikilink|callout/.test(request.toLowerCase()))return {name:'obsidian-markdown',text:readReference('obsidian-markdown',0).slice(0,650)};
  return null;

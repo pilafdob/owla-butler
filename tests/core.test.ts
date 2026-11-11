@@ -24,6 +24,18 @@ test('invalid persisted setting values fall back to safe defaults',async()=>{
  assert.equal(prefs.codexExecutable,'');assert.equal(prefs.model,'');assert.equal(prefs.reasoning,'');assert.equal(prefs.excludedFolders,'Private');assert.equal(prefs.webSearch,false);
 });
 
+test('only a saved Codex opt-in enables automatic startup after reload',async()=>{
+ const {migrateSettings}=await import('../src/core');
+ assert.equal(migrateSettings(null).codexConnected,false);
+ const legacy=migrateSettings({schemaVersion:2,model:'existing-model',reasoning:'high'});
+ assert.equal(legacy.codexConnected,false);
+ assert.equal(legacy.model,'existing-model');
+ assert.equal(migrateSettings({...legacy,codexConnected:'true'}).codexConnected,false);
+ const connected=migrateSettings({...legacy,codexConnected:true});
+ assert.equal(connected.codexConnected,true);
+ assert.equal(migrateSettings({...connected,codexConnected:false}).codexConnected,false);
+});
+
 test('separate replacements and appends produce one proposal against the original note', async () => {
  const {stageProposal} = await import('../src/core');
  const before = 'First paragraph.\n\nSecond paragraph.\n';

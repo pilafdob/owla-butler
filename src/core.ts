@@ -1,11 +1,11 @@
 import {createHash} from 'node:crypto';
 import {record} from './validation';
 export type DiffView='highlights'|'none'|'split';
-export interface ButlerSettings {schemaVersion:2;codexExecutable:string;model:string;reasoning:string;webSearch:boolean;diffView:DiffView;storageRoot:string;excludedFolders:string;}
-export const DEFAULTS:ButlerSettings={schemaVersion:2,codexExecutable:'',model:'',reasoning:'',webSearch:true,diffView:'none',storageRoot:'',excludedFolders:''};
+export interface ButlerSettings {schemaVersion:2;codexConnected:boolean;codexExecutable:string;model:string;reasoning:string;automaticRouting:boolean;webSearch:boolean;diffView:DiffView;storageRoot:string;excludedFolders:string;}
+export const DEFAULTS:ButlerSettings={schemaVersion:2,codexConnected:false,codexExecutable:'',model:'',reasoning:'',automaticRouting:false,webSearch:true,diffView:'none',storageRoot:'',excludedFolders:''};
 export function migrateSettings(value:unknown):ButlerSettings{
  const data=record(value);const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
- return {...DEFAULTS,diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',storageRoot:string('storageRoot'),excludedFolders:string('excludedFolders'),...(data.schemaVersion===2?{codexExecutable:string('codexExecutable'),model:string('model'),reasoning:string('reasoning'),webSearch:data.webSearch!==false}:{})};
+ return {...DEFAULTS,diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',storageRoot:string('storageRoot'),excludedFolders:string('excludedFolders'),...(data.schemaVersion===2?{codexConnected:data.codexConnected===true,codexExecutable:string('codexExecutable'),model:string('model'),reasoning:string('reasoning'),automaticRouting:data.automaticRouting===true,webSearch:data.webSearch!==false}:{})};
 }
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
