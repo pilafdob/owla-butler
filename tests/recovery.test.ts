@@ -6,7 +6,7 @@ test('pending edit decisions survive a new read and can be cleared independently
  const {loadPendingEdits,savePendingEdits} = await import('../src/recovery');
  const root = mkdtempSync(join(tmpdir(),'owla-pending-'));
  const first = {edit:{path:'A.md',before:'old',after:'new',reason:'Replace'},reasons:['Replace']};
- const second = {edit:{path:'B.md',before:'start',after:'end',reason:'Update'},reasons:['Update']};
+ const second = {edit:{path:'B.md',before:'start',after:'end',reason:'Update'},reasons:['Update'],deferred:true as const};
  try {
   assert.deepEqual(loadPendingEdits(root),[]);
   savePendingEdits(root,[first,second]);

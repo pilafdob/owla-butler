@@ -210,7 +210,7 @@
 .owla-new-chat-prompt {
  margin: 6px 10px;
  padding: 8px;
- border: 1px solid var(--background-modifier-border);
+ border: 1px solid var(--interactive-accent);
  border-radius: var(--radius-m);
  background: var(--background-secondary);
 }
@@ -286,3 +286,26 @@
  padding: 2px 3px;
 }
 .owla-toolbar .owla-hidden { display: none; }
+
+.owla-toolbar button.owla-automatic-model,
+button.owla-source-link {
+ height: auto;
+ min-width: 0;
+ justify-content: flex-start;
+ text-align: start;
+ white-space: normal;
+ background: transparent;
+ box-shadow: none;
+}
+button.owla-source-link {
+ display: block;
+ max-width: 100%;
+ padding: 2px 0;
+ color: var(--link-color);
+ overflow-wrap: anywhere;
+}
+button.owla-source-link:hover,
+.owla-toolbar button.owla-automatic-model:hover:enabled {
+ text-decoration: underline;
+}
+.owla-organization-cards { display: grid; gap: 5px; }

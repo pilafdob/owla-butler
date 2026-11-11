@@ -43,7 +43,9 @@ Web search is enabled by default so Codex can check current facts when needed. T
 
 ### Automatic model and reasoning effort
 
-In OWLA settings, **Automatic model and reasoning effort (experimental)** replaces the manual selectors with the model and reasoning effort chosen for each turn. It is off by default. On supported macOS 27 Macs, OWLA uses Apple's on-device Foundation Models CLI. The router receives the typed prompt and a catalog of compatible models. Notes, chat history and attachment contents are supplied separately to Codex for its answer. Codex receives the original typed prompt. If local selection is unavailable or times out, OWLA displays the compatible fallback it used. Turn the setting off to restore manual selection.
+On a supported macOS 27 Mac, open Terminal and run `fm license`. Review and accept Apple’s Foundation Models terms when prompted. You can check your acceptance with `fm license --status`. Then enable **Automatic model and reasoning effort** in OWLA settings.
+
+OWLA replaces the manual selectors with the model and effort chosen for each turn. The on-device router receives your original prompt, the compatible Codex model catalog, and a short inventory of attachment names, types, and selected PDF page numbers. It uses counts for earlier context. The router weighs model strengths and usage, including efficient Luna models for focused work, Terra for writing and visual interpretation, Sol for multi-step work, and Astra for demanding analysis. File contents, note text, image data and conversation history stay out of the routing request. Codex receives your original prompt for the answer. If local selection is unavailable or times out, OWLA shows the compatible fallback it used. Click the automatic selection text to choose a model and reasoning effort for one message. The next message after that returns to automatic selection. Turn the setting off to restore manual selection. [OpenAI model guidance](https://learn.chatgpt.com/docs/models)
 
 ## Privacy, network access and files outside the vault
 
@@ -61,7 +63,7 @@ Settings → OWLA Butler shows the account quota windows returned by Codex: perc
 
 ## Edits and recovery
 
-Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. Change cards above **Sources & activity** show affected files and folders. Open an existing file, reveal a folder in File Explorer, or preview a new note draft. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
+Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. Vault sources in **Sources & activity** open the exact PDF page or note heading when OWLA has one. Change cards above **Sources & activity** show affected files and folders. Open an existing file, reveal a folder in File Explorer, or preview a new note draft. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
 
 OWLA stores each pending decision and a private recovery snapshot before writing. Pending decisions return when you reopen the sidebar or restart Obsidian. Decline only restores a note that still matches the applied text. If you edit the note while deciding, you can accept the current text. The Undo command for an accepted edit also checks the applied snapshot before restoring. Snapshots retain at most 20 entries within 5 MB per vault. The pending record is capped at 10 MB.
 
@@ -69,11 +71,19 @@ Hidden/configuration files, excluded paths, traversal and symlinks escaping the 
 
 ### Organize files and folders
 
-Ask OWLA to move or rename files and folders. Open **Review paths** to see each old and new path, the folders to create, and Markdown notes whose links may change. **Accept** runs the batch through Obsidian’s file manager. **Decline** clears the proposal. Organization always needs a path review, regardless of the Markdown Diff view setting, and is submitted separately from content edits. OWLA can also suggest deleting files and folders. Review the target, folder contents, and known backlinks, then choose **Move to trash** or **Decline**. The proposal stays in the open chat until you decide or close it.
+Ask OWLA to move or rename files and folders. Open **Review paths** to see each old and new path, the folders to create, and Markdown notes whose links may change. **Accept** runs the batch through Obsidian’s file manager. **Decline** clears the proposal. Organization always needs a path review, regardless of the Markdown Diff view setting. Related note changes, moves and deletions can appear in one review. Each note and deletion is approved individually, and a move batch retains its own approval. Related edits wait for approval before writing. A deletion stays blocked until its required changes are accepted and their paths exist. Proposed new notes always count as prerequisites for deletions in the same review. OWLA can also suggest deleting files and folders. Review the target, folder contents, and known backlinks, then choose **Move to trash** or **Decline**. The proposal stays in the open chat until you decide or close it.
 
 Turn on **Automatically update internal links** in Obsidian’s Files and links settings to accept a batch. OWLA refuses conflicting, overlapping or excluded paths and batches that could update links in an excluded Markdown note. If relevant files or links changed after review, reopen the preview. OWLA records progress and backs up affected Markdown before applying. If a partial failure cannot be safely reversed, the chat shows the recovery record so you can inspect the paths before continuing.
 
 For reviewed deletions, set **Deleted files** in Obsidian’s Files and links settings to a trash option. OWLA follows that choice and requires recoverable trash.
+
+### Companion plugins
+
+Turn on **Plugin Interconnectivity** in OWLA settings to use **Nicons 1.4.6+**, **Pinup 1.0.5+**, and **Folder and Graphs Plus 4.4.4+** enabled in the same vault. The setting starts off and is saved per vault. Ask OWLA to find an icon and change or clear a file or folder icon override, pin or unpin a file or folder, or configure supported options in the bundled Folder2Graph graph. Graph options include folder and heading visibility, descendant weighting, and default node colours. OWLA stages changes for your review before applying them.
+
+OWLA shows each plugin proposal with its current and proposed value in the existing review. Use **Accept** or **Decline** for each change. Note changes and deletion dependencies keep their own approvals in the same review. Request icon and pin changes for an existing path after any move or deletion affecting that path has been resolved.
+
+The integration uses versioned Obsidian workspace events inside the vault. OWLA sends Codex the scoped option values and icon names it requests for the conversation. Plugin writes happen locally after approval, using the companion plugin’s existing save and refresh code. Turning the setting off discards unapproved plugin proposals.
 
 ## Chat and resources
 

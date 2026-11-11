@@ -7,7 +7,7 @@ import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
 import {list,record} from './validation';
 import manifest from '../manifest.json';
 export type ChatMessage={role:'user'|'assistant';content:string;context?:string;images?:string[];sourcePath?:string};
-export type CodexModel={id:string;model:string;displayName:string;description?:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[];inputModalities?:string[]};
+export type CodexModel={id:string;model:string;displayName:string;description?:string;specialty?:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[];inputModalities?:string[]};
 export type ToolOutput=string|{text:string;imageUrl:string};
 export type ToolSpec={type:'function';name:string;description:string;inputSchema:unknown};
 export const DEFAULT_STORAGE=join(homedir(),'Library','Application Support','OWLA Butler');
@@ -31,7 +31,7 @@ function decodeModel(value:unknown):CodexModel|null{
  if(!model||typeof data.defaultReasoningEffort!=='string')return null;
  const supportedReasoningEfforts=list(data.supportedReasoningEfforts).flatMap(value=>{const item=record(value);return typeof item.reasoningEffort==='string'?[{reasoningEffort:item.reasoningEffort,description:typeof item.description==='string'?item.description:''}]:[];});
  if(!supportedReasoningEfforts.some(e=>e.reasoningEffort===data.defaultReasoningEffort))return null;
- return {id,model,displayName:typeof data.displayName==='string'?data.displayName:model,description:typeof data.description==='string'?data.description:undefined,isDefault:data.isDefault===true,defaultReasoningEffort:data.defaultReasoningEffort,supportedReasoningEfforts,...(Array.isArray(data.inputModalities)?{inputModalities:list(data.inputModalities).filter((item):item is string=>typeof item==='string')}:{})};
+ return {id,model,displayName:typeof data.displayName==='string'?data.displayName:model,description:typeof data.description==='string'?data.description:undefined,specialty:typeof data.modelSpecialty==='string'?data.modelSpecialty:undefined,isDefault:data.isDefault===true,defaultReasoningEffort:data.defaultReasoningEffort,supportedReasoningEfforts,...(Array.isArray(data.inputModalities)?{inputModalities:list(data.inputModalities).filter((item):item is string=>typeof item==='string')}:{})};
 }
 export class CodexBridge{
  private child:ChildProcessWithoutNullStreams|null=null;private connectionKey='';private initialized=false;private startupAbort:AbortController|null=null;private holders=new Set<symbol>();private generation=0;private closing:Promise<void>=Promise.resolve();private nextId=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>();private buffer='';private idle:ReturnType<typeof setTimeout>|undefined;private connecting:Promise<void>|null=null;private active:{threadId:string;turnId?:string;event:(method:string,params:Record<string,unknown>)=>void;tool:(name:string,args:unknown)=>Promise<ToolOutput>;reject:(e:Error)=>void}|null=null;

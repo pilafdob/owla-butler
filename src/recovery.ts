@@ -30,11 +30,11 @@ export function loadPendingEdits(root:string):EditBatch[] {
   const reasons:unknown[] = Array.isArray(entry.reasons) ? entry.reasons : [];
   if (typeof path !== 'string' || typeof before !== 'string' || typeof after !== 'string' ||
       typeof reason !== 'string' || !reasons.length || !reasons.every(item => typeof item === 'string') ||
-      paths.has(path) || (create!==undefined&&(create!==true||before!==''))) {
+      paths.has(path) || (entry.deferred!==undefined&&entry.deferred!==true) || (create!==undefined&&(create!==true||before!==''))) {
    throw Error('The pending edit record is invalid.');
   }
   paths.add(path);
-  edits.push({edit:{path,before,after,reason,...(create===true?{create:true as const}:{})},reasons});
+  edits.push({edit:{path,before,after,reason,...(create===true?{create:true as const}:{})},reasons,...(entry.deferred===true?{deferred:true as const}:{})});
  }
  return edits;
 }

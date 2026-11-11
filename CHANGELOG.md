@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0
+
+- Improve automatic Codex model and reasoning effort selection with model-specific guidance and a compact inventory of attachments.
+- Show how to accept the Apple Foundation Models terms with `fm license` and remove the experimental label from automatic selection.
+- Add opt-in Plugin Interconnectivity to search Nicons icons and stage Pinup and Folder2Graph changes for review.
+
 ## 1.6.1
 
 - Use Obsidian’s file manager for reviewed deletions and require a recoverable trash setting.

@@ -31,7 +31,7 @@ interface PdfRange {page?:number;endPage?:number;offset?:number;}
 
 export async function readPdfTextRange(
  doc:PdfDocument,source:string,range:PdfRange={},
- signal?:AbortSignal
+ signal?:AbortSignal,onPage?:(page:number)=>void
 ):Promise<string>{
  const start=pdfPageNumber(String(range.page??1),doc.numPages);
  const end=pdfPageNumber(String(range.endPage??(range.page===undefined?doc.numPages:start)),doc.numPages);
@@ -53,6 +53,7 @@ export async function readPdfTextRange(
    const body=extracted||'[Scanned page. Use read_pdf with page='+number+' and visual=true to read it.]';
    if(!extracted&&body.length>remaining)return text+continuation(source,number,end,0);
    text+=label+body.slice(begin,begin+remaining);
+   if(extracted)onPage?.(number);
    if(begin+remaining<body.length)return text+continuation(source,number,end,begin+remaining);
   }finally{page.cleanup();}
  }
@@ -64,7 +65,7 @@ function continuation(path:string,page:number,endPage:number,offset:number):stri
 }
 
 export async function searchPdfText(
- doc:PdfDocument,source:string,query:string,range:PdfRange={},signal?:AbortSignal
+ doc:PdfDocument,source:string,query:string,range:PdfRange={},signal?:AbortSignal,onMatch?:(page:number)=>void
 ):Promise<string>{
  const start=pdfPageNumber(String(range.page??1),doc.numPages);
  const end=pdfPageNumber(String(range.endPage??doc.numPages),doc.numPages);
@@ -81,7 +82,10 @@ export async function searchPdfText(
    const text=pdfPageText((await page.getTextContent()).items).replace(/\s+/g,' ');
    if(!text){scannedPages++;continue;}
    const match=text.toLowerCase().indexOf(needle);
-   if(match>=0)matches.push({page:number,excerpt:text.slice(Math.max(0,match-100),match+needle.length+160)});
+   if(match>=0){
+    matches.push({page:number,excerpt:text.slice(Math.max(0,match-100),match+needle.length+160)});
+    onMatch?.(number);
+   }
   }finally{page.cleanup();}
  }
  return JSON.stringify({

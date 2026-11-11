@@ -19,6 +19,7 @@ export type RemovalReview={
  folder:boolean;
  children:string[];
  backlinks:string[];
+ targetFingerprint:string;
  fingerprint:string;
 };
 type Progress={
@@ -174,14 +175,15 @@ export class Organization {
   const backlinks=Object.entries(this.app.metadataCache.resolvedLinks)
    .filter(([note,links])=>!under(note,path)&&this.allowed(note)&&Object.keys(links).some(link=>under(link,path)))
    .map(([note])=>note).sort();
-  return {path,reason,folder:target instanceof TFolder,children:tree.slice(1).map(([entry])=>entry),backlinks,fingerprint:hash([tree,backlinks])};
+  return {path,reason,folder:target instanceof TFolder,children:tree.slice(1).map(([entry])=>entry),backlinks,targetFingerprint:hash(tree),fingerprint:hash([tree,backlinks])};
  }
 
- async trash(review:RemovalReview){
+ async trash(review:RemovalReview,beforeTrash?:()=>void){
   const fresh=await this.previewRemoval(review.path,review.reason);
   const target=this.app.vault.getAbstractFileByPath(review.path);
   if(!target||fresh.fingerprint!==review.fingerprint)throw Error('This path or its known backlinks changed. Decline and request a fresh review.');
   if(!this.recoverableTrash())throw Error('Set Deleted files to a trash option in Obsidian’s Files and links settings, then retry.');
+  beforeTrash?.();
   await this.app.fileManager.trashFile(target);
   if(this.stat(review.path))throw Error('Obsidian could not move this path to trash.');
  }

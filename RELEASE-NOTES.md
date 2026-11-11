@@ -1,8 +1,8 @@
-# OWLA Butler 1.6.1
+# OWLA Butler 2.0.0
 
-- Reviewed deletions now use Obsidian’s file manager. Set **Deleted files** in Obsidian’s Files and links settings to your preferred trash option before approving a deletion.
-- Cleaned up the PDF viewer’s **Add page to OWLA** action and the styles for accessible labels and edit highlights.
+- Automatic selection now weighs each available Codex model’s strengths and picks a reasoning effort for the task. Routine requests can use Luna, visual tasks can use Terra, multi-step work can use Sol, and demanding analysis can use Astra.
+- Apple’s on-device router now sees a compact attachment inventory with file names, types, and selected PDF pages. It receives the original prompt, while file contents and chat history stay out of the routing request.
+- Plugin Interconnectivity can search Nicons icons and stage Pinup pins or supported Folder2Graph options for approval before applying them.
+- Automatic model and reasoning effort is available as an opt-in setting on supported macOS 27 Macs. Open Terminal and run `fm license` to review and accept Apple’s Foundation Models terms before enabling it.
 
-This patch addresses the source and CSS findings from the 1.6.0 Community review. See the [1.6.0 release notes](https://github.com/pilafdob/owla-butler/releases/tag/1.6.0) for automatic model and reasoning selection, connection setup, and change cards.
-
-To update manually, replace `main.js`, `manifest.json`, and `styles.css` together and keep `data.json`.
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.

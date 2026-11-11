@@ -16,7 +16,9 @@ test('long PDFs expose a continuation that preserves the rest of a dense page an
   }),
   destroy:async()=>{}
  };
- const initial=await readPdfTextRange(doc,'Large.pdf');
+ const opened:number[]=[];
+ const initial=await readPdfTextRange(doc,'Large.pdf',{},undefined,page=>opened.push(page));
+ assert.deepEqual(opened,[1]);
  const next=initial.match(/Continue with read_pdf (\{[^\n]+\})/);
  assert.ok(next);
  assert.match(initial,/2 pages in total/);
@@ -42,7 +44,9 @@ test('PDF search reports scanned pages and continues until later text matches',a
  assert.deepEqual(first.matches,[]);
  assert.equal(first.scannedPages,1);
  assert.equal(first.continueWith.page,65);
- const next=JSON.parse(await searchPdfText(doc,'Large.pdf','example phrase',first.continueWith));
+ const matches:number[]=[];
+ const next=JSON.parse(await searchPdfText(doc,'Large.pdf','example phrase',first.continueWith,undefined,page=>matches.push(page)));
+ assert.deepEqual(matches,[65]);
  assert.deepEqual(next.matches,[{page:65,excerpt:'Example phrase'}]);
  assert.equal(next.continueWith,undefined);
 });
