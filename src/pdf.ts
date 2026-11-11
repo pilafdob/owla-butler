@@ -31,7 +31,7 @@ interface PdfRange {page?:number;endPage?:number;offset?:number;}
 
 export async function readPdfTextRange(
  doc:PdfDocument,source:string,range:PdfRange={},
- onScan?:(page:PdfPage,number:number)=>Promise<void>,signal?:AbortSignal
+ signal?:AbortSignal
 ):Promise<string>{
  const start=pdfPageNumber(String(range.page??1),doc.numPages);
  const end=pdfPageNumber(String(range.endPage??(range.page===undefined?doc.numPages:start)),doc.numPages);
@@ -39,7 +39,8 @@ export async function readPdfTextRange(
  if(end<start||!Number.isSafeInteger(offset)||offset<0)throw Error('Use an ascending PDF page range and a nonnegative text offset.');
  const budget=64_000;
  let text=source+' · '+doc.numPages+' pages in total.\n';
- for(let number=start;number<=end;number++){
+ const last=Math.min(end,start+31);
+ for(let number=start;number<=last;number++){
   signal?.throwIfAborted();
   const page=await doc.getPage(number);
   try{
@@ -50,17 +51,42 @@ export async function readPdfTextRange(
    const remaining=budget-text.length-label.length;
    if(remaining<=0)return text+continuation(source,number,end,begin);
    const body=extracted||'[Scanned page. Use read_pdf with page='+number+' and visual=true to read it.]';
-   if(!extracted){
-    if(body.length>remaining)return text+continuation(source,number,end,0);
-    await onScan?.(page,number);
-   }
+   if(!extracted&&body.length>remaining)return text+continuation(source,number,end,0);
    text+=label+body.slice(begin,begin+remaining);
    if(begin+remaining<body.length)return text+continuation(source,number,end,begin+remaining);
   }finally{page.cleanup();}
  }
- return text;
+ return last<end?text+continuation(source,last+1,end,0):text;
 }
 
 function continuation(path:string,page:number,endPage:number,offset:number):string{
  return '\n[More PDF text is available. Continue with read_pdf '+JSON.stringify({path,page,endPage,...(offset?{offset}:{})})+']';
+}
+
+export async function searchPdfText(
+ doc:PdfDocument,source:string,query:string,range:PdfRange={},signal?:AbortSignal
+):Promise<string>{
+ const start=pdfPageNumber(String(range.page??1),doc.numPages);
+ const end=pdfPageNumber(String(range.endPage??doc.numPages),doc.numPages);
+ const needle=query.trim().replace(/\s+/g,' ').toLowerCase();
+ if(!needle||needle.length>200||end<start||range.offset!==undefined){
+  throw Error('Use a search phrase of up to 200 characters and an ascending PDF page range.');
+ }
+ const matches:{page:number;excerpt:string}[]=[];
+ let scannedPages=0,number=start;
+ for(;number<=Math.min(end,start+63)&&matches.length<8;number++){
+  signal?.throwIfAborted();
+  const page=await doc.getPage(number);
+  try{
+   const text=pdfPageText((await page.getTextContent()).items).replace(/\s+/g,' ');
+   if(!text){scannedPages++;continue;}
+   const match=text.toLowerCase().indexOf(needle);
+   if(match>=0)matches.push({page:number,excerpt:text.slice(Math.max(0,match-100),match+needle.length+160)});
+  }finally{page.cleanup();}
+ }
+ return JSON.stringify({
+  path:source,totalPages:doc.numPages,searchedPages:[start,number-1],matches,
+  ...(scannedPages?{scannedPages,note:'Pages without searchable text may require a visual read.'}:{}),
+  ...(number<=end?{continueWith:{path:source,query,page:number,endPage:end}}:{})
+ });
 }

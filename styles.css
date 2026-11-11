@@ -231,3 +231,20 @@
 
 .owla-organization-preview { max-height: 55vh; overflow: auto; overflow-wrap: anywhere; }
 .owla-organization-preview .owla-diff { max-height: none; }
+
+.owla-attachment-icon,
+.owla-sent-attachment > span:first-child { display: inline-flex; flex: none; }
+.owla-attachment-icon svg,
+.owla-sent-attachment svg { width: 14px; height: 14px; }
+.owla-sent-attachments { display: grid; gap: 4px; margin-top: 8px; }
+.owla-sent-attachment {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ padding: 4px 6px;
+ border: 1px solid var(--background-modifier-border);
+ border-radius: 6px;
+ color: var(--text-muted);
+ font-size: var(--font-ui-smaller);
+ line-height: 1.4;
+}

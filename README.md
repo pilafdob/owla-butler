@@ -37,13 +37,13 @@ The sidebar starts with a clean message area. Choose the **model** and **reasoni
 
 Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. Codex can search/read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
 
-Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. OWLA extracts page-labelled text and Codex can request more pages, including rendered scans. Use **Add page to OWLA** in the PDF viewer to attach a specific page. For transcription, ask it to preserve visible symbols and mark uncertainty.
+Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. Codex reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page. For transcription, ask it to preserve visible symbols and mark uncertainty.
 
 Web search is enabled by default so Codex can check current facts when needed. Turn it off in settings if unwanted. Selected note contents, attachments and recent chat are processed by OpenAI; web queries may draw on that context. Responses expose readable activity, used note/page sources and linked web references. Source links do not guarantee that every interpretation is correct.
 
 ## Privacy, network access and files outside the vault
 
-**This is a cloud-backed assistant.** On sending a message, your current note snapshot (including unsaved text), explicit selections/attachments, bounded recent chat and any allowed notes requested by Codex are sent to OpenAI through Codex. It does not upload the whole vault. Web search is on by default; queries can include supplied context. Disable it in settings when needed. Provider processing, retention and account controls follow [OpenAI’s Codex data guidance](https://developers.openai.com/codex/security).
+**This is a cloud-backed assistant.** Sending a message shares your current note snapshot (including unsaved text), selections, images, attachment references and bounded recent chat with OpenAI through Codex. Codex can request allowed note text, document excerpts and PDF pages as needed. It does not upload the whole vault. Web search is on by default; queries can include supplied context. Disable it in settings when needed. Provider processing, retention and account controls follow [OpenAI’s Codex data guidance](https://developers.openai.com/codex/security).
 
 OWLA makes no separate telemetry or advertising requests. It explicitly disables optional Codex analytics, feedback uploads and OpenTelemetry exporters for its own child process and checks the effective settings before starting a conversation. This does not disable the network traffic needed to provide Codex authentication, model discovery, quota reporting, inference and optional web search. Global Codex settings are left unchanged.
 
@@ -119,13 +119,13 @@ OWLA Butler: [MIT](LICENSE). The bird icon is from [Phosphor Icons](https://gith
 
 ### Attachments and experimental editor diff
 
-Right-click a folder or a multi-file selection in the File Explorer and choose **Add folder to OWLA chat** or **Add files to OWLA chat**. Folder attachments include nested files and respect exclusions. You can also drop multiple files from Obsidian or Finder into chat.
+Right-click a folder or a multi-file selection in the File Explorer and choose **Add folder to OWLA chat** or **Add files to OWLA chat**. A folder appears as one attachment. Codex can list it or search allowed notes within it and its subfolders. You can also drop multiple files from Obsidian or Finder into chat.
 
-Drop files into chat or use Attach. OWLA prepares files locally before Send becomes available. PNG/JPEG/WebP images are resized, and macOS image conversion handles formats such as HEIC, TIFF and BMP, including images over 10 MB. Whole-PDF attachments also accept larger PDFs.
+Drop files into chat or use Attach. PDFs and vault folders appear immediately as references. OWLA prepares images and converts other documents locally. PNG/JPEG/WebP images are resized, and macOS image conversion handles formats such as HEIC, TIFF and BMP, including images over 10 MB. Whole-PDF attachments also accept larger PDFs.
 
 Word DOCX, PowerPoint PPTX, Excel XLSX and OpenDocument files provide extracted text. On macOS, Pages, Keynote and Numbers use an installed Apple app to export a temporary copy to Office format. macOS may request Automation permission. The original file is never opened for conversion. Temporary copies and exports are deleted afterward. If full extraction fails, an embedded or Quick Look preview is labelled **Preview only**. Unsupported files stay attached with **Content unavailable**, so the assistant can explain the limitation. Audio, video and arbitrary binary formats do not gain full understanding from an attachment alone.
 
-Extraction retains paragraph, slide and sheet source names. It does not preserve every diagram, chart or page layout. Text is bounded and explicitly labelled when shortened. Large originals are converted locally, with only the prepared text/images included on Send.
+Extraction retains paragraph, slide and sheet source names. It does not preserve every diagram, chart or page layout. Text is bounded and explicitly labelled when shortened. Large originals are converted locally. Codex can request the prepared text when needed. Screenshots and document previews use Codex image input.
 
 Choose **Highlights in editor**, **None** or **Split diff view** in the Diff view setting. Highlights in editor shows temporary subtle green additions and red removed-text blocks in the Markdown editor. Split diff view opens the same source diff as View diff in a normal Obsidian split to the right of the note. Accept and Decline remain in chat, and resolving the last pending edit closes the diff pane. The overlay uses theme colors, clears on Accept/Decline, and hides when the pending text changes. It never writes markers into the Markdown. Source View diff remains available in chat.
 
@@ -133,7 +133,7 @@ Ask OWLA to create a note from the conversation. It drafts the Markdown at a new
 
 ### PDFs
 
-Attach or drop a PDF to give Codex access to the whole document. OWLA sends page-labelled text and prepared scan images, and Codex can fetch later page ranges automatically when the initial context budget is reached. The PDF chip shows the page count. For a single page, use Add page to OWLA in the PDF viewer. The read_pdf tool also supports visual reading of scans and diagrams. References such as [[Books/Study.pdf#page=3]] resolve through the vault. OCR uses Codex's visual input and does not rewrite the PDF.
+Attach or drop a PDF to give Codex access to the whole document. Each PDF appears as a file chip. Codex can search the PDF’s text layer, read page ranges or request a rendered image of a scan or diagram. For a single page, use **Add page to OWLA** in the PDF viewer or include a reference such as `[[Books/Study.pdf#page=3]]`. OCR uses Codex’s visual input and leaves the PDF unchanged.
 
 Right-click a PDF page in the Obsidian viewer to add it to OWLA, copy its page link, or copy selected text. This plugin menu provides those actions for PDF pages. The ordinary PDF toolbar remains available.
 

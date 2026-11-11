@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+- Show PDFs and folders as single attachments. Read PDF pages, folder notes and converted document text on demand.
+- Search PDF text by phrase and render scanned pages when requested.
+- Bound image payloads and apply the Codex protocol size limit to individual messages.
+
 ## 1.5.0
 
 - Review file and folder moves, renames and bulk organization before applying them with Obsidian’s internal link updates.

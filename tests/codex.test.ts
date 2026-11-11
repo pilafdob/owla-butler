@@ -76,3 +76,20 @@ test('warm startup and Send share a handshake and only the last owner stops the 
  assert.equal(bridge.ready,false);
  assert.equal(internals.child,null);
 });
+
+test('Codex protocol applies its size limit per message, including messages split across chunks',()=>{
+ const bridge=new CodexBridge() as any;
+ const child={stdin:{end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};
+ bridge.child=child;
+ const frames:unknown[]=[];
+ bridge.receive=(value:unknown)=>frames.push(value);
+ const line=JSON.stringify({value:'x'.repeat(8*1024*1024)});
+ bridge.receiveChunk(child,line.slice(0,100));
+ bridge.receiveChunk(child,line.slice(100)+'\n'+line+'\n');
+ assert.equal(frames.length,2);
+ assert.equal(bridge.child,child);
+ bridge.receiveChunk(child,'x'.repeat(16*1024*1024)+'x\n');
+ assert.equal(bridge.child,null);
+ assert.equal(bridge.buffer,'');
+ assert.match(bridge.status,/16 MiB/);
+});

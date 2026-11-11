@@ -69,7 +69,7 @@ export class CodexBridge{
  if(!file||!isExecutable(file))throw Error('Codex was not found. Install and sign in to Codex in Terminal, or choose its executable in settings.');
  this.version=(await command(file,['--version'],env,startup.signal)).trim();if(!supportedVersion(this.version))throw Error('Update Codex to version 0.162.1 or newer, then reconnect.');if(generation!==this.generation)throw Error('Codex connection cancelled.');this.executable=file;mkdirSync(cwd,{recursive:true,mode:0o700});
  const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','features.apps=false','features.shell_tool=false','features.code_mode=false','features.js_repl=false','features.multi_agent=false','features.view_image=false','features.skill_mcp_dependency_install=false','web_search='+JSON.stringify(web?'live':'disabled'),...extra];
- const child=spawn(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,shell:false,stdio:'pipe',detached:process.platform!=='win32'});this.child=child;this.buffer='';child.stdout.setEncoding('utf8');child.stdout.on('data',chunk=>{if(this.child!==child)return;this.buffer+=chunk;if(this.buffer.length>4_000_000){this.disconnect('Codex sent an oversized protocol message.');return;}let index;while((index=this.buffer.indexOf('\n'))>=0){const line=this.buffer.slice(0,index);this.buffer=this.buffer.slice(index+1);if(!line.trim())continue;try{this.receive(JSON.parse(line));}catch{this.disconnect('Codex sent an invalid protocol message.');break;}}});child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
+ const child=spawn(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,shell:false,stdio:'pipe',detached:process.platform!=='win32'});this.child=child;this.buffer='';child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
  await this.request('initialize',{clientInfo:{name:'owla_butler',title:'OWLA Butler',version:manifest.version},capabilities:{experimentalApi:true}});this.notify('initialized');
  const config=record(record(await this.request('config/read',{includeLayers:false})).config),features=record(config.features);
  const inherited=integrationOverrides(config);
@@ -87,6 +87,23 @@ export class CodexBridge{
  private notify(method:string,params?:Record<string,unknown>){this.child?.stdin.write(JSON.stringify({method,...(params?{params}:{})})+'\n');}
  private request(method:string,params:Record<string,unknown>,timeout=20000):Promise<unknown>{const child=this.child;if(!child)return Promise.reject(Error('Codex is disconnected.'));const id=this.nextId++;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('Codex timed out during '+method+'. Reconnect and retry.'));},timeout);this.pending.set(id,{resolve,reject,timer});child.stdin.write(JSON.stringify({id,method,params})+'\n');});}
  private reply(id:string|number,result:unknown){this.child?.stdin.write(JSON.stringify({id,result})+'\n');}
+ private receiveChunk(owner:ChildProcessWithoutNullStreams,chunk:string){
+  if(this.child!==owner)return;
+  this.buffer+=chunk;
+  const limit=16*1024*1024;
+  let end=this.buffer.indexOf('\n');
+  while(end>=0&&end<=limit){
+   const line=this.buffer.slice(0,end);
+   this.buffer=this.buffer.slice(end+1);
+   if(line.trim()){
+    try{this.receive(JSON.parse(line));}
+    catch{this.disconnect('Codex sent an invalid protocol message.');return;}
+   }
+   if(this.child!==owner)return;
+   end=this.buffer.indexOf('\n');
+  }
+  if(this.buffer.length>limit)this.disconnect('A Codex protocol message exceeded the 16 MiB limit.');
+ }
  private receive(value:unknown){
   const msg=record(value),params=record(msg.params),method=typeof msg.method==='string'?msg.method:'',id=msg.id;
   if(method==='account/rateLimits/updated'){const usage=decodeUsage(params);if(usage)this.acceptUsage(usage);}
@@ -187,5 +204,5 @@ export class CodexBridge{
   if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus(status);
  }
  private fail(e:Error){this.disconnect(friendlyError(e));}
- disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;const child=this.child;this.child=null;const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>{try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}catch{try{child.kill(signal);}catch{/* The owned process has already exited. */}}};if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
+ disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;const child=this.child;this.child=null;this.buffer='';const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>{try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}catch{try{child.kill(signal);}catch{/* The owned process has already exited. */}}};if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
 }
