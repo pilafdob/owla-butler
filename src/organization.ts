@@ -66,6 +66,7 @@ export class Organization {
   private allowed:(path:string)=>boolean,
   private excluded:()=>string,
   private linkUpdates:()=>boolean,
+  private recoverableTrash:()=>boolean,
   private read:(path:string)=>Promise<string>,
   private restore:(path:string,expected:string,text:string)=>Promise<void>
  ){}
@@ -180,9 +181,9 @@ export class Organization {
   const fresh=await this.previewRemoval(review.path,review.reason);
   const target=this.app.vault.getAbstractFileByPath(review.path);
   if(!target||fresh.fingerprint!==review.fingerprint)throw Error('This path or its known backlinks changed. Decline and request a fresh review.');
-  // The review promises recoverable trash even if Obsidian is set to delete permanently.
-  // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
-  await this.app.vault.trash(target,true);
+  if(!this.recoverableTrash())throw Error('Set Deleted files to a trash option in Obsidian’s Files and links settings, then retry.');
+  await this.app.fileManager.trashFile(target);
+  if(this.stat(review.path))throw Error('Obsidian could not move this path to trash.');
  }
 
  async preview(moves:PathMove[],reason:string):Promise<OrganizationReview>{

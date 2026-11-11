@@ -53,7 +53,7 @@ export default class Butler extends Plugin {
    this.pendingLoadError = friendlyError(e);
   }
   this.organization=new Organization(this.app,()=>this.vaultStorage(),()=>this.vaultBasePath(),
-   path=>this.allowedVaultFile(path),()=>this.prefs.excludedFolders,()=>this.automaticLinksEnabled(),
+   path=>this.allowedVaultFile(path),()=>this.prefs.excludedFolders,()=>this.automaticLinksEnabled(),()=>this.recoverableTrashEnabled(),
    path=>this.currentText(path),(path,before,after)=>this.writeEdit({path,before,after,reason:'Restore organization link updates'}));
   this.organization.load();
   this.registerEditorExtension(editorDiff(()=>({enabled:this.prefs.diffView==='highlights',pending:this.pendingEdits})));
@@ -97,7 +97,7 @@ export default class Butler extends Plugin {
    if(typeof path!=='string'||!this.allowedPdf(path)||!Number.isInteger(number)||number<1)return;
    event.preventDefault();event.stopImmediatePropagation();
    const menu=new Menu().setUseNativeMenu(false),link='[['+path+'#page='+number+']]';
-   menu.addItem(item=>item.setTitle('Add page to OWLA').setIcon('file-plus').onClick(async()=>{try{const view=await this.open();await view.attachVaultPdf(path+'#page='+number);}catch(error){new Notice(friendlyError(error));}}));
+   menu.addItem(item=>item.setTitle('Add page to OWLA').setIcon('file-plus').onClick(async()=>{try{const view=await this.open();view.attachVaultPdf(path+'#page='+number);}catch(error){new Notice(friendlyError(error));}}));
    menu.addItem(item=>item.setTitle('Copy link to page').setIcon('link').onClick(()=>void navigator.clipboard.writeText(link)));
    const selected=window.getSelection()?.toString();
    if(selected)menu.addItem(item=>item.setTitle('Copy selected text').setIcon('copy').onClick(()=>void navigator.clipboard.writeText(selected)));
@@ -220,6 +220,11 @@ export default class Butler extends Plugin {
  automaticLinksEnabled(){
   if(!this.settingsTab)return false;
   return SettingTab.prototype.getControlValue.call(this.settingsTab,'alwaysUpdateLinks')===true;
+ }
+ private recoverableTrashEnabled(){
+  if(!this.settingsTab)return false;
+  const option=SettingTab.prototype.getControlValue.call(this.settingsTab,'trashOption');
+  return option==='system'||option==='local';
  }
  inlineTitle():boolean|undefined {
   if (!this.settingsTab) return undefined;

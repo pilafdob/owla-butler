@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.1
+
+- Use Obsidian’s file manager for reviewed deletions and require a recoverable trash setting.
+- Fix the PDF page action’s unnecessary `await` and the reported CSS compatibility and duplicate-declaration warnings.
+
 ## 1.6.0
 
 - Optionally use Apple’s on-device model to choose a compatible Codex model and reasoning effort for each request. Show the chosen model and effort or the fallback in the sidebar.

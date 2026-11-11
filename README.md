@@ -73,6 +73,8 @@ Ask OWLA to move or rename files and folders. Open **Review paths** to see each 
 
 Turn on **Automatically update internal links** in Obsidian’s Files and links settings to accept a batch. OWLA refuses conflicting, overlapping or excluded paths and batches that could update links in an excluded Markdown note. If relevant files or links changed after review, reopen the preview. OWLA records progress and backs up affected Markdown before applying. If a partial failure cannot be safely reversed, the chat shows the recovery record so you can inspect the paths before continuing.
 
+For reviewed deletions, set **Deleted files** in Obsidian’s Files and links settings to a trash option. OWLA follows that choice and requires recoverable trash.
+
 ## Chat and resources
 
 **New chat** asks before clearing an existing conversation, draft or attachments. **Save and start new** saves recent messages before clearing the chat. Save, open and delete recent chats through the chat menu or command palette. Chats are saved only when you choose Save recent chat. New saves include the source note path used to resolve relative links. Saves contain the last three exchanges, without images/attachments or edit buttons; at most 20 saves, with confirmed deletion. Runtime chat context uses up to six recent exchanges / 64,000 text characters and the two most recent images; shortening is announced. Recent PDF-page/selection/attached-note context and images stay in memory for follow-up questions across backend shutdowns, so you do not need to attach them again. Raw attachments are excluded from saved-chat files; quoted material in the saved answer remains ordinary chat text.

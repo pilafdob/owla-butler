@@ -16,6 +16,7 @@ export default [
       'no-empty': 'error',
       'no-control-regex': 'error',
       'no-useless-escape': 'error',
+      '@typescript-eslint/await-thenable': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unsafe-member-access': 'error',
       '@typescript-eslint/no-unsafe-assignment': 'error',
