@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.2
+
+- Light the sidebar dot green only while the provider's process is running in the background, for Codex, OpenCode and Claude Code alike, instead of whenever the provider is connected. With the Automatic provider, the dot is green while any provider runs.
+
 ## 3.0.1
 
 - Stop the Automatic provider from choosing frontier models and maximum effort for easy work. The on-device classification is now calibrated: each kind of work has a difficulty ceiling (only reasoning, research and coding can be rated most difficult), effort is capped by that difficulty, and maximum effort needs rigorous reasoning or research. Long writing from supplied material counts as moderate work.

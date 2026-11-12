@@ -138,6 +138,10 @@ export class ClaudeBridge implements ProviderBridge{
  private children=new Set<ChildProcessWithoutNullStreams>();private generation=0;
 
  get ready(){return this.loggedIn&&this.models.length>0;}
+ /** Claude Code has no resident process; it runs only while a reply or check is under way. */
+ get running(){return this.children.size>0;}
+ private track(child:ChildProcessWithoutNullStreams){this.children.add(child);this.onStatus(this.status);}
+ private untrack(child:ChildProcessWithoutNullStreams){if(this.children.delete(child))this.onStatus(this.status);}
  get needsSignIn(){return this.accountType==='';}
  get signInPending(){return false;}
 
@@ -210,9 +214,9 @@ export class ClaudeBridge implements ProviderBridge{
   return new Promise((resolve,reject)=>{
    let init:Message|null=null;
    const child=spawn(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools',''],{cwd,env,shell:false,stdio:'pipe'});
-   this.children.add(child);
+   this.track(child);
    let buffer='',done=false;
-   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.children.delete(child);child.stdin.end();child.kill();error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
+   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdin.end();child.kill();error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
    const timer=setTimeout(()=>finish(Error('Claude Code did not respond. Check that it runs in Terminal.')),30000);
    child.stdout.setEncoding('utf8');
    child.stdout.on('data',(chunk:string)=>{
@@ -254,7 +258,7 @@ export class ClaudeBridge implements ProviderBridge{
   options.signal.throwIfAborted();
   const env=this.env(),generation=this.generation;
   const child=spawn(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web),{cwd:options.cwd||homedir(),env,shell:false,stdio:'pipe',detached:process.platform!=='win32'});
-  this.children.add(child);
+  this.track(child);
   const send=(value:unknown)=>{if(!child.stdin.destroyed)child.stdin.write(JSON.stringify(value)+'\n');};
   const sources=new Map<string,string>();
   let streamed='',lastAssistant='',stderr='',usedWeb=false;
@@ -363,7 +367,7 @@ export class ClaudeBridge implements ProviderBridge{
     send({type:'control_request',request_id:'owla-init',request:{subtype:'initialize',sdkMcpServers:[CLAUDE_MCP_SERVER]}});
    });
   }finally{
-   this.children.delete(child);
+   this.untrack(child);
    if(!child.stdin.destroyed)child.stdin.end();
    const timer=setTimeout(()=>{if(child.exitCode===null)this.kill(child);},2000);
    child.once('exit',()=>clearTimeout(timer));

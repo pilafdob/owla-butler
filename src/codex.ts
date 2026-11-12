@@ -43,6 +43,7 @@ export class CodexBridge implements ProviderBridge{
  private env(){const env:NodeJS.ProcessEnv={...process.env,PATH:[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter)};for(const key of ['OPENAI_API_KEY','CODEX_API_KEY','AZURE_OPENAI_API_KEY'])delete env[key];return env;}
  private setStatus(s:string){this.status=s;this.onStatus(s);}
  get ready(){return !!this.child&&this.initialized&&this.accountType==='chatgpt';}
+ get running(){return !!this.child;}
  get needsSignIn(){return this.accountType==='';}
  get signInPending(){return !!this.idle;}
 

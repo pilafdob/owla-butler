@@ -35,7 +35,7 @@
 .owla-sources{margin-top:12px;padding:8px;border:1px solid var(--background-modifier-border);border-radius:7px;color:var(--text-muted);font-size:11px;overflow-wrap:anywhere}
 .owla-sources summary{cursor:pointer}.owla-sources div{margin-top:5px}.owla-sources p{font-size:10px;margin-bottom:0}
 .owla-review-warning{padding:8px;border-left:3px solid var(--text-warning);background:var(--background-secondary);font-size:12px}
-.owla-connect{display:grid;place-items:center;font-size:10px;max-width:100%;width:27px;min-width:27px;height:26px;margin-left:auto;padding:0;background:transparent;border:0;box-shadow:none}.owla-connection-dot{display:block;width:9px;height:9px;border-radius:50%;background:var(--text-faint,#777)}.owla-connect.is-connected .owla-connection-dot{background:var(--color-green,#44b878)}
+.owla-connect{display:grid;place-items:center;font-size:10px;max-width:100%;width:27px;min-width:27px;height:26px;margin-left:auto;padding:0;background:transparent;border:0;box-shadow:none}.owla-connection-dot{display:block;width:9px;height:9px;border-radius:50%;background:var(--text-faint,#777)}.owla-connect.is-running .owla-connection-dot{background:var(--color-green,#44b878)}
 .owla-status{overflow-wrap:anywhere}.owla-message-content{overflow-wrap:anywhere}
 .owla-usage-card{padding:12px;margin:8px 0;border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-secondary)}.owla-usage-card p{margin:6px 0;font-size:12px;color:var(--text-muted)}.owla-usage-card progress{width:100%;height:8px;accent-color:var(--interactive-accent)}
 

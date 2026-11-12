@@ -192,6 +192,7 @@ export class OpencodeBridge implements ProviderBridge{
  onStatus:(status:string)=>void=()=>{};
 
  get ready(){return !!this.child;}
+ get running(){return !!this.child;}
  get needsSignIn(){return false;}
  get signInPending(){return false;}
 

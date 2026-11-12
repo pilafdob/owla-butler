@@ -85,6 +85,8 @@ export interface ProviderBridge {
   onStatus: (status: string) => void;
   onUsage: () => void;
   readonly ready: boolean;
+  /** True while the provider's own process is running in the background. */
+  readonly running: boolean;
   readonly needsSignIn: boolean;
   readonly signInPending: boolean;
 }

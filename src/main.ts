@@ -761,7 +761,9 @@ export class ButlerView extends ItemView {
   if(!this.connectButton)return;
   const bridge=this.butler.bridge;
   const status=this.butler.providerStatus();
-  this.connectButton.classList.toggle('is-connected',bridge.ready);
+  // Green means a provider process is running in the background; with Automatic, any provider's.
+  const running=this.butler.prefs.automaticProvider?PROVIDER_IDS.some(id=>this.butler.bridgeFor(id).running):bridge.running;
+  this.connectButton.classList.toggle('is-running',running);
   setTooltip(this.connectButton,status);
   this.connectButton.setAttribute('aria-label',status);
   this.connectButton.disabled=this.isBusy()||!this.butler.canConnectProvider;
