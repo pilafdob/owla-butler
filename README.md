@@ -6,7 +6,7 @@ A native Obsidian assistant powered by an assistant you already installed and si
 
 ## Requirements and cost
 
-- **Desktop Obsidian 1.14.5 or newer on macOS or Windows.** Linux and mobile are not supported.
+- **Desktop Obsidian 1.14.5 or newer on macOS or Windows.** Linux and mobile are not yet supported.
 - **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, or Claude Code 2.1.322 or newer**, installed separately, and an eligible account. An internet connection is required for answers, sign-in, model discovery and quota checks.
 - OWLA is free and MIT licensed. OpenAI may require a paid plan or credits for your chosen model or usage; access and limits depend on your account. OpenCode may serve free models and may charge for the providers you connect there. Anthropic applies the limits of your Claude plan. There is no OWLA subscription or API-key billing integration. Check [current Codex access and pricing](https://learn.chatgpt.com/docs/pricing).
 
