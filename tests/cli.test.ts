@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {chmodSync,mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {delimiter,join,win32} from 'node:path';
 import {defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli} from '../src/cli';
@@ -46,6 +46,7 @@ test('POSIX CLI discovery still requires an executable file',()=>{
   writeFileSync(notExecutable,'not executable',{mode:0o600});
   assert.equal(findCliExecutable('example',bin,[]),'');
   writeFileSync(notExecutable,'#!/bin/sh\nexit 0\n',{mode:0o700});
+  chmodSync(notExecutable,0o700);
   assert.equal(findCliExecutable('example',bin,[]),notExecutable);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
