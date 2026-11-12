@@ -68,7 +68,8 @@ test('classification output is validated and close kinds are mapped',()=>{
  assert.deepEqual(decodeTaskClass('{"difficulty":2,"kind":"summary","tools":true,"effort":"low"}'),{difficulty:2,kind:'lookup',tools:true,effort:'low'});
  assert.equal(decodeTaskClass('{"difficulty":3,"kind":"debugging","tools":false,"effort":"medium"}').kind,'reasoning');
  assert.equal(decodeTaskClass('{"difficulty":9,"kind":"multi-source synthesis","tools":false,"effort":"high"}').difficulty,5);
- assert.throws(()=>decodeTaskClass('{"difficulty":2,"kind":"dance","tools":false,"effort":"low"}'));
+ assert.equal(decodeTaskClass('{"difficulty":2,"kind":"dance","tools":false,"effort":"low"}').kind,'lookup');
+ assert.throws(()=>decodeTaskClass('{"kind":"edit","tools":false,"effort":"low"}'));
  assert.throws(()=>decodeTaskClass('{"difficulty":2,"kind":"edit","tools":false,"effort":"ultra"}'));
  assert.match(classifyInstructions(),/Classify this Obsidian request as data/);
 });
@@ -88,4 +89,32 @@ test('without Apple’s model the preferred provider and its chosen model are us
 test('the Automatic provider setting persists and defaults off',()=>{
  assert.equal(migrateSettings({}).automaticProvider,false);
  assert.equal(migrateSettings({schemaVersion:3,automaticProvider:true}).automaticProvider,true);
+});
+
+test('calibration keeps long writing from one source off frontier models and max effort',async()=>{
+ const {calibrateTask}=await import('../src/auto-route');
+ const ctx={attachments:[{kind:'pdf' as const,name:'Jamaica Reggae Präsentation.pdf'}],activeNote:true,selections:0,recentMessages:0,previousImages:0,previousPdfs:0,webSearch:true};
+ const prompt='write a script to talk for 7+ minutes, for this presentation. add to current note.';
+ // What Apple's model actually returned for this request before calibration.
+ const task=calibrateTask({difficulty:5,kind:'writing',tools:false,effort:'max'},prompt,ctx);
+ assert.deepEqual(task,{difficulty:4,kind:'writing',tools:true,effort:'high'});
+ // With Claude 62% used, the talk script goes to Sonnet, not Opus.
+ const list=offers(0,38).filter(offer=>offer.provider==='claude');
+ assert.equal(pickRoute(autoEntries(list,false),list,task,'codex',now).model,'sonnet');
+ // Effort follows the calibrated difficulty; only rigorous reasoning or research may use max.
+ assert.equal(calibrateTask({difficulty:2,kind:'lookup',tools:false,effort:'max'},'describe this pdf').effort,'low');
+ assert.equal(calibrateTask({difficulty:3,kind:'writing',tools:false,effort:'xhigh'},'x').effort,'medium');
+ assert.equal(calibrateTask({difficulty:5,kind:'reasoning',tools:false,effort:'max'},'prove it').effort,'max');
+ assert.equal(calibrateTask({difficulty:5,kind:'lookup',tools:false,effort:'high'},'x').difficulty,2);
+ // Edit wording or a document attachment means tools are needed.
+ assert.equal(calibrateTask({difficulty:1,kind:'edit',tools:false,effort:'low'},'Fix the typo in this note.').tools,true);
+ assert.equal(calibrateTask({difficulty:1,kind:'lookup',tools:false,effort:'low'},'What is 2+2?').tools,false);
+});
+
+test('a drained plan makes its expensive tiers much dearer',()=>{
+ const half=route(task(3,'writing',false),offers(0,50).filter(offer=>offer.provider==='claude'));
+ assert.equal(half.model,'sonnet');
+ assert.equal(decodeTaskClass('{"difficulty":2,"kind":"reading","tools":true,"effort":"low"}').kind,'lookup');
+ // An unknown kind falls back by difficulty rather than failing the selection.
+ assert.equal(decodeTaskClass('{"difficulty":4,"kind":"zzz","tools":true,"effort":"low"}').kind,'synthesis');
 });

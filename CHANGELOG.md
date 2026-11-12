@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.1
+
+- Stop the Automatic provider from choosing frontier models and maximum effort for easy work. The on-device classification is now calibrated: each kind of work has a difficulty ceiling (only reasoning, research and coding can be rated most difficult), effort is capped by that difficulty, and maximum effort needs rigorous reasoning or research. Long writing from supplied material counts as moderate work.
+- Weigh remaining plan usage more strongly in Automatic selection.
+- Treat requests that read attachments or edit notes as needing vault tools.
+- Retry Automatic selection once after an on-device timeout or unreadable reply, and map more task descriptions to a kind of work.
+
 ## 3.0.0
 
 - Add OpenCode as a second provider, and Claude Code as a third. The first setting chooses the assistant, and the other providers' settings stay hidden until one is selected.
