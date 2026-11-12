@@ -1,18 +1,18 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DiffView,DEFAULTS,migrateSettings,allowedPath,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings} from './core';
+import {ButlerSettings,DiffView,DEFAULTS,migrateSettings,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
 import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
 import {autoEntries,autoFallbackRoute,routeAcrossProviders,type AutoRoute,type ProviderOffer} from './auto-route';
-import {fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,routeWithFoundationModels,routingModels,modelKey,CodexRoute} from './routing';
+import {fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute} from './routing';
 import {usageWindows} from './usage';
 import {searchScore} from './search';
 import {ChatStore,SavedChat} from './chats';
-import {join,relative,sep} from 'node:path';
+import {join,relative} from 'node:path';
 import {lstatSync,realpathSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {shell,webUtils} from 'electron';
@@ -60,13 +60,13 @@ export default class Butler extends Plugin {
  /** The provider that serves the next turn. The fallback may override the choice. */
  get activeProvider():ProviderId{
   // With the Automatic provider the last automatically chosen provider is the active one.
-  if(this.prefs.automaticProvider)return this.autoProvider??this.prefs.provider;
+  if(supportsAutomaticSelection()&&this.prefs.automaticProvider)return this.autoProvider??this.prefs.provider;
   return this.fallbackProvider??this.prefs.provider;
  }
  /** The provider Automatic selection chose for the latest message. */
  autoProvider:ProviderId|null=null;
  /** Model and effort are chosen automatically, by the per-provider toggle or by the Automatic provider. */
- get automaticModels():boolean{return this.prefs.automaticRouting||this.prefs.automaticProvider;}
+ get automaticModels():boolean{return supportsAutomaticSelection()&&(this.prefs.automaticRouting||this.prefs.automaticProvider);}
  /** The provider the user selected in settings. */
  get selectedProvider():ProviderId{return this.prefs.provider;}
  get bridge():ProviderBridge{return this.bridgeFor(this.activeProvider);}
@@ -87,7 +87,7 @@ export default class Butler extends Plugin {
 
  async onload(){
   addIcon('owla-bird',BIRD_ICON);
-  const previous:unknown=await this.loadData();this.prefs=migrateSettings(previous);if(record(previous).schemaVersion!==3)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();
+  const previous:unknown=await this.loadData(),migrated=migrateSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);if(record(previous).schemaVersion!==3||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();
   try {
    this.pending = loadPendingEdits(this.vaultStorage());
   } catch (e) {
@@ -400,7 +400,7 @@ export default class Butler extends Plugin {
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
  allowedPdf(path:string){return this.allowedVaultFile(path,'pdf');}
- allowedVaultFile(path:string,extension:string|null=null){if(!allowedPath(path,this.prefs.excludedFolders,extension))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=realpathSync(base),file=realpathSync(join(base,path));return file.startsWith(root+sep)&&allowedPath(relative(root,file).split(sep).join('/'),this.prefs.excludedFolders,extension);}catch{return false;}}
+ allowedVaultFile(path:string,extension:string|null=null){if(!allowedPath(path,this.prefs.excludedFolders,extension))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=realpathSync(base),file=realpathSync(join(base,path));if(!isPathInside(root,file))return false;return allowedPath(relative(root,file).split(/[\\/]/).join('/'),this.prefs.excludedFolders,extension);}catch{return false;}}
  async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.read(f);}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
  automaticLinksEnabled(){
@@ -1041,7 +1041,7 @@ export class ButlerView extends ItemView {
       file=new File([await this.app.vault.readBinary(entry)],name,{type});
      }else file=entry;
      if(epoch!==this.attachmentEpoch)return;
-     if(['image/png','image/jpeg','image/webp'].includes(file.type) && file.size<=10*1024*1024) {
+     if(['image/png','image/jpeg','image/webp'].includes(file.type)) {
       await this.addImages([file]);continue;
      }
      const converted=await convertFile(file,webUtils.getPathForFile(file),xml=>new DOMParser().parseFromString(xml,'application/xml'),signal);
@@ -1049,7 +1049,8 @@ export class ButlerView extends ItemView {
      const label=this.attachmentName(file.name);
      this.pdfs.push({name:label,source:label+(converted.notice?' · '+converted.notice:''),text:converted.text});
      if(converted.image){
-      const image=new File([new Uint8Array(converted.image)],file.name+'.png',{type:'image/png'});
+      const type=converted.imageType??'image/png',extension=type==='image/jpeg'?'jpg':'png';
+      const image=new File([new Uint8Array(converted.image)],file.name+'.'+extension,{type});
       await this.addImages([image]);
      }
     } catch(error) {
@@ -2052,7 +2053,7 @@ class ButlerSettingsTab extends PluginSettingTab {
   }};
  }
  private executableSection(provider:ProviderId,label:string):SettingDefinitionItem{
-  return {name:label,desc:this.butler.providerExecutable(provider)||'Automatically detected from your Mac.',visible:this.visibleFor(provider),render:setting=>{
+  return {name:label,desc:this.butler.providerExecutable(provider)||'Automatically detected on this device.',visible:this.visibleFor(provider),render:setting=>{
    setting.addButton(b=>b.setButtonText('Choose executable…').onClick(()=>{
     const input=setting.settingEl.createEl('input',{type:'file',cls:'owla-hidden'});
     input.onchange=async()=>{
@@ -2076,12 +2077,15 @@ class ButlerSettingsTab extends PluginSettingTab {
   return [
   {name:'Assistant provider',desc:'Choose which assistant answers your messages. Codex uses your ChatGPT login. OpenCode uses the providers you connected in OpenCode, including its free models. Claude Code uses your Claude subscription login.',render:setting=>{
    setting.addDropdown(dropdown=>{
-    dropdown.addOption('auto','Automatic').addOption('codex','Codex').addOption('opencode','OpenCode').addOption('claude','Claude Code');
+    if(supportsAutomaticSelection())dropdown.addOption('auto','Automatic');
+    dropdown.addOption('codex','Codex').addOption('opencode','OpenCode').addOption('claude','Claude Code');
+    const automaticProvider=supportsAutomaticSelection()&&this.butler.prefs.automaticProvider;
     const automaticOption=Array.from(dropdown.selectEl.options).find(option=>option.value==='auto');
-    if(automaticOption)automaticOption.disabled=!hasFoundationModelsCLI()&&!this.butler.prefs.automaticProvider;
-    dropdown.setValue(this.butler.prefs.automaticProvider?'auto':this.butler.prefs.provider);
+    if(automaticOption)automaticOption.disabled=!hasFoundationModelsCLI()&&!automaticProvider;
+    dropdown.setValue(automaticProvider?'auto':this.butler.prefs.provider);
     dropdown.onChange(async value=>{
     if(value==='auto'){
+     if(!supportsAutomaticSelection())return;
      if(this.butler.prefs.automaticProvider)return;
      this.butler.prefs.automaticProvider=true;
      this.butler.autoProvider=null;
@@ -2134,7 +2138,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.providerExecutable('codex')||findCodexExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Codex was not found. Install it in Terminal, or choose its executable.'});
+   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Codex was not found. Install it, or choose its executable.'});
    let connect!:ButtonComponent,verify!:ButtonComponent,signIn!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
@@ -2169,7 +2173,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'OpenCode was not found. Install it in Terminal, or choose its executable.'});
+   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'OpenCode was not found. Install it, or choose its executable.'});
    let verify!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
@@ -2195,7 +2199,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Claude Code was not found. Install it in Terminal, or choose its executable.'});
+   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Claude Code was not found. Install it, or choose its executable.'});
    let verify!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
@@ -2217,7 +2221,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    return ()=>{this.connectionUpdaters.delete(update);};}},
   this.executableSection('claude','Claude Code executable'),
   this.usageSection('claude','Claude usage limits','Plan limits reported by Claude Code. They are read without sending a message and update after each reply.'),
-  {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to select a compatible model and reasoning effort from your prompt and attachment names.',render:setting=>{
+  {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to select a compatible model and reasoning effort from your prompt and attachment names.',visible:()=>supportsAutomaticSelection(),render:setting=>{
    if(this.butler.prefs.automaticProvider)setting.descEl.createDiv({text:'The Automatic provider already chooses the model and reasoning effort for every message.'});
    const available=hasFoundationModelsCLI();
    if(!available)setting.descEl.createDiv({text:'The Foundation Models CLI is unavailable on this Mac.'});

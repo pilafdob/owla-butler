@@ -1,26 +1,25 @@
-import {spawn,execFile,ChildProcessWithoutNullStreams} from 'node:child_process';
-import {accessSync,constants,mkdirSync,statSync} from 'node:fs';
-import {homedir} from 'node:os';
-import {delimiter,isAbsolute,join} from 'node:path';
+import {ChildProcessWithoutNullStreams} from 'node:child_process';
+import {mkdirSync} from 'node:fs';
+import {delimiter} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
+import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,spawnCli,terminateProcessTree} from './cli';
 import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
 import {list,record} from './validation';
 import {ChatMessage,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import manifest from '../manifest.json';
 export type {ChatMessage,ToolOutput,ToolSpec};
 export type CodexModel=ProviderModel;
-export const DEFAULT_STORAGE=join(homedir(),'Library','Application Support','OWLA Butler');
+export const DEFAULT_STORAGE=defaultStorageDirectory();
 export function supportedVersion(v:string){const m=v.match(/(?:codex-cli\s+)?(\d+)\.(\d+)\.(\d+)/);return !!m&&(Number(m[1])>0||Number(m[2])>162||(Number(m[2])===162&&Number(m[3])>=1));}
 export function replayHistory(history:ChatMessage[]){let used=0;const result:ChatMessage[]=[];for(const m of history.slice(-12).reverse()){const size=m.content.length+(m.context?.length??0);if(used+size>64000)break;result.unshift(m);used+=size;}return {messages:result,shortened:result.length<history.length};}
 export function friendlyError(e:unknown):string{const text=e instanceof Error?e.message:String(e);
  // OpenCode and Claude Code errors are already worded by their bridges; only raw errors are mapped to Codex wording.
  if(/\b(?:OpenCode|Claude)\b/.test(text))return text.slice(0,800);
  if(/429|quota|usage.limit|rate.limit/i.test(text))return 'Codex usage limit reached. Wait for your subscription allowance to reset.';if(/401|unauthorized|authentication|expired.*token/i.test(text))return 'Codex needs you to sign in again with ChatGPT.';return text.slice(0,800);}
-const command=(file:string,args:string[],env:NodeJS.ProcessEnv,signal?:AbortSignal)=>new Promise<string>((resolve,reject)=>execFile(file,args,{env,shell:false,timeout:10000,maxBuffer:100000,signal},(error,stdout)=>error?reject(new Error(error.message)):resolve(stdout)));
-const defaultBinDirectories=()=>['/usr/local/bin','/opt/homebrew/bin',join(homedir(),'.local/bin')];
-function isExecutable(file:string){if(!isAbsolute(file))return false;try{accessSync(file,constants.X_OK);return statSync(file).isFile();}catch{return false;}}
+const command=(file:string,args:string[],env:NodeJS.ProcessEnv,signal?:AbortSignal)=>runCli(file,args,{env,signal,timeout:10000,maxBuffer:100000});
+const defaultBinDirectories=()=>defaultCliDirectories();
 export function findCodexExecutable(path:string,directories=defaultBinDirectories()):string{
- return [...new Set([...directories,...path.split(delimiter)])].filter(isAbsolute).map(dir=>join(dir,'codex')).find(isExecutable)??'';
+ return findCliExecutable('codex',path,directories);
 }
 export function integrationOverrides(value:unknown):string[]{
  const config=record(value),result:string[]=[];
@@ -78,10 +77,10 @@ export class CodexBridge implements ProviderBridge{
   finally{if(this.connecting===starting)this.connecting=null;}
  }
  private async start(executable:string,cwd:string,extra:string[]=[],web=false):Promise<void>{const generation=this.generation;const startup=new AbortController();this.startupAbort=startup;try{this.setStatus('Connecting…');const env=this.env(),file=executable||findCodexExecutable(env.PATH??'');
- if(!file||!isExecutable(file))throw Error('Codex was not found. Install and sign in to Codex in Terminal, or choose its executable in settings.');
+ if(!file||!isCliExecutable(file))throw Error('Codex was not found. Install and sign in to Codex, or choose its executable in settings.');
  this.version=(await command(file,['--version'],env,startup.signal)).trim();if(!supportedVersion(this.version))throw Error('Update Codex to version 0.162.1 or newer, then reconnect.');if(generation!==this.generation)throw Error('Codex connection cancelled.');this.executable=file;mkdirSync(cwd,{recursive:true,mode:0o700});
  const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','features.apps=false','features.shell_tool=false','features.code_mode=false','features.js_repl=false','features.multi_agent=false','features.view_image=false','features.skill_mcp_dependency_install=false','web_search='+JSON.stringify(web?'live':'disabled'),...extra];
- const child=spawn(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,shell:false,stdio:'pipe',detached:process.platform!=='win32'});this.child=child;this.buffer='';child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
+ const child=spawnCli(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,detached:process.platform!=='win32'});this.child=child;this.buffer='';child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
  await this.request('initialize',{clientInfo:{name:'owla_butler',title:'OWLA Butler',version:manifest.version},capabilities:{experimentalApi:true}});this.notify('initialized');
  const config=record(record(await this.request('config/read',{includeLayers:false})).config),features=record(config.features);
  const inherited=integrationOverrides(config);
@@ -234,5 +233,5 @@ export class CodexBridge implements ProviderBridge{
   if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus(status);
  }
  private fail(e:Error){this.disconnect(friendlyError(e));}
- disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;this.finishSignIn=undefined;const child=this.child;this.child=null;this.buffer='';const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>{try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}catch{try{child.kill(signal);}catch{/* The owned process has already exited. */}}};if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
+ disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;this.finishSignIn=undefined;const child=this.child;this.child=null;this.buffer='';const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>terminateProcessTree(child,signal);if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
 }

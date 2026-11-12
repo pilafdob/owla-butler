@@ -24,7 +24,7 @@ for (const path of ['main.js', 'manifest.json', 'styles.css', 'README.md', 'LICE
   assert.ok(statSync(resolve(root, path)).size > 0, `missing ${path}`);
 }
 const main = read('main.js');
-for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE', 'assets/FFLATE-LICENSE', 'assets/PDF-LIB-LICENSE', 'assets/PDF-FONTS-LICENSE', 'assets/PDF-UPNG-LICENSE', 'assets/PAKO-LICENSE', 'assets/TSLIB-COPYRIGHT', 'assets/TSLIB-LICENSE']) {
+for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/CROSS-SPAWN-LICENSE', 'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE', 'assets/FFLATE-LICENSE', 'assets/PDF-LIB-LICENSE', 'assets/PDF-FONTS-LICENSE', 'assets/PDF-UPNG-LICENSE', 'assets/PAKO-LICENSE', 'assets/TSLIB-COPYRIGHT', 'assets/TSLIB-LICENSE']) {
   assert.ok(main.includes(read(path).trim().replace(/\*\//g, '* /')), `built bundle lacks full notice: ${path}`);
 }
 for (const name of ['obsidian-markdown', 'obsidian-bases', 'json-canvas', 'owla-pdf', 'owla-math', 'owla-ocr', 'owla-formatting', 'owla-mermaid']) assert.ok(main.includes(name), `missing embedded guide: ${name}`);

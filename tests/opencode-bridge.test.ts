@@ -56,9 +56,9 @@ test('the OpenCode bridge starts a private server, runs a turn and calls back in
  mkdirSync(workdir,{recursive:true});
  const serverFile=join(root,'fake-opencode.mjs');
  writeFileSync(serverFile,FAKE_SERVER);
- const executable=join(root,'opencode');
- writeFileSync(executable,'#!/bin/sh\nexec "'+process.execPath+'" "'+serverFile+'" "$@"\n',{mode:0o700});
- chmodSync(executable,0o700);
+ const executable=join(root,process.platform==='win32'?'opencode.cmd':'opencode');
+ if(process.platform==='win32')writeFileSync(executable,'@echo off\r\n\"'+process.execPath+'\" \"'+serverFile+'\" %*\r\n');
+ else{writeFileSync(executable,'#!/bin/sh\nexec "'+process.execPath+'" "'+serverFile+'" "$@"\n',{mode:0o700});chmodSync(executable,0o700);}
  const bridge=new OpencodeBridge();
  const calls:{name:string;args:unknown}[]=[];
  const seen:string[]=[];
@@ -93,6 +93,7 @@ test('the OpenCode bridge starts a private server, runs a turn and calls back in
   assert.equal((bridge as unknown as {child: unknown}).child,null);
  }finally{
   bridge.disconnect();
+   await (bridge as unknown as {closing:Promise<void>}).closing;
   rmSync(root,{recursive:true,force:true});
  }
 });

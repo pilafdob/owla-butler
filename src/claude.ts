@@ -18,25 +18,25 @@
  * Verified against Claude Code 2.1.322 (claude.ai login, haiku probes).
  */
 
-import {spawn,execFile,ChildProcessWithoutNullStreams} from 'node:child_process';
-import {accessSync,constants,mkdirSync,statSync} from 'node:fs';
+import {ChildProcessWithoutNullStreams} from 'node:child_process';
+import {mkdirSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,isAbsolute,join} from 'node:path';
+import {delimiter,join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import {claudeExhaustion,ProviderExhaustion} from './exhaustion';
 import {UsageSnapshot,decodeClaudeRateLimit,decodeClaudeUsage,updateUsage} from './usage';
 import {list,record} from './validation';
+import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,spawnCli,terminateProcessTree} from './cli';
 
 export const CLAUDE_MCP_SERVER='owla';
 export const CLAUDE_TOOL_PREFIX='mcp__'+CLAUDE_MCP_SERVER+'__';
 /** Models without an effort parameter carry this placeholder effort. */
 export const CLAUDE_NO_EFFORT='default';
 
-const defaultBinDirectories=()=>[join(homedir(),'.local/bin'),join(homedir(),'.claude/local'),'/usr/local/bin','/opt/homebrew/bin'];
-function isExecutable(file:string){if(!isAbsolute(file))return false;try{accessSync(file,constants.X_OK);return statSync(file).isFile();}catch{return false;}}
+const defaultBinDirectories=()=>defaultCliDirectories([join(homedir(),'.claude','local')]);
 export function findClaudeExecutable(path:string,directories=defaultBinDirectories()):string{
- return [...new Set([...directories,...path.split(delimiter)])].filter(isAbsolute).map(dir=>join(dir,'claude')).find(isExecutable)??'';
+ return findCliExecutable('claude',path,directories);
 }
 
 /** OWLA needs the stream-json control protocol with in-process MCP servers and safe mode. */
@@ -51,7 +51,7 @@ export function supportedClaudeVersion(version:string):boolean{
 export function friendlyClaudeError(error:unknown):string{
  const text=error instanceof Error?error.message:String(error);
  if(/rate.?limit|usage limit|429|quota|limit reached/i.test(text))return 'Claude usage limit reached. Wait for your plan allowance to reset.';
- if(/401|unauthorized|not logged in|login|authentication|oauth/i.test(text))return 'Claude Code needs you to sign in again. Run claude in Terminal and sign in.';
+ if(/401|unauthorized|not logged in|login|authentication|oauth/i.test(text))return 'Claude Code needs you to sign in again. Run claude in your terminal and sign in.';
  return text.slice(0,800);
 }
 
@@ -182,14 +182,14 @@ export class ClaudeBridge implements ProviderBridge{
   const generation=this.generation;
   this.setStatus('Connecting…');
   const env=this.env(),file=executable||findClaudeExecutable(env.PATH??'');
-  if(!file||!isExecutable(file))throw Error('Claude Code was not found. Install Claude Code and sign in with claude in Terminal, or choose its executable in settings.');
-  const run=(args:string[])=>new Promise<string>((resolve,reject)=>execFile(file,args,{env,shell:false,timeout:15000,maxBuffer:200000},(error,stdout)=>error?reject(new Error(error.message)):resolve(stdout)));
+  if(!file||!isCliExecutable(file))throw Error('Claude Code was not found. Install Claude Code or choose its executable in settings.');
+  const run=(args:string[])=>runCli(file,args,{env,timeout:15000,maxBuffer:200000});
   this.version=(await run(['--version'])).trim();
   if(!supportedClaudeVersion(this.version))throw Error('Update Claude Code to version 2.1.322 or newer (claude update), then reconnect.');
   const auth=record(JSON.parse(await run(['auth','status'])));
   if(generation!==this.generation)throw Error('Claude Code connection cancelled.');
   this.executable=file;
-  if(auth.loggedIn!==true){this.loggedIn=false;this.accountType='';throw Error('Sign in to Claude Code first: run claude in Terminal and log in, then reconnect.');}
+  if(auth.loggedIn!==true){this.loggedIn=false;this.accountType='';throw Error('Sign in to Claude Code first: run claude in your terminal and log in, then reconnect.');}
   if(cwd)mkdirSync(cwd,{recursive:true,mode:0o700});
   // The initialize handshake lists models and the plan without sending a prompt.
   const [init,usage]=await this.handshake(file,cwd||homedir(),env,true);
@@ -213,11 +213,11 @@ export class ClaudeBridge implements ProviderBridge{
  private handshake(file:string,cwd:string,env:NodeJS.ProcessEnv,withUsage=false):Promise<[Message,Message|null]>{
   return new Promise((resolve,reject)=>{
    let init:Message|null=null;
-   const child=spawn(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools',''],{cwd,env,shell:false,stdio:'pipe'});
+   const child=spawnCli(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools',''],{cwd,env});
    this.track(child);
    let buffer='',done=false;
-   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdin.end();child.kill();error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
-   const timer=setTimeout(()=>finish(Error('Claude Code did not respond. Check that it runs in Terminal.')),30000);
+   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdin.end();terminateProcessTree(child,'SIGTERM');error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
+   const timer=setTimeout(()=>finish(Error('Claude Code did not respond. Check that it runs in your terminal.')),30000);
    child.stdout.setEncoding('utf8');
    child.stdout.on('data',(chunk:string)=>{
     buffer+=chunk;let index;
@@ -257,7 +257,7 @@ export class ClaudeBridge implements ProviderBridge{
   await this.connect(options.executable,options.cwd);
   options.signal.throwIfAborted();
   const env=this.env(),generation=this.generation;
-  const child=spawn(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web),{cwd:options.cwd||homedir(),env,shell:false,stdio:'pipe',detached:process.platform!=='win32'});
+  const child=spawnCli(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web),{cwd:options.cwd||homedir(),env,detached:process.platform!=='win32'});
   this.track(child);
   const send=(value:unknown)=>{if(!child.stdin.destroyed)child.stdin.write(JSON.stringify(value)+'\n');};
   const sources=new Map<string,string>();
@@ -374,7 +374,7 @@ export class ClaudeBridge implements ProviderBridge{
   }
  }
 
- async signIn():Promise<void>{throw Error('Claude Code uses your existing Claude Code sign-in. Run claude in Terminal and log in, then reconnect.');}
+ async signIn():Promise<void>{throw Error('Claude Code uses your existing sign-in. Run claude in your terminal and log in, then reconnect.');}
 
  /**
   * Claude Code reports usage only while a reply runs. OWLA keeps the last
@@ -400,7 +400,7 @@ export class ClaudeBridge implements ProviderBridge{
  }
 
  private kill(child:ChildProcessWithoutNullStreams){
-  try{if(child.pid&&process.platform!=='win32')process.kill(-child.pid,'SIGTERM');else child.kill();}catch{child.kill();}
+  terminateProcessTree(child,'SIGTERM');
  }
 
  disconnect(status='Not connected'):void{

@@ -18,7 +18,23 @@ test('cancellation ends an active turn without waiting for model output',async()
 test('quota failure is returned instead of counted as a completed turn',async()=>{const b=mockBridge(),base=b.request;b.request=async(method:string)=>{if(method==='turn/start')throw Error('429 quota exceeded');return base(method)};await assert.rejects(b.run(options()),/429/);assert.equal(b.active,null);});
 test('Search web cannot succeed without a real search event',async()=>{const b=mockBridge(),base=b.request;b.request=async(method:string)=>{const result=await base(method);if(method==='turn/start')queueMicrotask(()=>b.active.event('turn/completed',{threadId:'t',turn:{status:'completed'}}));return result};await assert.rejects(b.run({...options(),web:true,requireWeb:true}),/did not run live web search/);});
 
-test('disconnect during connection discovery cannot start a background agent',async()=>{const {mkdtempSync,writeFileSync,existsSync,rmSync}=await import('node:fs'),{tmpdir}=await import('node:os'),{join}=await import('node:path');if(process.platform==='win32')return;const folder=mkdtempSync(join(tmpdir(),'owla-connect-cancel-')),file=join(folder,'codex'),marker=join(folder,'started');writeFileSync(file,'#!/bin/sh\nif [ "$1" = "--version" ]; then sleep 0.1; echo "codex-cli 0.162.1"; else touch "'+marker+'"; fi\n',{mode:0o700});const b=new CodexBridge();try{const pending=b.connect(file,folder);await new Promise(resolve=>setTimeout(resolve,20));b.disconnect();await assert.rejects(pending,/cancelled/);assert.equal(existsSync(marker),false);}finally{b.disconnect();rmSync(folder,{recursive:true,force:true});}});
+test('disconnect during connection discovery cannot start a background agent',async()=>{
+ const {mkdtempSync,writeFileSync,existsSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const folder=mkdtempSync(join(tmpdir(),'owla-connect-cancel-')),marker=join(folder,'started');
+ const b=new CodexBridge();
+ let file:string;
+ if(process.platform==='win32'){
+  const fake=join(folder,'fake-codex.mjs');file=join(folder,'codex.cmd');
+  writeFileSync(fake,'import {writeFileSync} from \"node:fs\";if(process.argv[2]===\"--version\")setTimeout(()=>console.log(\"codex-cli 0.162.1\"),100);else writeFileSync('+JSON.stringify(marker)+',\"started\");');
+  writeFileSync(file,'@echo off\r\n\"'+process.execPath+'\" \"'+fake+'\" %*\r\n');
+ }else{
+  file=join(folder,'codex');
+  writeFileSync(file,'#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then sleep 0.1; echo \"codex-cli 0.162.1\"; else touch \"'+marker+'\"; fi\n',{mode:0o700});
+ }
+ try{const pending=b.connect(file,folder);await new Promise(resolve=>setTimeout(resolve,20));b.disconnect();await assert.rejects(pending,/cancelled/);assert.equal(existsSync(marker),false);}
+ finally{b.disconnect();rmSync(folder,{recursive:true,force:true});}
+});
 
 test('integration overrides preserve dotted IDs without copying credentials to process arguments',async()=>{const {integrationOverrides}=await import('../src/codex');const args=integrationOverrides({mcp_servers:{'com.example.tool':{enabled:true,env:{SECRET:'private'}},disabled:{enabled:false}},plugins:{'tool@vendor.example':{enabled:true}}});assert.equal(args[0],'mcp_servers={"com.example.tool"={enabled=false}}');assert.equal(args[1],'plugins={"tool@vendor.example"={enabled=false}}');assert.equal(args.join('').includes('private'),false);});
 
@@ -38,10 +54,10 @@ test('session privacy fails closed for inherited or missing analytics and export
 
 test('Codex discovery uses executable files in absolute directories',async()=>{
  const {mkdtempSync,mkdirSync,writeFileSync,chmodSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,delimiter}=await import('node:path');const {findCodexExecutable}=await import('../src/codex');
- if(process.platform==='win32')return;
  const root=mkdtempSync(join(tmpdir(),'owla-codex-discovery-'));
- try{const first=join(root,'first'),second=join(root,'second');mkdirSync(first);mkdirSync(second);writeFileSync(join(first,'codex'),'not executable',{mode:0o600});writeFileSync(join(second,'codex'),'#!/bin/sh\nexit 0\n',{mode:0o700});
- assert.equal(findCodexExecutable(['.',first,second].join(delimiter),[]),join(second,'codex'));chmodSync(join(second,'codex'),0o600);assert.equal(findCodexExecutable([first,second].join(delimiter),[]),'');
+ try{const first=join(root,'first'),second=join(root,'second');mkdirSync(first);mkdirSync(second);
+ if(process.platform==='win32'){writeFileSync(join(first,'codex.txt'),'not executable');writeFileSync(join(second,'codex.cmd'),'@echo off\r\nexit /b 0\r\n');assert.equal(findCodexExecutable(['.',first,second].join(delimiter),[]),join(second,'codex.cmd'));rmSync(join(second,'codex.cmd'));assert.equal(findCodexExecutable([first,second].join(delimiter),[]),'');}
+ else{writeFileSync(join(first,'codex'),'not executable',{mode:0o600});writeFileSync(join(second,'codex'),'#!/bin/sh\nexit 0\n',{mode:0o700});assert.equal(findCodexExecutable(['.',first,second].join(delimiter),[]),join(second,'codex'));chmodSync(join(second,'codex'),0o600);assert.equal(findCodexExecutable([first,second].join(delimiter),[]),'');}
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 

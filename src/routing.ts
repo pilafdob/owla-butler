@@ -10,7 +10,8 @@ import {record} from './validation';
 const fm='/usr/bin/fm';
 export const FOUNDATION_MODELS_LICENSE_COMMAND='fm license';
 export type CodexRoute={model:string;effort:string};
-export const hasFoundationModelsCLI=()=>process.platform==='darwin'&&existsSync(fm);
+export const supportsAutomaticSelection=(platform=process.platform)=>platform==='darwin';
+export const hasFoundationModelsCLI=()=>supportsAutomaticSelection()&&existsSync(fm);
 
 /** The identifier a provider uses for one of its models. */
 export function modelKey(provider:ProviderId,model:CodexModel):string{

@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {isAbsolute,relative,sep,win32} from 'node:path';
 import {record} from './validation';
 import type {FallbackChoice,ProviderId} from './provider';
 export type DiffView='highlights'|'none'|'split';
@@ -72,10 +73,18 @@ export function migrateSettings(value:unknown):ButlerSettings{
    pluginInterconnectivity:data.pluginInterconnectivity===true
   }:{})};
 }
+export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,platform=process.platform):ButlerSettings{
+  return platform==='darwin'?settings:{...settings,automaticProvider:false,automaticRouting:false};
+}
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  return !excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).some(s=>path===s||path.startsWith(s+'/'));
+}
+export function isPathInside(root:string,file:string,platform=process.platform):boolean {
+ const path=platform==='win32'?win32:{relative,isAbsolute,sep};
+ const relativePath=path.relative(root,file);
+ return !!relativePath&&relativePath!=='..'&&!relativePath.startsWith('..'+path.sep)&&!path.isAbsolute(relativePath);
 }
 export function clip(text:string,max:number):string {return text.length<=max?text:text.slice(0,max)+'\n[Context shortened. Read a specific passage if needed.]';}
 export interface Proposal {path:string;before:string;after:string;reason:string;create?:true;}

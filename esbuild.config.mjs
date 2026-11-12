@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 // Community installs receive only three files. Preserve all redistributed
 // licences alongside the code, embedded skills and bird icon in main.js.
-const notices = ['LICENSE', 'assets/PHOSPHOR-LICENSE',
+const notices = ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/CROSS-SPAWN-LICENSE',
   'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE', 'assets/FFLATE-LICENSE', 'assets/PDF-LIB-LICENSE', 'assets/PDF-FONTS-LICENSE', 'assets/PDF-UPNG-LICENSE', 'assets/PAKO-LICENSE', 'assets/TSLIB-COPYRIGHT', 'assets/TSLIB-LICENSE'];
 const licenseBanner = '/*\n' + notices.map(path => path + ':\n' +
   readFileSync(new URL('./' + path, import.meta.url), 'utf8')).join('\n')
