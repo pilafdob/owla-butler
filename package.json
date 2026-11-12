@@ -1,14 +1,16 @@
 {
   "name": "owla-butler",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "A Codex-powered Obsidian sidebar assistant",
+  "description": "An Obsidian sidebar assistant for Codex, OpenCode and Claude Code",
   "scripts": {
     "build": "node esbuild.config.mjs",
     "check": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint src",
-    "check:release": "node scripts/check-release.mjs"
+    "check:release": "node scripts/check-release.mjs",
+    "guard": "node scripts/vault-guard.mjs",
+    "guard:test": "node scripts/vault-guard.test.mjs"
   },
   "devDependencies": {
     "@codemirror/state": "^6.7.6",

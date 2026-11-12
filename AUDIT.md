@@ -1,3 +1,19 @@
+# OWLA Butler 3.0.0 final audit
+
+## 3.0.0 OpenCode provider — 2026-11-12
+
+The provider choice is the first setting. Codex keeps its own connection, sign-in, executable, quota and model controls; OpenCode gets the same controls for its own state, and only one provider's section is shown at a time. Settings migrate from schema 2 to 3: the Codex model and reasoning effort move into a per-provider record, the provider defaults to Codex, and the exhaustion fallback is off until it is enabled.
+
+The OpenCode path was built against the official app-server-equivalent HTTP API of OpenCode 2.2.7, which OWLA pins to the tested 2.2 line. The process is OWLA's own: it starts with a random password, listens only on the loopback interface, runs in a private per-vault working directory, and is torn down with the process group after the reply. OWLA's own vault tools replace OpenCode's shell, file editing, search and subagent tools for the session; the session rules deny everything that is not one of those tools; inherited MCP servers are removed; the bundled skills are registered with the same IDs the Codex path uses. The assistant therefore cannot reach the vault except through OWLA, and every note change is still proposed for review.
+
+Two findings shaped the implementation and are recorded in TESTING.md. OpenCode fills its plugin and skill registry when a location's services boot, which happens on the first session in that directory, so OWLA starts the server and creates the session in the same directory. And OpenCode's free models share one global limit, so the exhaustion fallback cannot be assumed to succeed; OWLA reports every exhausted provider with its reset time instead.
+
+Current gates: 128 automated tests, strict TypeScript, Community source lint with zero warnings and errors, build, and the three-file release metadata, licence and embedded-reference checks. The release is prepared, not published: no tag, no release and no Community submission were performed.
+
+Claude Code runs as the installed CLI in headless mode with safe mode on and permissions set not to ask. `--allowedTools` admits only OWLA's tools (`mcp__owla__*`), served from a private in-process MCP server, so Claude Code cannot run commands, read files or write on its own; every note change is still proposed for review. The child process loses `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and the Bedrock and Vertex switches, so it uses the user's Claude login and never a separately billed key. Error reports and self-updates are off; the user's own telemetry choice is kept because Claude Code's telemetry switches also hide the live model list. When live web search is required and Claude Code did not run it, the reply fails instead of being shown as verified. Plan limits are read with Claude Code's `get_usage` control request, which runs no model turn, and are updated from the reports it sends during replies.
+
+Known limits: OpenCode's HTTP API is documented as experimental and was tested against 2.2.7 only; no live model turn completed because the free models are currently exhausted on this machine; the exhaustion rules are covered against recorded provider reports rather than a real exhausted account; and OpenCode's provider packages may be installed by OpenCode itself when a custom provider is configured. No live Claude Code turn is recorded.
+
 # OWLA Butler 1.0.0 final audit
 
 ## 1.0.1 review follow-up — 2026-11-05
@@ -9,7 +25,7 @@ Only the three supported assets are attached to future Community releases. ZIP a
 
 ## Community preparation — 2026-11-04
 
-The final three-file Agentbrain install passed live skill/math, context continuation, optional-telemetry isolation, searchable settings, actual quota rendering and automatic process shutdown checks. Current gates: 50 tests, strict TypeScript, Community-specific lint with zero warnings/errors, build and embedded-reference/licence checks. Production audit: zero advisories; the unbundled development lint toolchain reports 13 moderate advisories. See TESTING.md for exact methods, evidence and limits.
+The final three-file test-vault install passed live skill/math, context continuation, optional-telemetry isolation, searchable settings, actual quota rendering and automatic process shutdown checks. Current gates: 50 tests, strict TypeScript, Community-specific lint with zero warnings/errors, build and embedded-reference/licence checks. Production audit: zero advisories; the unbundled development lint toolchain reports 13 moderate advisories. See TESTING.md for exact methods, evidence and limits.
 
 README/disclosures, changelog, notices, contribution guide, release metadata/checks and draft-release automation are prepared. The repository’s description/homepage/topics were updated. The preparation pass left the repository private and unpublished; remote Actions, release downloads and Community approval are not verified by that local preflight. Follow COMMUNITY-RELEASE.md for owner review, public repository, matching tag, verified draft assets and current Community-form submission.
 

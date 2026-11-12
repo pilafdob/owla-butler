@@ -1,11 +1,76 @@
 import {createHash} from 'node:crypto';
 import {record} from './validation';
+import type {FallbackChoice,ProviderId} from './provider';
 export type DiffView='highlights'|'none'|'split';
-export interface ButlerSettings {schemaVersion:2;codexConnected:boolean;codexExecutable:string;model:string;reasoning:string;automaticRouting:boolean;webSearch:boolean;pluginInterconnectivity:boolean;diffView:DiffView;storageRoot:string;excludedFolders:string;}
-export const DEFAULTS:ButlerSettings={schemaVersion:2,codexConnected:false,codexExecutable:'',model:'',reasoning:'',automaticRouting:false,webSearch:true,pluginInterconnectivity:false,diffView:'none',storageRoot:'',excludedFolders:''};
+export interface ProviderPrefs {model:string;reasoning:string;}
+export interface ButlerSettings {
+ schemaVersion:3;
+ provider:ProviderId;
+ /** OWLA picks the provider, model and effort per message; `provider` stays the preferred one. */
+ automaticProvider:boolean;
+ codexConnected:boolean;
+ codexExecutable:string;
+ /** Provider that serves messages while the selected one is out of usage. */
+ fallback:FallbackChoice;
+ opencodeExecutable:string;
+ claudeExecutable:string;
+ models:Record<ProviderId,ProviderPrefs>;
+ automaticRouting:boolean;
+ webSearch:boolean;
+ pluginInterconnectivity:boolean;
+ diffView:DiffView;
+ storageRoot:string;
+ excludedFolders:string;
+}
+export const DEFAULTS:ButlerSettings={
+ schemaVersion:3,
+ provider:'codex',
+ automaticProvider:false,
+ codexConnected:false,
+ codexExecutable:'',
+ fallback:'none',
+ opencodeExecutable:'',
+ claudeExecutable:'',
+ models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''}},
+ automaticRouting:false,
+ webSearch:true,
+ pluginInterconnectivity:false,
+ diffView:'none',
+ storageRoot:'',
+ excludedFolders:''
+};
 export function migrateSettings(value:unknown):ButlerSettings{
- const data=record(value);const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
- return {...DEFAULTS,diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',storageRoot:string('storageRoot'),excludedFolders:string('excludedFolders'),...(data.schemaVersion===2?{codexConnected:data.codexConnected===true,codexExecutable:string('codexExecutable'),model:string('model'),reasoning:string('reasoning'),automaticRouting:data.automaticRouting===true,webSearch:data.webSearch!==false,pluginInterconnectivity:data.pluginInterconnectivity===true}:{})};
+ const data=record(value);
+ const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
+ const modern=data.schemaVersion===2||data.schemaVersion===3;
+ const legacyModel=modern?string('model'):'',legacyReasoning=modern?string('reasoning'):'';
+ const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude);
+ const providers:ProviderId[]=['codex','opencode','claude'];
+ const provider:ProviderId=providers.find(id=>id===data.provider)??'codex';
+ // The fallback replaces the earlier Codex-only "switch to OpenCode" toggle.
+ const storedFallback=['none',...providers].find(id=>id===data.fallback) as FallbackChoice|undefined;
+ const fallback:FallbackChoice=storedFallback??(data.codexAutoFallback===true&&provider==='codex'?'opencode':'none');
+ return {...DEFAULTS,
+  diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',
+  storageRoot:string('storageRoot'),
+  excludedFolders:string('excludedFolders'),
+  provider,
+  models:{
+   codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
+   opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
+   claude:{model:typeof claude.model==='string'?claude.model:'',reasoning:typeof claude.reasoning==='string'?claude.reasoning:''}
+  },
+  ...(modern?{
+   codexConnected:data.codexConnected===true,
+   codexExecutable:string('codexExecutable'),
+   fallback:fallback===provider?'none':fallback,
+   opencodeExecutable:string('opencodeExecutable'),
+   claudeExecutable:string('claudeExecutable'),
+   automaticProvider:data.automaticProvider===true,
+   automaticRouting:data.automaticRouting===true,
+   webSearch:data.webSearch!==false,
+   pluginInterconnectivity:data.pluginInterconnectivity===true
+  }:{})};
 }
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;

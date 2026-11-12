@@ -1,8 +1,32 @@
 # OWLA Butler verification
 
+## 3.0.0 provider framework and OpenCode — 2026-11-12
+
+The provider layer was built as one shared contract, so every assistant behaves the same and a new one only needs its own bridge. The OpenCode path was verified against the installed **OpenCode 2.2.7** binary and against a deterministic fake server. Every check ran with OpenCode's data, config, state and cache directories redirected into `/tmp`, so the machine's real OpenCode state was never read or written. No vault, note or user credential was touched.
+
+**Live checks against the installed binary**
+
+- OWLA started OpenCode with its own random password, waited for the API to answer, and read the catalogue: **12 models**, all reported with their price, accepted input modalities, context window and reasoning variants. The `opencode` provider models report zero cost and image input, which is what the automatic router weighs.
+- The private session directory contained the configuration, the tool payload, the skill payload and the plugin. The configuration denied everything and pointed at the plugin directory.
+- The bundled plugin **loaded** (`owla.butler` reported active in the plugin registry), and the bundled skill `owla-formatting` appeared in the registered skill list. The session rules applied: the agent's effective permissions contained the deny-all entry.
+- The registry was empty until the location was activated. This was found during the check: OpenCode fills the plugin and skill registry when the location's services boot, which happens on the first session in that directory. OWLA creates the session in the same directory it starts the server in, so the tools and skills are in place before the first turn.
+
+**Deterministic checks**
+
+- **128 automated tests** pass, strict TypeScript passes, and the Community source lint rules report zero errors and zero warnings. New coverage: the OpenCode version gate, executable discovery, model decoding, the permission ruleset, skill adaptation, usage decoding, the exhaustion rules and the instruction text.
+- The bridge test drives the real bridge code against a fake OpenCode server: it starts the process, writes the workspace, loads the catalogue, creates a session, streams the answer, **calls back into OWLA over the loopback endpoint**, returns the tool result to the model, reads the usage limits and tears the process down. The tool call and its arguments were observed on the OWLA side.
+- A separate end-to-end check with a mock OpenAI-compatible provider confirmed the shape of the whole loop: the model was offered exactly the OWLA tool and the skill tool, the tool ran, and its result reached the answer.
+
+**Limits, stated plainly**
+
+- **No live model turn completed.** OpenCode's free models are currently exhausted on this machine and answer with `provider.free-limit`, a typed error that carries the reset time. The free limit is global across the free models, not per model; that was confirmed by trying three different models. The provider was therefore not able to answer, and OWLA reports that honestly rather than as a made-up quota.
+- The exhaustion rules are covered by unit tests against recorded provider reports, not by a real exhausted account.
+- **New Obsidian tools and the Automatic provider are covered by unit tests only.** `query_vault_graph`, `propose_properties`, link checks on proposals, block reads and the automatic provider decision have deterministic tests; none was exercised in a live Obsidian vault or with a live model turn in this record. The Codex **Verify connection** button and the settings dividers were checked by type-check, lint and build, not by opening settings.
+- **Claude Code was not verified end to end in this record.** Unit tests cover the version gate, argument building, model decoding, tool naming, image and tool content, plan-limit decoding, exhaustion, cited web sources and error wording. A source comment records that with Claude Code 2.1.322 the telemetry switches hide the live model list, which is why OWLA no longer sets them; that observation is not otherwise evidenced here. A live headless turn with OWLA's tools has not been recorded.
+- OpenCode's own API is documented as experimental. OWLA pins it to the tested 2.2 line and refuses anything older, so an upstream change surfaces as a clear message rather than a broken chat.
 ## 1.0.1 composer and Community review regression — 2026-11-05
 
-The three runtime files were backed up and installed in Agentbrain via Obsidian CLI. Existing data.json was preserved. The School vault and the user’s clipboard were left untouched.
+The three runtime files were backed up and installed in a test vault via Obsidian CLI. Existing data.json was preserved. The School vault and the user’s clipboard were left untouched.
 
 - **55 automated tests**, strict TypeScript, the reported Community source lint rules (zero errors/warnings), build and release metadata/licence/reference checks passed. New cases cover malformed persisted settings/chats, malformed quota data, unknown inherited integration config and executable discovery without a shell. No dependency versions changed.
 - **15 in-app composer checks** passed against a controlled backend: immediate text/chip clearing, sent image and outbound attachment preservation, preserving a matching newer draft, Stop/error recovery, no overwrite on restore, New chat cancellation, sent and saved-chat copy, selectable text, and 240 px copy control. Copy used a clipboard test double in Obsidian; the real system clipboard was not overwritten.
@@ -14,7 +38,7 @@ Local evidence: `work/review-unit-tests.log`, `work/review-draft-result.txt`, `w
 
 ## Community preparation — 2026-11-04
 
-The exact three-file Community installation (main.js, manifest.json, styles.css; existing data.json preserved) was loaded and tested in Agentbrain through Obsidian CLI. No assets folder or node_modules was installed. All six guide tools worked. A live Codex request consulted owla-math and correctly produced 17/12 in Obsidian display LaTeX; the follow-up recalled the supplied test code across backend shutdown. Responses took 11.23 s and 7.62 s in this sample. Both ended with the process sleeping; the final OS process check found zero OWLA-owned agents.
+The exact three-file Community installation (main.js, manifest.json, styles.css; existing data.json preserved) was loaded and tested in a test vault through Obsidian CLI. No assets folder or node_modules was installed. All six guide tools worked. A live Codex request consulted owla-math and correctly produced 17/12 in Obsidian display LaTeX; the follow-up recalled the supplied test code across backend shutdown. Responses took 11.23 s and 7.62 s in this sample. Both ended with the process sleeping; the final OS process check found zero OWLA-owned agents.
 
 Effective child configuration confirmed analytics and feedback disabled, all three OTEL exporters disabled, shell disabled and connectors disabled. The model catalog and existing ChatGPT login worked. Seven searchable setting definitions rendered through Obsidian’s native settings renderer, with Connect/Sign in/Disconnect/executable/usage controls and two real quota cards. Opening/refreshing settings also returned to sleep. No Obsidian errors were captured. One test-harness attempt could not import the Obsidian host module from CLI eval; it was corrected to use the host’s own settings renderer and the full smoke test was repeated successfully.
 
@@ -90,7 +114,7 @@ Evidence in source work/: codex-auto-qa-results.json, codex-skills-qa-results.js
 
 ## Attachment conversion and PDF review local verification
 
-65 automated tests pass with typecheck, lint, build and three-file release checks. Agentbrain CLI tests used disposable fixtures and no screen automation.
+65 automated tests pass with typecheck, lint, build and three-file release checks. Obsidian CLI tests used disposable fixtures and no screen automation.
 
 Fourteen attachment/editor assertions covered real Word DOCX and Pages content, PowerPoint slide XML, spreadsheet shared strings, a 12 MB BMP, unsupported status, unrestricted file selection, text drops, grouped edits, editor overlays and Accept/Decline cleanup. Four more assertions verified cancellation within five seconds, no late attachments after reset, multiple documents and no horizontal overflow. Native Pages, Keynote and Numbers exports returned the expected codes, and hashes of all four original Office/iWork fixtures stayed unchanged. A real Codex answer correctly identified all four codes with file citations.
 
@@ -106,11 +130,11 @@ Evidence is in work/attachments-live-result.txt, work/attachments-model-result.t
 
 ### Muted experimental diff styling
 
-Removed the added/removed emoji widgets. Additions and removals now use 12% theme-green/theme-red backgrounds. Removed text uses the normal text color. Typecheck, lint, build and release checks passed. A live Agentbrain disposable-note check confirmed no diff emojis, both translucent colors, normal text color and preservation of the existing chat. The installed files and running stylesheet were updated without restarting the chat. Evidence is in work/muted-diff-live-result.txt and work/muted-diff-style-result.txt.
+Removed the added/removed emoji widgets. Additions and removals now use 12% theme-green/theme-red backgrounds. Removed text uses the normal text color. Typecheck, lint, build and release checks passed. A live test-vaultain disposable-note check confirmed no diff emojis, both translucent colors, normal text color and preservation of the existing chat. The installed files and running stylesheet were updated without restarting the chat. Evidence is in work/muted-diff-live-result.txt and work/muted-diff-style-result.txt.
 
 ### Diff selector and normal workspace split
 
-The Diff view setting offers Highlights in editor, None and Split diff view. Legacy enabled toggles migrate to highlights, disabled toggles to none. All 66 automated tests, typecheck, lint, build and release checks passed. Eight live Agentbrain assertions verified one normal workspace leaf to the right of the note, source Markdown rendering, exact match to the modal diff, mutually exclusive editor highlights, switching modes and Accept in chat closing the resolved pane. The initial acceptance check ran before the asynchronous UI update finished. Waiting for the composer to unlock verified the completed behavior. No Obsidian errors were captured. Evidence is in work/split-diff-qa-result.txt and work/split-diff-unit.log.
+The Diff view setting offers Highlights in editor, None and Split diff view. Legacy enabled toggles migrate to highlights, disabled toggles to none. All 66 automated tests, typecheck, lint, build and release checks passed. Eight live test-vault assertions verified one normal workspace leaf to the right of the note, source Markdown rendering, exact match to the modal diff, mutually exclusive editor highlights, switching modes and Accept in chat closing the resolved pane. The initial acceptance check ran before the asynchronous UI update finished. Waiting for the composer to unlock verified the completed behavior. No Obsidian errors were captured. Evidence is in work/split-diff-qa-result.txt and work/split-diff-unit.log.
 
 ### 1.3.0 release build
 

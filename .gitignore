@@ -9,3 +9,12 @@ coverage/
 work/
 dist/
 *.tsbuildinfo
+
+# Local agent tooling (kept on disk, not published)
+AGENTS.md
+opencode.json
+.opencode/
+scripts/vault-guard.mjs
+scripts/vault-guard.test.mjs
+scripts/fix-codex-permissions.sh
+scripts/vault-guard/

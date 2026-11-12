@@ -103,3 +103,7 @@ fflate extracts Office and iWork ZIP document contents. MIT licence. The full no
 pdf-lib, @pdf-lib/standard-fonts and @pdf-lib/upng use the MIT licence. Full notices are embedded in main.js and retained in assets/PDF-LIB-LICENSE, assets/PDF-FONTS-LICENSE and assets/PDF-UPNG-LICENSE.
 
 The PDF dependencies include pako (MIT/Zlib) and tslib (Zero-Clause BSD). Their full notices are retained in assets/PAKO-LICENSE, assets/TSLIB-COPYRIGHT and assets/TSLIB-LICENSE and embedded in main.js.
+
+## External assistants
+
+OWLA Butler talks to assistants that the user installs separately: Codex from OpenAI, OpenCode from Anomaly and Claude Code from Anthropic. None is bundled, redistributed or modified by this plugin, and no part of any of them is included in main.js. OWLA invokes them over their documented local interfaces and does not copy their code, and each keeps its own licence and terms. The small OpenCode plugin that OWLA writes into its own private session directory is OWLA's own code; it imports the `@opencode/plugin` interface that the running OpenCode installation provides.

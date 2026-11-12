@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.0
+
+- Add OpenCode as a second provider, and Claude Code as a third. The first setting chooses the assistant, and the other providers' settings stay hidden until one is selected.
+- Connect to OpenCode without extra setup: OWLA detects the installed OpenCode, starts a private server with its own password and reads the models and providers connected there.
+- Give every provider the same experience. The same vault, PDF, attachment, edit and review flow, the same bundled Obsidian skills, and the same automatic model and reasoning effort selection now work on any of them.
+- Add an **Automatic** provider on supported Macs: Apple’s on-device model classifies each request, and OWLA picks the provider, model and reasoning effort from the connected providers’ strengths, cost and remaining usage. Exhausted providers are skipped, and the choice and its reason are shown under the reply.
+- Show provider usage limits and budgets in one usage panel.
+- Add a fallback provider setting: when the selected provider reports that its usage limit is reached, OWLA serves the next messages with the fallback and returns as soon as the limit resets. With **None**, the chat explains that the provider is depleted and offers the switch instead.
+- Explain in the chat when every connected provider is exhausted, and list each provider with its reset time.
+- Replace OpenCode's shell, file editing, search and subagent tools with OWLA's own for the session, deny everything else through the session rules, and remove inherited MCP servers.
+- Start OpenCode with a private configuration folder, so global OpenCode plugins, permissions and Claude Code skills are not loaded into OWLA's session. Sign-ins and connected providers keep working.
+- Run Claude Code headless in safe mode with only OWLA's tools allowed.
+- Let the assistant read Obsidian's link graph without opening notes: a note's backlinks, outgoing and broken links, tags and properties; notes by tag (including nested tags) or property value; and vault-wide reports of broken links, orphan notes and tag counts. Excluded folders stay hidden.
+- Propose frontmatter property changes for review without rewriting the note body. Names match case-insensitively and other properties are kept.
+- Warn the assistant when a proposed edit or new note adds a link, heading link or block link that Obsidian could not resolve, so it can fix the link before you review.
+- Read a block by its ID for exact `[[note#^id]]` citations.
+- Add **Verify connection** to the Codex settings, as for OpenCode and Claude Code.
+- Separate each provider's settings with a line when the Automatic provider shows all of them.
+
 ## 2.0.0
 
 - Improve automatic Codex model and reasoning effort selection with model-specific guidance and a compact inventory of attachments.

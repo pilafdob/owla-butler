@@ -21,7 +21,7 @@ test('explicit quoted edits are exact user instructions, not model prose',async(
 
 test('invalid persisted setting values fall back to safe defaults',async()=>{
  const {migrateSettings}=await import('../src/core');const prefs=migrateSettings({schemaVersion:2,codexExecutable:{path:'/unexpected'},model:42,reasoning:false,excludedFolders:'Private',webSearch:false});
- assert.equal(prefs.codexExecutable,'');assert.equal(prefs.model,'');assert.equal(prefs.reasoning,'');assert.equal(prefs.excludedFolders,'Private');assert.equal(prefs.webSearch,false);
+ assert.equal(prefs.codexExecutable,'');assert.equal(prefs.models.codex.model,'');assert.equal(prefs.models.codex.reasoning,'');assert.equal(prefs.excludedFolders,'Private');assert.equal(prefs.webSearch,false);
 });
 
 test('only a saved Codex opt-in enables automatic startup after reload',async()=>{
@@ -29,7 +29,7 @@ test('only a saved Codex opt-in enables automatic startup after reload',async()=
  assert.equal(migrateSettings(null).codexConnected,false);
  const legacy=migrateSettings({schemaVersion:2,model:'existing-model',reasoning:'high'});
  assert.equal(legacy.codexConnected,false);
- assert.equal(legacy.model,'existing-model');
+ assert.equal(legacy.models.codex.model,'existing-model');
  assert.equal(migrateSettings({...legacy,codexConnected:'true'}).codexConnected,false);
  const connected=migrateSettings({...legacy,codexConnected:true});
  assert.equal(connected.codexConnected,true);

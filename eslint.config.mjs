@@ -28,7 +28,7 @@ export default [
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/no-unused-vars': 'error',
       'obsidianmd/ui/sentence-case': ['warn', {
-        brands: ['OWLA', 'OWLA Butler', 'Codex', 'ChatGPT', 'OpenAI', 'Obsidian', 'Markdown', 'LaTeX', 'MathJax'],
+        brands: ['OWLA', 'OWLA Butler', 'Codex', 'ChatGPT', 'OpenAI', 'OpenCode', 'Claude', 'Claude Code', 'Obsidian', 'Markdown', 'LaTeX', 'MathJax'],
         acronyms: ['PDF', 'PDFs', 'OCR', 'YAML', 'API', 'MB', 'PNG', 'JPEG', 'WebP']
       }]
     }
