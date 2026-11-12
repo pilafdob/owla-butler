@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0
+
+- Add Windows desktop support for `.exe` and `.cmd` assistant launchers, per-user storage, vault path containment and process-tree cleanup.
+- Keep Apple Foundation Models automatic provider and model selection available only on macOS; Windows settings omit both options.
+- Resize larger supported images in Obsidian on Windows, and make the Windows synthetic CLI and OpenCode bridge checks part of the automated suite.
+
 ## 3.0.2
 
 - Light the sidebar dot green only while the provider's process is running in the background, for Codex, OpenCode and Claude Code alike, instead of whenever the provider is connected. With the Automatic provider, the dot is green while any provider runs.

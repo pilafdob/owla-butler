@@ -1,5 +1,17 @@
 # OWLA Butler verification
 
+## Windows support follow-up — 2026-11-12
+
+- **139 automated tests** pass on Windows on top of 3.0.2, including `.cmd` PATH discovery and argument preservation, Windows storage defaults, case-insensitive vault containment, macOS-only Automatic routing, the fake OpenCode bridge and the 3.0.1/3.0.2 main-branch updates. TypeScript, lint, build and three-file release checks also pass.
+- The freshly built `main.js`, `manifest.json` and `styles.css` were installed in the Test vault and SHA-256 verified against the build; the enabled plugin list was unchanged. Obsidian was updated from 1.12.7 to 1.15.1 so it meets the plugin minimum of 1.14.5. After approving the vault's first-open prompt, OWLA's ribbon command appeared, confirming the plugin loaded.
+- In the live Windows settings, the provider selector offered Codex, OpenCode and Claude Code, with no Automatic option. Deterministic tests also cover hiding Apple Foundation Models automatic-model settings outside macOS. The settings review exposed a Mac-specific executable-detection message; the final build changes it to device-neutral copy and is installed in the vault, but still needs an Obsidian restart to become the running copy.
+- Installed the signed OpenCode 2.2.7 Windows CLI at `%LOCALAPPDATA%\Programs\OpenCode`, added the folder to the per-user `PATH`, and verified `opencode --version` from Command Prompt. OWLA auto-detected the same executable and its live bridge loaded 12 models.
+- All 12 catalog entries reported zero input/output cost. The single approved live prompt selected `opencode/big-pickle` and was rejected by OpenCode with its shared free-model usage-limit response; no answer completed and no retry was made. OpenCode displayed a reset of 13 November 2026 at 01:00.
+- `opencode auth list` reported no saved credentials on Windows, and `OPENCODE_API_KEY` was unset. No sign-in was attempted. The exhausted response is therefore not evidence that Windows was logged into the Mac account; it came from OpenCode's server-side free-model limit. The exact cross-device quota identity is controlled by OpenCode.
+- OpenCode security checks verify deny-by-default session permissions, an allowlist limited to OWLA tools, bundled skills and optionally enabled web search, removal of native shell/file/MCP tools, and preservation of the user's normal auth data path and provider environment variables while global config/plugins remain isolated.
+- Earlier provider checks below are historical and were not repeated.
+- `npm run guard` and `npm run guard:test` could not execute because their referenced `scripts/vault-guard.mjs` and `scripts/vault-guard.test.mjs` files are absent from this checkout.
+
 ## 3.0.0 provider framework and OpenCode — 2026-11-12
 
 The provider layer was built as one shared contract, so every assistant behaves the same and a new one only needs its own bridge. The OpenCode path was verified against the installed **OpenCode 2.2.7** binary and against a deterministic fake server. Every check ran with OpenCode's data, config, state and cache directories redirected into `/tmp`, so the machine's real OpenCode state was never read or written. No vault, note or user credential was touched.

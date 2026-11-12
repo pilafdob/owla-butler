@@ -98,6 +98,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 fflate extracts Office and iWork ZIP document contents. MIT licence. The full notice is embedded in main.js and retained in assets/FFLATE-LICENSE.
 
+## cross-spawn
+
+cross-spawn starts Windows command shims without passing assistant input through a shell. Its path-key and shebang-command dependencies are MIT licensed; which and isexe use the ISC licence. Full notices are embedded in main.js and retained in assets/CROSS-SPAWN-LICENSE.
+
 ## PDF annotation support
 
 pdf-lib, @pdf-lib/standard-fonts and @pdf-lib/upng use the MIT licence. Full notices are embedded in main.js and retained in assets/PDF-LIB-LICENSE, assets/PDF-FONTS-LICENSE and assets/PDF-UPNG-LICENSE.

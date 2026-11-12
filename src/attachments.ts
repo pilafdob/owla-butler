@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join,extname} from 'node:path';
 
 const execute = promisify(execFile);
-export interface ConvertedAttachment {text:string;image?:Uint8Array;notice?:string;}
+export interface ConvertedAttachment {text:string;image?:Uint8Array;imageType?:string;notice?:string;}
 const textLimit = 64000;
 function bounded(text:string):string {
  return text.length>textLimit ? text.slice(0,textLimit)+'\n[Document shortened to 64,000 characters.]' : text;
@@ -68,6 +68,25 @@ async function iworkOffice(file:File,sourcePath:string,signal?:AbortSignal):Prom
   return await readFile(output);
  } finally {await rm(directory,{recursive:true,force:true});}
 }
+async function resizeImage(file:File,signal?:AbortSignal):Promise<ConvertedAttachment>{
+ signal?.throwIfAborted();
+ const bitmap=await createImageBitmap(file);
+ try{
+  const scale=Math.min(1,2048/Math.max(bitmap.width,bitmap.height));
+  const canvas=createEl('canvas');
+  canvas.width=Math.max(1,Math.round(bitmap.width*scale));
+  canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+  const context=canvas.getContext('2d');
+  if(!context)throw Error('The image could not be prepared in this window.');
+  context.drawImage(bitmap,0,0,canvas.width,canvas.height);
+  const type=file.type==='image/png'?'image/png':'image/jpeg';
+  const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(
+   result=>result?resolve(result):reject(Error('The image could not be encoded.')),type,0.88
+  ));
+  signal?.throwIfAborted();
+  return {text:'Image converted locally to '+(type==='image/png'?'PNG.':'JPEG.'),image:new Uint8Array(await blob.arrayBuffer()),imageType:type};
+ }finally{bitmap.close();}
+}
 export async function convertFile(file:File,sourcePath:string,parse:(xml:string)=>Document,signal?:AbortSignal):Promise<ConvertedAttachment> {
  signal?.throwIfAborted();
  if(file.size>512*1024*1024)return {text:'This file exceeds the 512 MB conversion budget. Export a smaller section for analysis.',notice:'Content unavailable'};
@@ -87,6 +106,9 @@ export async function convertFile(file:File,sourcePath:string,parse:(xml:string)
   } catch (error) {
    if (!/^\.(pages|key|numbers)$/.test(extension)) throw error;
   }
+ }
+ if(process.platform!=='darwin'&&(file.type.startsWith('image/')||/^\.(bmp|gif|png|jpe?g|webp)$/.test(extension))){
+  return resizeImage(file,signal);
  }
  // Inspect a bounded sample before decoding text. Binary input goes to native conversion.
  const sample = new Uint8Array(await file.slice(0,8192).arrayBuffer());

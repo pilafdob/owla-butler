@@ -1,10 +1,10 @@
-import {spawn,ChildProcessWithoutNullStreams} from 'node:child_process';
-import {accessSync,constants,mkdirSync,statSync,writeFileSync} from 'node:fs';
+import {ChildProcessWithoutNullStreams} from 'node:child_process';
+import {mkdirSync,writeFileSync} from 'node:fs';
 import {createServer,IncomingMessage,Server,request as httpRequest} from 'node:http';
 import {createServer as createSocketServer} from 'node:net';
 import {randomBytes} from 'node:crypto';
 import {homedir} from 'node:os';
-import {delimiter,isAbsolute,join} from 'node:path';
+import {join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {prefixToolNames,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import {opencodeExhaustion,ProviderExhaustion} from './exhaustion';
@@ -12,6 +12,7 @@ import {UsageSnapshot,decodeOpencodeUsage} from './usage';
 import {list,record} from './validation';
 import {skillDefinitions} from './knowledge';
 import {OPENCODE_PLUGIN_SOURCE} from './opencode-plugin';
+import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,spawnCli,terminateProcessTree} from './cli';
 
 export const OPENCODE_TOOL_NAMESPACE='owla_';
 
@@ -39,10 +40,9 @@ export function isolatedOpencodeEnv(env:NodeJS.ProcessEnv,directory:string):Node
 /** The bundled skills are registered under these IDs with OpenCode. */
 export const OPENCODE_SKILL_IDS=skillDefinitions().map(skill=>skill.id);
 
-const defaultBinDirectories=()=>['/usr/local/bin','/opt/homebrew/bin',join(homedir(),'.local/bin'),join(homedir(),'.cache/opencode/bin')];
-function isExecutable(file:string){if(!isAbsolute(file))return false;try{accessSync(file,constants.X_OK);return statSync(file).isFile();}catch{return false;}}
+const defaultBinDirectories=()=>defaultCliDirectories([join(homedir(),'.cache','opencode','bin')]);
 export function findOpencodeExecutable(path:string,directories=defaultBinDirectories()):string{
- return [...new Set([...directories,...path.split(delimiter)])].filter(isAbsolute).map(dir=>join(dir,'opencode')).find(isExecutable)??'';
+ return findCliExecutable('opencode',path,directories);
 }
 export function supportedOpencodeVersion(version:string):boolean{
  const match=version.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -241,12 +241,12 @@ export class OpencodeBridge implements ProviderBridge{
   try{
    this.setStatus('Connecting…');
    const file=executable||findOpencodeExecutable(process.env.PATH??'');
-   if(!file||!isExecutable(file))throw Error('OpenCode was not found. Install it in Terminal, or choose its executable in settings.');
+   if(!file||!isCliExecutable(file))throw Error('OpenCode was not found. Install it, or choose its executable in settings.');
    this.version=await this.readVersion(file);
    if(!supportedOpencodeVersion(this.version))throw Error('OWLA needs OpenCode 2.2 or newer. Update OpenCode and reconnect.');
    if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
    this.executable=file;
-   const directory=cwd||join(homedir(),'Library','Application Support','OWLA Butler');
+   const directory=cwd||defaultStorageDirectory();
    mkdirSync(directory,{recursive:true,mode:0o700});
    mkdirSync(join(directory,'config','opencode'),{recursive:true,mode:0o700});
    await this.ensureCallback();
@@ -254,7 +254,7 @@ export class OpencodeBridge implements ProviderBridge{
    this.password=randomBytes(24).toString('hex');
    const port=await freePort();
    this.port=port;
-   const child=spawn(file,['serve','--port',String(port),'--hostname','127.0.0.1'],{
+   const child=spawnCli(file,['serve','--port',String(port),'--hostname','127.0.0.1'],{
     cwd:directory,
     env:{
      ...isolatedOpencodeEnv(process.env,directory),
@@ -266,8 +266,6 @@ export class OpencodeBridge implements ProviderBridge{
      OWLA_SKILLS_PATH:join(directory,'owla-skills.json'),
      OWLA_WEB_SEARCH:web?'1':'0'
     },
-    shell:false,
-    stdio:'pipe',
     detached:process.platform!=='win32'
    });
    this.child=child;
@@ -291,14 +289,7 @@ export class OpencodeBridge implements ProviderBridge{
  }
 
  private async readVersion(file:string):Promise<string>{
-  return new Promise((resolve,reject)=>{
-   const child=spawn(file,['--version'],{shell:false,stdio:['ignore','pipe','ignore']});
-   let output='';
-   child.stdout.on('data',chunk=>{output+=chunk;});
-   child.on('error',reject);
-   child.on('exit',()=>resolve(output.trim()));
-   setTimeout(()=>{child.kill('SIGKILL');reject(new Error('OpenCode did not report a version.'));},10000).unref?.();
-  });
+  return (await runCli(file,['--version'],{timeout:10000,maxBuffer:100000})).trim();
  }
 
  private writeWorkspace(directory:string,tools:ToolSpec[]):void{
@@ -556,10 +547,7 @@ export class OpencodeBridge implements ProviderBridge{
   this.toolsDigest='';
   if(this.callback){this.callback.close();this.callback=null;this.callbackPort=0;}
   if(child){
-   const kill=(signal:NodeJS.Signals)=>{
-    try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}
-    catch{try{child.kill(signal);}catch{/* The owned process already exited. */}}
-   };
+   const kill=(signal:NodeJS.Signals)=>terminateProcessTree(child,signal);
    if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}
    else{
     this.closing=new Promise<void>(resolve=>{

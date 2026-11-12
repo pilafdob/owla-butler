@@ -1,5 +1,7 @@
-# OWLA Butler 3.0.2
+# OWLA Butler 3.1.0
 
-- The green sidebar dot now means the assistant is running in the background, not just that it is connected. This works the same for Codex, OpenCode and Claude Code, and with the **Automatic** provider the dot is green while any provider runs. Hover over the dot for the connection status.
+- Windows desktop support for Codex, OpenCode and Claude Code, including `.exe` and `.cmd` discovery and launch, Windows storage paths, safe vault containment and process-tree cleanup.
+- Windows image attachments are resized locally in Obsidian. OpenCode and the other providers keep their existing isolated tool access and review flow.
+- Apple Foundation Models automatic provider and model selection remain macOS-only. Existing macOS behavior is preserved.
 
-Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.

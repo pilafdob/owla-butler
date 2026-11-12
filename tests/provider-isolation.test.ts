@@ -1,4 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
+import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {claudeArguments} from '../src/claude';
 import {integrationOverrides,assertSessionPrivacy} from '../src/codex';
 import {adaptSkillContent,isolatedOpencodeEnv} from '../src/opencode';
@@ -21,8 +22,12 @@ test('Claude Code: safe mode, no built-in tools, only OWLA tools allowed',()=>{
 });
 
 test('OpenCode: the user’s global config, Claude Code skills and config overrides are not inherited',()=>{
- const env=isolatedOpencodeEnv({PATH:'/bin',HOME:'/Users/u',XDG_CONFIG_HOME:'/Users/u/.config',OPENCODE_CONFIG:'/x.json',OPENCODE_CONFIG_DIR:'/d',OPENCODE_CONFIG_CONTENT:'{}'},'/owla/session');
- assert.equal(env.XDG_CONFIG_HOME,'/owla/session/config');
+ const directory=join(tmpdir(),'owla','session');
+ const env=isolatedOpencodeEnv({PATH:'/bin',HOME:'/Users/u',XDG_CONFIG_HOME:'/Users/u/.config',XDG_DATA_HOME:'/Users/u/.local/share',OPENCODE_API_KEY:'test-opencode-key',OPENAI_API_KEY:'test-openai-key',OPENCODE_CONFIG:'/x.json',OPENCODE_CONFIG_DIR:'/d',OPENCODE_CONFIG_CONTENT:'{}'},directory);
+ assert.equal(env.XDG_CONFIG_HOME,join(directory,'config'));
+ assert.equal(env.XDG_DATA_HOME,'/Users/u/.local/share');
+ assert.equal(env.OPENCODE_API_KEY,'test-opencode-key');
+ assert.equal(env.OPENAI_API_KEY,'test-openai-key');
  assert.equal(env.OPENCODE_DISABLE_CLAUDE_CODE,'1');
  assert.equal(env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS,'1');
  for(const key of ['OPENCODE_CONFIG','OPENCODE_CONFIG_DIR','OPENCODE_CONFIG_CONTENT'])assert.equal(env[key],undefined,key);

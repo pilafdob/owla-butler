@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {decodeRoute,fallbackRoute,routingModels,summarizeRoutingContext} from '../src/routing';
+import {decodeRoute,fallbackRoute,routingModels,summarizeRoutingContext,supportsAutomaticSelection} from '../src/routing';
 import {migrateSettings} from '../src/core';
 import type {CodexModel} from '../src/codex';
 
@@ -24,6 +24,11 @@ test('automatic routing is opt-in and fallback preserves compatible manual selec
  const manual={model:'fast',effort:'low'};
  assert.deepEqual(fallbackRoute(routingModels(models,false),manual),manual);
  assert.deepEqual(fallbackRoute(routingModels(models,true),manual),{model:'general',effort:'medium'});
+});
+test('Apple Foundation Models automatic selection is only supported on macOS',()=>{
+ assert.equal(supportsAutomaticSelection('darwin'),true);
+ assert.equal(supportsAutomaticSelection('win32'),false);
+ assert.equal(supportsAutomaticSelection('linux'),false);
 });
 
 

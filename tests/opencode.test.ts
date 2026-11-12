@@ -22,11 +22,19 @@ test('OpenCode discovery uses executable files in absolute directories',async()=
  try{
   const first=join(root,'first'),second=join(root,'second');
   mkdirSync(first);mkdirSync(second);
-  writeFileSync(join(first,'opencode'),'not executable',{mode:0o600});
-  writeFileSync(join(second,'opencode'),'#!/bin/sh\nexit 0\n',{mode:0o700});
-  assert.equal(findOpencodeExecutable(['.',first,second].join(delimiter),[]),join(second,'opencode'));
-  chmodSync(join(second,'opencode'),0o600);
-  assert.equal(findOpencodeExecutable([first,second].join(delimiter),[]),'');
+  if(process.platform==='win32'){
+   writeFileSync(join(first,'opencode.txt'),'not executable');
+   writeFileSync(join(second,'opencode.cmd'),'@echo off\r\nexit /b 0\r\n');
+   assert.equal(findOpencodeExecutable(['.',first,second].join(delimiter),[]),join(second,'opencode.cmd'));
+   rmSync(join(second,'opencode.cmd'));
+   assert.equal(findOpencodeExecutable([first,second].join(delimiter),[]),'');
+  }else{
+   writeFileSync(join(first,'opencode'),'not executable',{mode:0o600});
+   writeFileSync(join(second,'opencode'),'#!/bin/sh\nexit 0\n',{mode:0o700});
+   assert.equal(findOpencodeExecutable(['.',first,second].join(delimiter),[]),join(second,'opencode'));
+   chmodSync(join(second,'opencode'),0o600);
+   assert.equal(findOpencodeExecutable([first,second].join(delimiter),[]),'');
+  }
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
@@ -60,13 +68,16 @@ test('a model without variants still offers one reasoning level',()=>{
 
 test('the OpenCode session allows only the OWLA tools and the bundled skills',()=>{
  const rules=opencodePermissions(true);
- assert.equal(rules[0].action,'*');assert.equal(rules[0].effect,'deny');
+ assert.deepEqual(rules[0],{action:'*',resource:'*',effect:'deny'});
  assert.ok(rules.some(rule=>rule.action==='owla_*'&&rule.effect==='allow'));
+ const nonSkillAllows=rules.filter(rule=>rule.effect==='allow'&&rule.action!=='skill').map(rule=>rule.action);
+ assert.deepEqual(nonSkillAllows,['owla_*','websearch']);
  const skills=rules.filter(rule=>rule.action==='skill');
  assert.equal(skills.length,skillDefinitions().length);
  assert.ok(skills.every(rule=>rule.effect==='allow'));
- assert.ok(rules.some(rule=>rule.action==='websearch'&&rule.effect==='allow'));
- assert.equal(opencodePermissions(false).some(rule=>rule.action==='websearch'),false);
+ const offlineRules=opencodePermissions(false);
+ assert.deepEqual(offlineRules.filter(rule=>rule.effect==='allow'&&rule.action!=='skill').map(rule=>rule.action),['owla_*']);
+ assert.equal(offlineRules.some(rule=>rule.action==='websearch'),false);
 });
 
 test('bundled skills keep their content and name the OpenCode tools',()=>{
@@ -130,9 +141,12 @@ test('OpenCode errors stay readable and never leak a raw body',()=>{
 test('the shipped plugin replaces the OpenCode tools with the OWLA tools',()=>{
  assert.match(OPENCODE_PLUGIN_SOURCE,/namespace: "owla"/);
  assert.match(OPENCODE_PLUGIN_SOURCE,/codemode: false/);
- assert.match(OPENCODE_PLUGIN_SOURCE,/"shell"/);
- assert.match(OPENCODE_PLUGIN_SOURCE,/"write"/);
+ for(const tool of ['shell','write','edit','read','patch','glob','grep','execute','subagent','webfetch','opencode_models','opencode_list_mcp_resources','opencode_read_mcp_resource']){
+  assert.ok(OPENCODE_PLUGIN_SOURCE.includes('"'+tool+'"'),tool);
+ }
  assert.match(OPENCODE_PLUGIN_SOURCE,/OWLA_TOOL_ENDPOINT/);
+ assert.match(OPENCODE_PLUGIN_SOURCE,/authorization: "Bearer " \+ token/);
+ assert.match(OPENCODE_PLUGIN_SOURCE,/for \(const entry of editor\.list\(\)\) editor\.remove\(entry\[0\]\)/);
  assert.ok(OPENCODE_PLUGIN_SOURCE.includes(OPENCODE_TOOL_NAMESPACE+'_')===false);
 });
 
