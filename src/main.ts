@@ -136,7 +136,11 @@ export default class Butler extends Plugin {
     this.addAttachmentMenu(menu,title,[file]);
    }
   }));
-  this.registerEvent(this.app.workspace.on('files-menu',(menu,files)=>{
+  this.registerEvent(this.app.vault.on('create',()=>this.pathCache.clear()));
+ this.registerEvent(this.app.vault.on('modify',()=>this.pathCache.clear()));
+ this.registerEvent(this.app.vault.on('delete',()=>this.pathCache.clear()));
+ this.registerEvent(this.app.vault.on('rename',()=>this.pathCache.clear()));
+ this.registerEvent(this.app.workspace.on('files-menu',(menu,files)=>{
    if(files.some(file=>this.allowedVaultFile(file.path)))this.addAttachmentMenu(menu,'Add files to OWLA chat',files);
   }));
   this.registerDomEvent(window,'contextmenu',event=>{
@@ -389,7 +393,7 @@ export default class Butler extends Plugin {
     return;
    }
    await this.codexBridge.signIn(
-    url=>void shell.openExternal(url).catch(e=>new Notice(friendlyError(e))),
+    url=>{if(/^https?:\/\//.test(url))void shell.openExternal(url).catch(e=>new Notice(friendlyError(e)));},
     ()=>void this.connect({explicit:true,provider:'codex'}).catch(e=>new Notice(friendlyError(e)))
    );
   }finally{await release();}
@@ -426,9 +430,10 @@ export default class Butler extends Plugin {
  * outside Obsidian raises no vault event that could invalidate a cached answer.
  */
  private resolvedRoot:{base:string;root:string}|null=null;
+  private pathCache=new Map<string,boolean>();
  private vaultRoot(base:string){if(this.resolvedRoot?.base!==base)this.resolvedRoot={base,root:realpathSync(base)};return this.resolvedRoot.root;}
- allowedVaultFile(path:string,extension:string|null=null){if(!allowedPath(path,this.prefs.excludedFolders,extension))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=this.vaultRoot(base),file=realpathSync(join(base,path));if(!isPathInside(root,file))return false;return allowedPath(relative(root,file).split(/[\\/]/).join('/'),this.prefs.excludedFolders,extension);}catch{return false;}}
- async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
+ allowedVaultFile(path:string,extension:string|null=null){const key=path+'\u0000'+(extension??'')+'\u0000'+this.prefs.excludedFolders;const cached=this.pathCache.get(key);if(cached!==undefined)return cached;let result=false;if(!allowedPath(path,this.prefs.excludedFolders,extension))result=false;else try{const base=this.vaultBasePath();if(base){const root=this.vaultRoot(base),file=realpathSync(join(base,path));if(isPathInside(root,file))result=allowedPath(relative(root,file).split(/[\\]/).join('/'),this.prefs.excludedFolders,extension);}}catch{result=false;}this.pathCache.set(key,result);return result;}
+ async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
  automaticLinksEnabled(){
   if(!this.settingsTab)return false;

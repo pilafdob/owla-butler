@@ -25,13 +25,13 @@ The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices refl
 
 Description (matches manifest):
 
-> Chat with Codex using your open note, selected text, images and vault context. Review edits before applying them.
+> Bring Codex, OpenCode or Claude Code into Obsidian: chat with your open note, attach images and PDFs, search your vault and the web, and review every edit before it lands.
 
 Suggested repository description:
 
-> Codex-powered Obsidian assistant with current-note context, images, PDF pages and reviewed edits.
+> Obsidian sidebar assistant for Codex, OpenCode and Claude Code: current note context, attachments, vault search and reviewed edits.
 
-Suggested topics: `obsidian-plugin`, `obsidian`, `codex`, `markdown`, `ai-assistant`.
+Suggested topics: `obsidian-plugin`, `obsidian`, `codex`, `opencode`, `claude-code`, `markdown`, `ai-assistant`.
 
 ## Preparation checks
 
