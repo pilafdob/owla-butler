@@ -1,6 +1,14 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {allowedPath,isPathInside,disableAutomaticSelectionOutsideMac,DEFAULTS,proposal,assertFresh,assertNoteTitle,insertion,stripFence,parseJsonLine,formatTranscription,displayMarkdown} from '../src/core';
 test('vault boundary and excluded folders',()=>{assert.ok(allowedPath('Math/Equations.md'));for(const p of ['../Note.md','/tmp/Note.md','.obsidian/config.md','Notes/.env.md','a/../Note.md','a\\note.md','image.png','Private/Note.md'])assert.equal(allowedPath(p,'Private'),false,p);});
+test('an excluded folder cannot be reached through a different case or Unicode spelling',()=>{
+ // macOS and Windows resolve these spellings to the same folder.
+ for(const p of ['private/Note.md','PRIVATE/Sub/Note.md','Private/Note.md'])assert.equal(allowedPath(p,'Private'),false,p);
+ assert.equal(allowedPath('Cafe\u0301/Note.md','Caf\u00e9'),false);
+ assert.equal(allowedPath('Caf\u00e9/Note.md','Cafe\u0301'),false);
+ // A folder that only shares a prefix stays reachable.
+ assert.equal(allowedPath('Privateer/Note.md','Private'),true);
+});
 test('vault containment follows Windows case-insensitive path semantics',()=>{assert.equal(isPathInside('C:\\Vault','c:\\vault\\Notes\\A.md','win32'),true);assert.equal(isPathInside('C:\\Vault','C:\\Vault\\..\\Outside.md','win32'),false);assert.equal(isPathInside('C:\\Vault','C:\\Vault','win32'),false);});
 test('Apple-only automatic selection settings are cleared on other platforms',()=>{const settings={...DEFAULTS,automaticProvider:true,automaticRouting:true};assert.deepEqual(disableAutomaticSelectionOutsideMac(settings,'win32'),{...settings,automaticProvider:false,automaticRouting:false});assert.equal(disableAutomaticSelectionOutsideMac(settings,'darwin'),settings);});
 test('small replacement preserves academic metadata and untouched content',()=>{const s='---\ncitekey: smith2024\n---\n[[Related]]\nThe result is 4.\n![[image.png]]\n';const p=proposal('A.md',s,'The result is 4.','The result is $x=4$.','Format math');assert.equal(p.after,s.replace('The result is 4.','The result is $x=4$.'));});

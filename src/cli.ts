@@ -51,6 +51,39 @@ export function defaultStorageDirectory(platform=process.platform,home=homedir()
 
 type CliSpawnOptions={cwd?:string;env?:NodeJS.ProcessEnv;detached?:boolean};
 
+/**
+ * Variables that change how a spawned assistant executes before its own code
+ * runs: module preload hooks, library injection and disabled TLS checks. No
+ * assistant needs them, so every provider drops them. Proxies and custom
+ * certificate bundles stay, because enterprise setups need them to reach the
+ * provider at all.
+ */
+export const UNSAFE_EXECUTION_ENV=[
+ 'NODE_OPTIONS','NODE_TLS_REJECT_UNAUTHORIZED','ELECTRON_RUN_AS_NODE',
+ 'DYLD_INSERT_LIBRARIES','LD_PRELOAD',
+];
+
+/**
+ * API keys and endpoint overrides. Codex and Claude Code sign in with their
+ * own subscription, so a key would switch them to API billing and an endpoint
+ * override would send the conversation and the signed-in session somewhere
+ * other than the provider the user chose. OpenCode is the exception: it reads
+ * provider keys from the environment by design, so it keeps them.
+ */
+export const UNSAFE_CREDENTIAL_ENV=[
+ 'OPENAI_API_KEY','CODEX_API_KEY','AZURE_OPENAI_API_KEY',
+ 'OPENAI_BASE_URL','OPENAI_API_BASE','OPENAI_ORGANIZATION',
+ 'ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','ANTHROPIC_BASE_URL',
+];
+
+/** The environment of a spawned assistant, without the variables above. */
+export function sanitizedEnv(env:NodeJS.ProcessEnv=process.env,{keepCredentials=false}:{keepCredentials?:boolean}={}):NodeJS.ProcessEnv{
+ const result:NodeJS.ProcessEnv={...env};
+ for(const key of UNSAFE_EXECUTION_ENV)delete result[key];
+ if(!keepCredentials)for(const key of UNSAFE_CREDENTIAL_ENV)delete result[key];
+ return result;
+}
+
 export function spawnCli(file:string,args:string[],options:CliSpawnOptions={}):ChildProcessWithoutNullStreams{
  return spawn(file,args,{...options,shell:false,windowsHide:true,stdio:'pipe'}) as ChildProcessWithoutNullStreams;
 }

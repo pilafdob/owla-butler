@@ -95,10 +95,20 @@ export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platf
  for(const key of PLATFORM_SETTINGS){own[key]=structuredClone(prefs[key]);shared[key]=seed[key];}
  return {...shared,schemaVersion:3,platforms:{...record(data.platforms),[platform]:own}};
 }
+/**
+ * Vault paths are compared the way the filesystem compares them. macOS and
+ * Windows resolve `Private` and `private` to the same folder, so an excluded
+ * folder must match the same way; a different spelling must not reach around
+ * an exclusion the user set. Unicode is compared in the normalized form that
+ * APFS stores, so `café` and `café` are one folder.
+ */
+const foldPath=(value:string)=>value.normalize('NFC').toLowerCase();
+export {foldPath};
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
- return !excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).some(s=>path===s||path.startsWith(s+'/'));
+ const target=foldPath(path);
+ return !excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).some(s=>{const root=foldPath(s);return target===root||target.startsWith(root+'/');});
 }
 export function isPathInside(root:string,file:string,platform=process.platform):boolean {
  const path=platform==='win32'?win32:{relative,isAbsolute,sep};

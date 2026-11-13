@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.1.2
+
+- Teach automatic mode about newly added models without code changes: an unknown OpenCode model family is now rated by its own catalogue entry (capable naming such as Pro/Max/Thinking, a large context window, accepted images) instead of counting as unproven, and the shortlist offered to Automatic selection ranks new capable free families ahead of light variants so the limit no longer crowds them out. Adding a curated family remains one line in the family list.
+- Recognise OpenCode Go and other providers connected in the OpenCode terminal app: OpenAI and Anthropic models ride along with OpenCode's own, rated by their own family; the same model offered by more than one provider is offered once (cheaper first, then OpenCode Go); paid models keep half of Automatic selection's OpenCode slots so a hard task is not forced onto a free model; and a free-tier limit no longer writes off OpenCode when paid models still work. One-message model overrides now work for OpenCode models, including same-named ones across providers.
+- Stop OpenCode from loading configuration and plugins from folders above OWLA's session folder, such as `~/.opencode/plugins`; OWLA's OpenCode settings now live in its private configuration folder.
+- Allow each OWLA tool in OpenCode by its exact name, and refuse tool calls OWLA did not offer in the current turn.
+- Keep module preload, library injection and TLS-disabling variables away from every assistant, and API keys and endpoint overrides away from Codex and Claude Code.
+- Check Codex's isolation before every reply, and refuse to connect when project instructions sit above OWLA's storage folder.
+- Match excluded folders regardless of letter case and Unicode form, as macOS and Windows do.
+- Fail an OpenCode reply instead of waiting forever when its event stream does not open or closes early.
+- Read long assistant messages without blocking Obsidian (a 16 MiB message took up to 1.4 s), and keep the note picker responsive in large vaults.
+- On Windows, run command shims only through the system Command Prompt: every assistant's environment pins `ComSpec` to the Windows `cmd.exe`, and a shim is refused when the `ComSpec` variable names another program.
+- On Windows, shut down an assistant's process tree more safely: a process that already exited is never targeted again (Windows reuses process IDs quickly), and the system `taskkill` is resolved explicitly before it is used.
+- Find assistants on Windows in the standard per-user install folders — npm, pnpm, Scoop, Volta, Bun and Claude Code's native installer — and keep the Windows launch rules covered by automated tests on every platform.
+
 ## 3.1.1
 
 - Keep the assistant settings separately for each operating system. With a vault synced between a Mac and a Windows PC, choosing a provider, Automatic mode, models, the fallback or executable paths on one computer no longer changes the other. Each computer starts from the settings saved before this release, and other computers' settings are kept when one saves. Vault settings such as excluded folders stay shared.

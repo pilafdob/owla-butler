@@ -2,7 +2,7 @@ import {App,TFile,TFolder,parseLinktext} from 'obsidian';
 import {createHash,randomUUID} from 'node:crypto';
 import {existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,renameSync,rmSync,statSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {allowedPath} from './core';
+import {allowedPath,foldPath} from './core';
 import {record} from './validation';
 
 export type PathMove={from:string;to:string};
@@ -31,7 +31,7 @@ type Progress={
 };
 type Journal={review:OrganizationReview;progress?:Progress};
 const maxBytes=10_000_000;
-const key=(path:string)=>path.normalize('NFC').toLowerCase();
+const key=(path:string)=>foldPath(path);
 const under=(path:string,root:string)=>key(path)===key(root)||key(path).startsWith(key(root)+'/');
 const parent=(path:string)=>path.includes('/')?path.slice(0,path.lastIndexOf('/')):'';
 const short=(path:string)=>key(path.split('/').at(-1)??'').replace(/\.md$/,'');

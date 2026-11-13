@@ -1,7 +1,7 @@
 {
   "id": "owla-butler",
   "name": "OWLA Butler",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "minAppVersion": "1.14.5",
   "description": "Chat with Codex, OpenCode or Claude Code using your open note, selected text, images and vault context. Accept or decline suggested edits in chat.",
   "author": "Filip (@pilafdob)",

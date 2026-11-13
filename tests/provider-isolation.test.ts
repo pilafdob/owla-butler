@@ -2,7 +2,8 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {claudeArguments} from '../src/claude';
 import {integrationOverrides,assertSessionPrivacy} from '../src/codex';
-import {adaptSkillContent,isolatedOpencodeEnv} from '../src/opencode';
+import {adaptSkillContent,isolatedOpencodeEnv,opencodeConfigPath} from '../src/opencode';
+import {sanitizedEnv} from '../src/cli';
 import {OPENCODE_PLUGIN_SOURCE} from '../src/opencode-plugin';
 import {PROVIDER_IDS,prefixToolNames,toolName} from '../src/provider';
 
@@ -23,7 +24,14 @@ test('Claude Code: safe mode, no built-in tools, only OWLA tools allowed',()=>{
 
 test('OpenCode: the user’s global config, Claude Code skills and config overrides are not inherited',()=>{
  const directory=join(tmpdir(),'owla','session');
- const env=isolatedOpencodeEnv({PATH:'/bin',HOME:'/Users/u',XDG_CONFIG_HOME:'/Users/u/.config',XDG_DATA_HOME:'/Users/u/.local/share',OPENCODE_API_KEY:'test-opencode-key',OPENAI_API_KEY:'test-openai-key',OPENCODE_CONFIG:'/x.json',OPENCODE_CONFIG_DIR:'/d',OPENCODE_CONFIG_CONTENT:'{}'},directory);
+ const env=isolatedOpencodeEnv({PATH:'/bin',HOME:'/Users/u',XDG_CONFIG_HOME:'/Users/u/.config',XDG_DATA_HOME:'/Users/u/.local/share',OPENCODE_API_KEY:'test-opencode-key',OPENAI_API_KEY:'test-openai-key',OPENCODE_CONFIG:'/x.json',OPENCODE_CONFIG_DIR:'/d',OPENCODE_CONFIG_CONTENT:'{}',NODE_OPTIONS:'--require /x.js',LD_PRELOAD:'/x.so',DYLD_INSERT_LIBRARIES:'/x.dylib',NODE_TLS_REJECT_UNAUTHORIZED:'0',HTTPS_PROXY:'http://proxy'},directory);
+ // Ancestor opencode.json, .opencode/ config and .opencode/plugins are not discovered.
+ assert.equal(env.OPENCODE_DISABLE_PROJECT_CONFIG,'1');
+ assert.equal(env.OPENCODE_CONFIG_PROJECT_DISABLE,'1');
+ assert.equal(opencodeConfigPath(directory),join(env.XDG_CONFIG_HOME??'','opencode','opencode.json'));
+ // Execution hooks are dropped; enterprise proxies stay.
+ for(const key of ['NODE_OPTIONS','LD_PRELOAD','DYLD_INSERT_LIBRARIES','NODE_TLS_REJECT_UNAUTHORIZED'])assert.equal(env[key],undefined,key);
+ assert.equal(env.HTTPS_PROXY,'http://proxy');
  assert.equal(env.XDG_CONFIG_HOME,join(directory,'config'));
  assert.equal(env.XDG_DATA_HOME,'/Users/u/.local/share');
  assert.equal(env.OPENCODE_API_KEY,'test-opencode-key');
@@ -47,4 +55,10 @@ test('skill text names the tools each provider actually exposes',()=>{
   // Renaming twice must not stack prefixes.
   assert.equal(prefixToolNames(text,provider),text);
  }
+});
+
+test('Codex and Claude Code: API keys, endpoint overrides and execution hooks are not inherited',()=>{
+ const env=sanitizedEnv({PATH:'/bin',HOME:'/Users/u',OPENAI_API_KEY:'k',ANTHROPIC_API_KEY:'k',OPENAI_BASE_URL:'https://elsewhere',ANTHROPIC_BASE_URL:'https://elsewhere',NODE_OPTIONS:'--require /x.js',LD_PRELOAD:'/x.so',HTTPS_PROXY:'http://proxy',NODE_EXTRA_CA_CERTS:'/ca.pem'});
+ for(const key of ['OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENAI_BASE_URL','ANTHROPIC_BASE_URL','NODE_OPTIONS','LD_PRELOAD'])assert.equal(env[key],undefined,key);
+ for(const key of ['PATH','HOME','HTTPS_PROXY','NODE_EXTRA_CA_CERTS'])assert.ok(env[key],key);
 });

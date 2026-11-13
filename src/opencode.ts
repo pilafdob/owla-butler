@@ -1,8 +1,8 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {mkdirSync,writeFileSync} from 'node:fs';
+import {mkdirSync,rmSync,writeFileSync} from 'node:fs';
 import {createServer,IncomingMessage,Server,request as httpRequest} from 'node:http';
 import {createServer as createSocketServer} from 'node:net';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
@@ -12,7 +12,8 @@ import {UsageSnapshot,decodeOpencodeUsage} from './usage';
 import {list,record} from './validation';
 import {skillDefinitions} from './knowledge';
 import {OPENCODE_PLUGIN_SOURCE} from './opencode-plugin';
-import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,spawnCli,terminateProcessTree} from './cli';
+import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
+import {RecordSplitter} from './stream';
 
 export const OPENCODE_TOOL_NAMESPACE='owla_';
 
@@ -24,10 +25,23 @@ export const OPENCODE_TOOL_NAMESPACE='owla_';
  * OWLA therefore points the config home at a private folder, as Claude Code
  * runs in safe mode and Codex runs without inherited plugins. Sign-ins live in
  * OpenCode's data folder and keep working.
+ *
+ * OpenCode also walks from the working directory up to the filesystem root and
+ * loads every `opencode.json`, `.opencode/opencode.json` and
+ * `.opencode/plugins/*.ts` it passes, including ones in the home folder
+ * (verified with OpenCode 2.3.0: a plugin in an ancestor `.opencode/plugins`
+ * ran inside OWLA's session). That project discovery is switched off, and
+ * OWLA's own configuration lives in the private global config folder instead
+ * (see `opencodeConfigPath`), which every supported version reads.
+ *
+ * Provider API keys stay, because OpenCode reads them from the environment by
+ * design; only variables that change how the process executes are dropped.
  */
 export function isolatedOpencodeEnv(env:NodeJS.ProcessEnv,directory:string):NodeJS.ProcessEnv{
- const result:NodeJS.ProcessEnv={...env,
+ const result:NodeJS.ProcessEnv={...sanitizedEnv(env,{keepCredentials:true}),
   XDG_CONFIG_HOME:join(directory,'config'),
+  OPENCODE_DISABLE_PROJECT_CONFIG:'1',
+  OPENCODE_CONFIG_PROJECT_DISABLE:'1',
   // OpenCode otherwise reads Claude Code's skills and instructions from the home folder.
   OPENCODE_DISABLE_CLAUDE_CODE:'1',
   OPENCODE_DISABLE_CLAUDE_CODE_SKILLS:'1',
@@ -37,10 +51,17 @@ export function isolatedOpencodeEnv(env:NodeJS.ProcessEnv,directory:string):Node
  return result;
 }
 
+/** OWLA's OpenCode configuration: the global config file of the private config home. */
+export function opencodeConfigPath(directory:string):string{
+ return join(directory,'config','opencode','opencode.json');
+}
+
 /** The bundled skills are registered under these IDs with OpenCode. */
 export const OPENCODE_SKILL_IDS=skillDefinitions().map(skill=>skill.id);
 
-const defaultBinDirectories=()=>defaultCliDirectories([join(homedir(),'.cache','opencode','bin')]);
+// `~/.cache/opencode/bin` is the Linux installer's location; on Windows the
+// per-user install folders in defaultCliDirectories cover it.
+const defaultBinDirectories=()=>defaultCliDirectories(process.platform==='win32'?[]:[join(homedir(),'.cache','opencode','bin')]);
 export function findOpencodeExecutable(path:string,directories=defaultBinDirectories()):string{
  return findCliExecutable('opencode',path,directories);
 }
@@ -52,7 +73,7 @@ export function supportedOpencodeVersion(version:string):boolean{
  return minor>2||(minor===2&&Number(match[3])>=0);
 }export function friendlyOpencodeError(error:unknown):string{
  const text=error instanceof Error?error.message:String(error);
- if(/free-limit|Free usage limit/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
+ if(/free-limit|Free usage limit/i.test(text))return 'OpenCode’s free models reached their shared usage limit. Wait for the reported reset time.';
  if(/429|quota|rate.limit/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
  if(/401|unauthorized|authentication|credential/i.test(text))return 'OpenCode needs you to sign in again. Check your OpenCode account.';
  return text.slice(0,800);
@@ -92,17 +113,28 @@ export function decodeOpencodeModel(value:unknown):ProviderModel|null{
  };
 }
 
-/** The permission ruleset that keeps OpenCode inside OWLA's own tools. */
-export function opencodePermissions(web:boolean):{action:string;resource:string;effect:string}[]{
+/**
+ * The permission ruleset that keeps OpenCode inside OWLA's own tools. Each
+ * OWLA tool is allowed by its exact name: a namespace wildcard would also allow
+ * any other plugin or MCP server that registers a tool under `owla_`.
+ */
+export function opencodePermissions(web:boolean,tools:readonly string[]):{action:string;resource:string;effect:string}[]{
  return [
   {action:'*',resource:'*',effect:'deny'},
-  {action:OPENCODE_TOOL_NAMESPACE+'*',resource:'*',effect:'allow'},
+  ...[...new Set(tools)].map(name=>({action:OPENCODE_TOOL_NAMESPACE+name,resource:'*',effect:'allow'})),
   ...OPENCODE_SKILL_IDS.map(id=>({action:'skill',resource:id,effect:'allow'})),
   ...(web?[{action:'websearch',resource:'*',effect:'allow'}]:[])
  ];
 }
 
 type Reply={status:number;body:string};
+/** OpenCode replies and events are bounded, so a faulty server cannot grow Obsidian without limit. */
+const MAX_OPENCODE_BYTES=32*1024*1024;
+/** Compares a presented secret without leaking its length or prefix through timing. */
+function sameSecret(presented:string|undefined,expected:string):boolean{
+ const left=Buffer.from(presented??'','utf8'),right=Buffer.from(expected,'utf8');
+ return left.length===right.length&&timingSafeEqual(left,right);
+}
 function authorization(password:string){return 'Basic '+Buffer.from('opencode:'+password,'utf8').toString('base64');}
 function call(options:{port:number;path:string;method?:string;password:string;body?:string;timeout?:number;signal?:AbortSignal}):Promise<Reply>{
  return new Promise((resolve,reject)=>{
@@ -114,10 +146,10 @@ function call(options:{port:number;path:string;method?:string;password:string;bo
    headers:{authorization:authorization(options.password),'content-type':'application/json',accept:'application/json'},
    signal:options.signal
   },response=>{
-   let body='';
+   const parts:string[]=[];let size=0;
    response.setEncoding('utf8');
-   response.on('data',chunk=>{body+=chunk;});
-   response.on('end',()=>resolve({status:response.statusCode??0,body}));
+   response.on('data',(chunk:string)=>{size+=chunk.length;if(size>MAX_OPENCODE_BYTES){request.destroy(new Error('OpenCode sent a reply that was too large.'));return;}parts.push(chunk);});
+   response.on('end',()=>resolve({status:response.statusCode??0,body:parts.join('')}));
    response.on('error',reject);
   });
   request.setTimeout(options.timeout??20000,()=>{request.destroy(new Error('OpenCode timed out.'));});
@@ -126,16 +158,27 @@ function call(options:{port:number;path:string;method?:string;password:string;bo
   request.end();
  });
 }
-function openEventStream(options:{port:number;password:string}):Promise<IncomingMessage>{
+/**
+ * The event stream stays open for the whole turn, so it has no idle timeout.
+ * Opening it is bounded, though, and follows the turn's cancel signal: a server
+ * that accepts the connection but never answers must not hang the turn.
+ */
+function openEventStream(options:{port:number;password:string;signal:AbortSignal;timeout?:number}):Promise<IncomingMessage>{
  return new Promise((resolve,reject)=>{
   const request=httpRequest({
    host:'127.0.0.1',
    port:options.port,
    path:'/api/event',
    method:'GET',
-   headers:{authorization:authorization(options.password),accept:'text/event-stream'}
-  },response=>resolve(response));
-  request.on('error',reject);
+   headers:{authorization:authorization(options.password),accept:'text/event-stream'},
+   signal:options.signal
+  },response=>{
+   clearTimeout(timer);
+   if((response.statusCode??0)<200||(response.statusCode??0)>=300){response.destroy();reject(new Error('OpenCode did not open its event stream.'));return;}
+   resolve(response);
+  });
+  const timer=setTimeout(()=>request.destroy(new Error('OpenCode did not open its event stream in time.')),options.timeout??20000);
+  request.on('error',error=>{clearTimeout(timer);reject(error);});
   request.end();
  });
 }
@@ -176,6 +219,8 @@ export class OpencodeBridge implements ProviderBridge{
  private callbackPort=0;
  private callbackToken='';
  private toolHandler:((name:string,args:unknown)=>Promise<ToolOutput>)|null=null;
+ /** The tools offered in the current turn; the callback refuses every other name. */
+ private toolNames=new Set<string>();
  private toolsDigest='';
  private sessionId='';
  models:ProviderModel[]=[];
@@ -310,13 +355,21 @@ export class OpencodeBridge implements ProviderBridge{
    plugins:[pluginDirectory],
    permissions:[{action:'*',resource:'*',effect:'deny'}]
   };
-  writeFileSync(join(directory,'opencode.json'),JSON.stringify(config,null,2),{mode:0o600});
+  writeFileSync(opencodeConfigPath(directory),JSON.stringify(config,null,2),{mode:0o600});
+  // Earlier versions wrote the same file as project config. Project discovery is
+  // off now, but an OpenCode that ignores the switch would load the plugin twice.
+  rmSync(join(directory,'opencode.json'),{force:true});
  }
 
  private async ensureCallback():Promise<void>{
   if(this.callback)return;
   const token=randomBytes(24).toString('hex');
-  const server=createServer((request,response)=>{void this.handleCallback(request,response);});
+  const server=createServer((request,response)=>{
+   this.handleCallback(request,response).catch(()=>{if(!response.headersSent){response.writeHead(500);}response.end();});
+  });
+  server.headersTimeout=10000;
+  server.requestTimeout=60000;
+  server.maxConnections=32;
   await new Promise<void>((resolve,reject)=>{
    server.on('error',reject);
    server.listen(0,'127.0.0.1',()=>resolve());
@@ -330,16 +383,20 @@ export class OpencodeBridge implements ProviderBridge{
  private async handleCallback(request:IncomingMessage,response:import('node:http').ServerResponse):Promise<void>{
   const send=(code:number,body:string)=>{response.writeHead(code,{'content-type':'application/json'});response.end(body);};
   if(request.method!=='POST'||request.url!=='/tool'){send(404,JSON.stringify({error:'Not found.'}));return;}
-  if(request.headers.authorization!=='Bearer '+this.callbackToken){send(401,JSON.stringify({error:'Not authorized.'}));return;}
-  let body='';
+  if(!sameSecret(request.headers.authorization,'Bearer '+this.callbackToken)){send(401,JSON.stringify({error:'Not authorized.'}));return;}
+  const parts:string[]=[];let size=0;
   try{
-   for await (const chunk of request){body+=chunk;if(body.length>32*1024*1024)throw Error('The tool request was too large.');}
+   request.setEncoding('utf8');
+   for await (const chunk of request as AsyncIterable<string>){size+=chunk.length;if(size>MAX_OPENCODE_BYTES)throw Error('The tool request was too large.');parts.push(chunk);}
   }catch(error){send(400,JSON.stringify({error:error instanceof Error?error.message:String(error)}));return;}
   try{
-   const payload=record(JSON.parse(body||'{}'));
+   const payload=record(JSON.parse(parts.join('')||'{}'));
    const handler=this.toolHandler;
    if(!handler)throw Error('OWLA is not ready for tool calls.');
-   const output=await handler(typeof payload.tool==='string'?payload.tool:'',payload.args);
+   const name=typeof payload.tool==='string'?payload.tool:'';
+   // Only the tools offered in this turn; the token alone must not reach the rest.
+   if(!this.toolNames.has(name))throw Error('OWLA did not offer that tool in this turn.');
+   const output=await handler(name,payload.args);
    if(typeof output==='string'){send(200,JSON.stringify({text:output}));return;}
    send(200,JSON.stringify({text:output.text,imageUrl:output.imageUrl}));
   }catch(error){
@@ -368,6 +425,7 @@ export class OpencodeBridge implements ProviderBridge{
 
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
   this.toolHandler=options.tool;
+  this.toolNames=new Set(options.tools.map(tool=>tool.name));
   const digest=this.digest(options.tools);
   if(this.child&&this.toolsDigest&&this.toolsDigest!==digest){
    this.disconnect('Updating OpenCode tools…');
@@ -393,7 +451,7 @@ export class OpencodeBridge implements ProviderBridge{
     body:JSON.stringify({
      location:{directory:options.cwd},
      model:{providerID:model.providerID,id:model.model,...(variant&&variant!=='default'?{variant}:{})},
-     permissions:opencodePermissions(options.web)
+     permissions:opencodePermissions(options.web,options.tools.map(tool=>tool.name))
     })
    });
    if(created.status<200||created.status>=300)throw Error('OpenCode could not start a session.');
@@ -412,13 +470,16 @@ export class OpencodeBridge implements ProviderBridge{
    this.sessionId='';
    this.active=null;
    this.toolHandler=null;
+   this.toolNames=new Set();
    try{await this.readUsage(4000);}catch{/* A usage refresh must not erase a completed answer. */}
    await this.rest();
   }
  }
 
  private async prompt(options:ProviderRunOptions,sessionId:string,controller:AbortController):Promise<ProviderRunResult>{
-  const stream=await openEventStream({port:this.port,password:this.password});
+  let stream:IncomingMessage;
+  try{stream=await openEventStream({port:this.port,password:this.password,signal:controller.signal});}
+  catch(error){if(controller.signal.aborted)throw Error('Stopped.');throw error;}
   let text='';
   let usedWeb=false;
   const sources:{url:string;title:string}[]=[];
@@ -454,23 +515,22 @@ export class OpencodeBridge implements ProviderBridge{
    }
   };
   stream.setEncoding('utf8');
-  let buffer='';
-  stream.on('data',chunk=>{
-   buffer+=chunk;
-   let index=buffer.indexOf('\n\n');
-   while(index>=0){
-    const block=buffer.slice(0,index);
-    buffer=buffer.slice(index+2);
+  const blocks=new RecordSplitter('\n\n',MAX_OPENCODE_BYTES);
+  const closed=(message:string)=>{if(!settled){settled=true;failure=new Error(message);resolveTurn();}};
+  stream.on('data',(chunk:string)=>{
+   for(const block of blocks.push(chunk)){
     for(const line of block.split('\n')){
      if(!line.startsWith('data:'))continue;
      const payload=line.slice(5).trim();
      if(!payload)continue;
      try{handle(record(JSON.parse(payload)));}catch{/* Ignore an event OWLA does not understand. */}
     }
-    index=buffer.indexOf('\n\n');
    }
+   if(blocks.overflow){closed('OpenCode sent an event that was too large.');stream.destroy();}
   });
-  stream.on('error',()=>{if(!settled){settled=true;failure=new Error('The OpenCode event stream closed.');resolveTurn();}});
+  stream.on('error',()=>closed('The OpenCode event stream closed.'));
+  // A stream that ends before the turn does would otherwise leave the turn waiting forever.
+  stream.on('close',()=>closed('The OpenCode event stream closed.'));
   const stop=()=>{if(settled)return;settled=true;failure=new Error('Stopped.');resolveTurn();};
   controller.signal.addEventListener('abort',stop,{once:true});
   try{
@@ -544,6 +604,7 @@ export class OpencodeBridge implements ProviderBridge{
   this.password='';
   this.active=null;
   this.toolHandler=null;
+  this.toolNames=new Set();
   this.toolsDigest='';
   if(this.callback){this.callback.close();this.callback=null;this.callbackPort=0;}
   if(child){

@@ -27,7 +27,8 @@ import {ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOu
 import {claudeExhaustion,ProviderExhaustion} from './exhaustion';
 import {UsageSnapshot,decodeClaudeRateLimit,decodeClaudeUsage,updateUsage} from './usage';
 import {list,record} from './validation';
-import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,spawnCli,terminateProcessTree} from './cli';
+import {RecordSplitter} from './stream';
+import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 
 export const CLAUDE_MCP_SERVER='owla';
 export const CLAUDE_TOOL_PREFIX='mcp__'+CLAUDE_MCP_SERVER+'__';
@@ -146,12 +147,12 @@ export class ClaudeBridge implements ProviderBridge{
  get signInPending(){return false;}
 
  private env():NodeJS.ProcessEnv{
-  const env:NodeJS.ProcessEnv={...process.env,PATH:[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter),
+  const env:NodeJS.ProcessEnv={...sanitizedEnv(),PATH:[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter),
    // DISABLE_TELEMETRY and CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC also hide the live model
    // catalogue (verified with 2.1.322: Fable 5.2 and pinned versions disappear), so OWLA keeps the
    // user's own Claude Code telemetry choice and turns off only error reports and self-updates.
    DISABLE_ERROR_REPORTING:'1',DISABLE_AUTOUPDATER:'1'};
-  for(const key of ['ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX'])delete env[key];
+  for(const key of ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX'])delete env[key];
   return env;
  }
  private setStatus(status:string){this.status=status;this.onStatus(status);}
@@ -215,14 +216,13 @@ export class ClaudeBridge implements ProviderBridge{
    let init:Message|null=null;
    const child=spawnCli(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools',''],{cwd,env});
    this.track(child);
-   let buffer='',done=false;
+   const lines=new RecordSplitter('\n');let done=false;
    const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdin.end();terminateProcessTree(child,'SIGTERM');error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
    const timer=setTimeout(()=>finish(Error('Claude Code did not respond. Check that it runs in your terminal.')),30000);
    child.stdout.setEncoding('utf8');
    child.stdout.on('data',(chunk:string)=>{
-    buffer+=chunk;let index;
-    while((index=buffer.indexOf('\n'))>=0){
-     const line=buffer.slice(0,index).trim();buffer=buffer.slice(index+1);
+    for(const raw of lines.push(chunk)){
+     const line=raw.trim();
      if(!line)continue;
      let message:Message;try{message=record(JSON.parse(line));}catch{continue;}
      const response=record(message.response);
@@ -265,7 +265,7 @@ export class ClaudeBridge implements ProviderBridge{
   this.exhaustion=null;
   try{
    return await new Promise<ProviderRunResult>((resolve,reject)=>{
-    let buffer='',settled=false;
+    const lines=new RecordSplitter('\n');let settled=false;
     const finish=(error:Error|null,result?:ProviderRunResult)=>{if(settled)return;settled=true;options.signal.removeEventListener('abort',abort);error?reject(error):resolve(result!);};
     const abort=()=>{
      send({type:'control_request',request_id:'owla-interrupt',request:{subtype:'interrupt'}});
@@ -346,9 +346,8 @@ export class ClaudeBridge implements ProviderBridge{
     };
     child.stdout.setEncoding('utf8');
     child.stdout.on('data',(chunk:string)=>{
-     buffer+=chunk;let index;
-     while((index=buffer.indexOf('\n'))>=0){
-      const line=buffer.slice(0,index).trim();buffer=buffer.slice(index+1);
+     for(const raw of lines.push(chunk)){
+      const line=raw.trim();
       if(!line)continue;
       let message:Message;try{message=record(JSON.parse(line));}catch{continue;}
       try{handle(message);}catch(error){finish(error instanceof Error?error:Error(String(error)));}

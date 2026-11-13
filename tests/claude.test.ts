@@ -74,7 +74,7 @@ test('Claude plan usage becomes the shared usage panel shape',()=>{
 
 test('Claude exhaustion ends when the reported reset time passes',()=>{
  const rejected=decodeClaudeRateLimit({...event,status:'rejected',unifiedWindows:{...event.unifiedWindows,five_hour:{utilization:1,resetsAt:2000,status:'rejected'}}});
- assert.deepEqual(claudeExhaustion(rejected,undefined,1000),{provider:'claude',exhausted:true,resetsAt:2000,reason:'Claude usage limit reached.'});
+ assert.deepEqual(claudeExhaustion(rejected,undefined,1000),{provider:'claude',exhausted:true,resetsAt:2000,reason:'Claude usage limit reached.',scope:'provider'});
  assert.equal(claudeExhaustion(rejected,undefined,2001).exhausted,false);
  assert.equal(claudeExhaustion(decodeClaudeRateLimit(event),undefined,1000).exhausted,false);
  assert.equal(claudeExhaustion(null,'API Error: 429 rate_limit_error').exhausted,true);
