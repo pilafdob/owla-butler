@@ -8,6 +8,7 @@ import {ClaudeBridge,findClaudeExecutable} from './claude';
 import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
 import {autoEntries,autoFallbackRoute,routeAcrossProviders,type AutoRoute,type ProviderOffer} from './auto-route';
+import {currentModels,isFreeModel} from './model-profiles';
 import {fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute} from './routing';
 import {usageWindows} from './usage';
 import {searchScore} from './search';
@@ -223,15 +224,15 @@ export default class Butler extends Plugin {
  }
  // Which provider has run out of usage, and when it becomes usable again.
  private exhaustion:Record<ProviderId,ProviderExhaustion>={
-  codex:{provider:'codex',exhausted:false,resetsAt:null,reason:''},
-  opencode:{provider:'opencode',exhausted:false,resetsAt:null,reason:''},
-  claude:{provider:'claude',exhausted:false,resetsAt:null,reason:''}
+  codex:{provider:'codex',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
+  opencode:{provider:'opencode',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
+  claude:{provider:'claude',exhausted:false,resetsAt:null,reason:'',scope:'provider'}
  };
  get fallbackActive(){return this.fallbackProvider!==null;}
  exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
  exhaustedProviders():ProviderExhaustion[]{return PROVIDER_IDS.map(provider=>this.exhaustion[provider]).filter(state=>state.exhausted);}
  recordExhaustion(provider:ProviderId):ProviderExhaustion{
-  const fresh:ProviderExhaustion={provider,exhausted:false,resetsAt:null,reason:''};
+  const fresh:ProviderExhaustion={provider,exhausted:false,resetsAt:null,reason:'',scope:'provider'};
   let state=provider==='codex'
    ?codexExhaustion(this.codexBridge.usage)
    :(provider==='opencode'?this.opencodeBridge.exhaustion:this.claudeBridge.exhaustion)??fresh;
@@ -283,7 +284,13 @@ export default class Butler extends Plugin {
    if(provider==='codex'&&!this.prefs.codexConnected)return false;
    if(provider==='opencode'&&!(this.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'')))return false;
    if(provider==='claude'&&!(this.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'')))return false;
-   return !this.recordExhaustion(provider).exhausted;
+   const state=this.recordExhaustion(provider);
+   if(!state.exhausted)return true;
+   if(provider==='opencode'&&state.scope==='free models'){
+    const models=this.opencodeBridge.models;
+    return !models.length||models.some(model=>!isFreeModel(model));
+   }
+   return false;
   });
  }
  /** Connects every candidate in parallel and collects what each can offer. */
@@ -298,9 +305,11 @@ export default class Butler extends Plugin {
     await this.connect({keepAlive:true,automatic:true,provider,tools});
     const prefs=this.prefs.models[provider];
     if(!bridge.models.length)throw Error('No models reported.');
+    const freeExhausted=provider==='opencode'&&this.exhaustionOf('opencode').exhausted&&this.exhaustionOf('opencode').scope==='free models';
+    const offeredModels=freeExhausted?bridge.models.filter(model=>!isFreeModel(model)):bridge.models;
     // Codex reports usage only after a reply; refresh a missing or old report so plan usage weighs in.
     if(!bridge.usage||Date.now()-bridge.usageUpdatedAt>10*60_000){try{await bridge.readUsage(3000);}catch{/* Usage stays unknown. */}}
-    return {offer:{provider,models:bridge.models,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
+    return {offer:{provider,models:offeredModels,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
    }catch(error){return {failed:{provider,message:friendlyError(error)}};}
    finally{await release();}
   }));
@@ -400,7 +409,16 @@ export default class Butler extends Plugin {
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
  allowedPdf(path:string){return this.allowedVaultFile(path,'pdf');}
- allowedVaultFile(path:string,extension:string|null=null){if(!allowedPath(path,this.prefs.excludedFolders,extension))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=realpathSync(base),file=realpathSync(join(base,path));if(!isPathInside(root,file))return false;return allowedPath(relative(root,file).split(/[\\/]/).join('/'),this.prefs.excludedFolders,extension);}catch{return false;}}
+ /**
+ * The resolved vault root, cached by its unresolved path. Every vault check
+ * resolved the root again, which was half of the check's cost (PERFORMANCE-
+ * AUDIT.md, finding 1). Each candidate path is still resolved on every check:
+ * that is the guard against a symlink out of the vault, and a symlink changed
+ * outside Obsidian raises no vault event that could invalidate a cached answer.
+ */
+ private resolvedRoot:{base:string;root:string}|null=null;
+ private vaultRoot(base:string){if(this.resolvedRoot?.base!==base)this.resolvedRoot={base,root:realpathSync(base)};return this.resolvedRoot.root;}
+ allowedVaultFile(path:string,extension:string|null=null){if(!allowedPath(path,this.prefs.excludedFolders,extension))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=this.vaultRoot(base),file=realpathSync(join(base,path));if(!isPathInside(root,file))return false;return allowedPath(relative(root,file).split(/[\\/]/).join('/'),this.prefs.excludedFolders,extension);}catch{return false;}}
  async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.read(f);}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
  automaticLinksEnabled(){
@@ -546,19 +564,21 @@ export default class Butler extends Plugin {
  }
 }
 function commonChange(before:string,after:string){let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;let end=before.length,newEnd=after.length;while(end>start&&newEnd>start&&before[end-1]===after[newEnd-1]){end--;newEnd--;}return {start,end,text:after.slice(start,newEnd)};}
-class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}getItems(){return this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
+class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
+private items:TFile[]|null=null;getItems(){return this.items??=this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
 class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 class TurnRouteModal extends Modal {
- constructor(app:App,butler:Butler,private models:CodexModel[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void){
+ constructor(app:App,butler:Butler,private models:CodexModel[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void,private provider:ProviderId){
   super(app);butler.ownModal(this);
  }
  onOpen(){
   this.setTitle('Override the next message');
-  let model=this.models.find(item=>item.model===this.initial.model)??this.models[0];
+  const key=(item:CodexModel)=>modelKey(this.provider,item);
+  let model=this.models.find(item=>key(item)===this.initial.model)??this.models[0];
   const modelSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Codex model'}});
   const effortSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Reasoning effort'}});
-  for(const item of this.models)modelSelect.createEl('option',{text:item.displayName,value:item.model});
-  modelSelect.value=model.model;
+  for(const item of this.models)modelSelect.createEl('option',{text:this.provider==='opencode'&&item.providerID&&item.providerID!=='opencode'?item.displayName+' ('+item.providerID+')':item.displayName,value:key(item)});
+  modelSelect.value=key(model);
   const refresh=(effort:string)=>{
    effortSelect.empty();
    for(const option of model.supportedReasoningEfforts)effortSelect.createEl('option',{text:option.reasoningEffort,value:option.reasoningEffort});
@@ -566,13 +586,13 @@ class TurnRouteModal extends Modal {
   };
   refresh(this.initial.effort);
   modelSelect.onchange=()=>{
-   model=this.models.find(item=>item.model===modelSelect.value)??model;
+   model=this.models.find(item=>key(item)===modelSelect.value)??model;
    refresh(model.defaultReasoningEffort);
   };
   const actions=this.contentEl.createDiv('owla-review-actions');
   actions.createEl('button',{text:'Use automatic'}).onclick=()=>{this.choose();this.close();};
   actions.createEl('button',{text:'Use once',cls:'mod-cta'}).onclick=()=>{
-   this.choose({model:model.model,effort:effortSelect.value});
+   this.choose({model:key(model),effort:effortSelect.value});
    this.close();
   };
  }
@@ -753,7 +773,7 @@ export class ButlerView extends ItemView {
    new TurnRouteModal(this.app,this.butler,models,initial,route=>{
     this.nextRoute=route;
     this.automaticLabel.setText(route?'Next message · '+route.model+' · '+route.effort:'Automatic selection');
-   }).open();
+   },provider).open();
   }catch(error){new Notice(friendlyError(error));}
   finally{this.selectingRoute=false;}
  }
@@ -1717,7 +1737,7 @@ export class ButlerView extends ItemView {
   const {offers,failed}=await this.butler.automaticOffers(specs);
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
-  const entries=autoEntries(offers,!!(inputImages.length||this.pdfAttachments.size));
+  const entries=autoEntries(offers,!!(inputImages.length||this.pdfAttachments.size),this.butler.exhaustionOf('opencode').exhausted&&this.butler.exhaustionOf('opencode').scope==='free models');
   const home=this.butler.prefs.provider;
   let choice:AutoRoute;
   try{
@@ -1754,7 +1774,7 @@ export class ButlerView extends ItemView {
  }else if(automatic){
   this.automaticLabel.setText('Selecting model and reasoning effort…');
   this.status.setText('Selecting locally…');
-  const candidates=routingModels(bridge.models,!!(inputImages.length||this.pdfAttachments.size));
+  const candidates=routingModels(currentModels(provider,bridge.models),!!(inputImages.length||this.pdfAttachments.size));
   route=fallbackRoute(candidates,route,provider);
   try{
    route=await routeWithFoundationModels(prompt,candidates,signal,{

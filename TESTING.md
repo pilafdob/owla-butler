@@ -1,5 +1,24 @@
 # OWLA Butler verification
 
+## Windows parity hardening — 2026-11-13
+
+All verification ran on macOS; no Windows machine was available this session and no real Windows CLI was spawned. Nothing touched a vault.
+
+- **Method.** The Windows rules in `src/cli.ts` (`isCliExecutable`, `findCliExecutable`, `defaultCliDirectories`, `windowsSystemDirectory`/`taskkillPath`/`comSpecPath`, `shimInterpreterTrusted`, the `ComSpec` pin in `sanitizedEnv`, `terminateProcessTree`) take the platform as a parameter, so `tests/cli.test.ts` runs the same assertions on every host. On this Mac they ran against the simulated Windows rules (`platform: 'win32'`); on Windows they will run for real. Previously every Windows test early-returned off Windows, so none of these rules was checked on this machine before.
+- **Termination tests spawn real processes.** With `platform: 'win32'` the Windows taskkill path does not exist on macOS, which exercised the documented fallback (the direct child): a held child was killed within the 5 s deadline (30 ms in the run). A second, already-exited child was then passed to the Windows path and nothing was targeted, matching the PID-reuse guard. A POSIX test confirmed the detached process group is still killed after the refactor.
+- **cross-spawn behavior.** Verified by reading the installed `node_modules/cross-spawn/lib/parse.js`: a command whose file does not end in `.com`/`.exe` is re-run as `cmd.exe /d /s /c "…"` with `parsed.command = process.env.comspec || 'cmd.exe'`, read from the parent's environment. This is the basis for the `ComSpec` trust check and the environment pin.
+- **Line endings.** Verified by inspection that every protocol reader trims records before `JSON.parse`, so CRLF output from a Windows CLI cannot break a Codex, Claude Code or OpenCode connection. No change was needed.
+- **Gates on this Mac.** `npm run check` (strict TypeScript), `npm run lint`, `npm run build`, `npm run guard:test`, and `node --import tsx --test` over every test file except `tests/auto-route.test.ts`: **144 pass, 0 fail**, including the eight new Windows tests. The excluded file and `src/model-profiles.ts` carried another agent's uncommitted in-flight changes (three failures about OpenCode model profiles, files modified 17:36 during this session) and were left untouched per AGENTS.md; `auto-route.test.ts` imports none of the files this work changed (`src/cli.ts`, `src/opencode.ts` launcher discovery, `tests/cli.test.ts`).
+- **Still open on Windows hardware:** re-run the suite on the Windows test machine from the 2026-11-12 follow-up; confirm the `ComSpec` pin inside a real assistant's environment; connect one `.cmd`-shim CLI (an npm-installed assistant) normally, and once with a deliberately redirected `ComSpec` to confirm the refusal message and that no other interpreter runs.
+
+## OpenCode live tool turn — 2026-11-13 (3.1.2 release blocker)
+
+- **Result:** blocked by OpenCode's shared free-model usage limit. The bridge connected to **OpenCode 2.3.0** and reported **75 models**; the script selected the free model `opencode/iceman-free` (zero input/output cost). The single allowed turn failed with "OpenCode usage limit reached. Wait for the reported reset time." before any tool call, so the exact-name permission rule (`owla_read_note`) was not exercised live. No retry was made.
+- **Ancestor plugin check:** not reached; the usage limit occurred during the turn, after connect, so the ancestor-plugin-did-not-run assertion was not evaluated. The unit tests in `tests/opencode.test.ts` still cover the permission rule.
+- **Version:** OpenCode 2.3.0 (bridge reported `opencode v2.3.0`).
+- **Model ID:** `opencode/iceman-free`.
+- **Action taken:** recorded here per `HANDOFF.md` Task 1. The release waits on the owner's decision (ship with this limitation stated in `AUDIT.md`, or run the check once the free-model limit resets). No code change was made.
+
 ## Windows support follow-up — 2026-11-12
 
 - **139 automated tests** pass on Windows on top of 3.0.2, including `.cmd` PATH discovery and argument preservation, Windows storage defaults, case-insensitive vault containment, macOS-only Automatic routing, the fake OpenCode bridge and the 3.0.1/3.0.2 main-branch updates. TypeScript, lint, build and three-file release checks also pass.
@@ -14,7 +33,7 @@
 
 ## 3.0.0 provider framework and OpenCode — 2026-11-12
 
-The provider layer was built as one shared contract, so every assistant behaves the same and a new one only needs its own bridge. The OpenCode path was verified against the installed **OpenCode 2.2.7** binary and against a deterministic fake server. Every check ran with OpenCode's data, config, state and cache directories redirected into `/tmp`, so the machine's real OpenCode state was never read or written. No vault, note or user credential was touched.
+The provider layer was built as one shared contract, so every assistant behaves the same and a new one only needs its own bridge. The OpenCode path was verified against the installed **OpenCode 2.2.7** binary and against a deterministic fake server. Every check ran with OpenCode's data, config, state and cache directories redirected into `/tmp`, so the machine's real OpenCode state was never read or written. No vault, note or user credential was touched. The shipped bridge redirects only the config folder; OpenCode's global `opencode.db` holds OWLA sessions until the end-of-turn delete. Do not delete history.
 
 **Live checks against the installed binary**
 

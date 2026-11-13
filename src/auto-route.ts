@@ -22,7 +22,7 @@ import type {ProviderId,ProviderModel} from './provider';
 import {PROVIDER_NAMES} from './provider';
 import type {UsageSnapshot} from './usage';
 import {usageWindows} from './usage';
-import {currentModels,modelProfile,TASK_KINDS,type TaskKind} from './model-profiles';
+import {currentModels,modelProfile,isFreeModel,TASK_KINDS,type TaskKind} from './model-profiles';
 import {askFoundationModels,EFFORT_ANCHORS,hasFoundationModelsCLI,modelKey,routingModels,summarizeRoutingContext,type RouteSchemaFields,type RoutingContext} from './routing';
 import {record} from './validation';
 
@@ -60,9 +60,13 @@ export function remainingUsage(usage:UsageSnapshot|null,now=Date.now()/1000):{re
 }
 
 /** The choices on offer: current models from every provider that accept the inputs. */
-export function autoEntries(offers:ProviderOffer[],needsImage:boolean):AutoEntry[]{
- return offers.flatMap(offer=>routingModels(currentModels(offer.provider,offer.models),needsImage)
-  .map(model=>({provider:offer.provider,model,key:modelKey(offer.provider,model)})));
+export function autoEntries(offers:ProviderOffer[],needsImage:boolean,freeExhausted=false):AutoEntry[]{
+ return offers.flatMap(offer=>{
+  const models=offer.provider==='opencode'&&freeExhausted
+   ?offer.models.filter(model=>!isFreeModel(model)):offer.models;
+  return routingModels(currentModels(offer.provider,models),needsImage)
+   .map(model=>({provider:offer.provider,model,key:modelKey(offer.provider,model)}));
+ });
 }
 
 export function classifyInstructions(context?:RoutingContext):string{

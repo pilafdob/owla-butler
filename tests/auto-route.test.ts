@@ -23,17 +23,38 @@ test('older generations are not offered to automatic selection',()=>{
  const [codex,,claude]=offers();
  assert.deepEqual(currentModels('codex',codex.models).map(m=>m.id),['gpt-6.1-sol','gpt-6-astra','gpt-6.1-terra','gpt-6-luna']);
  assert.deepEqual(currentModels('claude',claude.models).map(m=>m.id),['opus','sonnet','fable','haiku']);
- // Known open-model families come before unprofiled names.
- assert.equal(currentModels('opencode',offers()[1].models)[0].id,'opencode/deepseek-v4.1-flash-free');
+ // Free first, then the most capable: the capable family ranks ahead of light variants.
+ assert.equal(currentModels('opencode',offers()[1].models)[0].id,'opencode/nemotron-3.5-super-vl-free');
  assert.equal(autoEntries(offers(),true).some(entry=>entry.key==='opencode/big-pickle'),false);
 });
 
-test('profiles rate unknown free models as unproven and paid tiers by family',()=>{
+test('profiles rate unknown free models from their own signals and paid tiers by family',()=>{
+ // A plain unknown name with no capability signals stays unproven.
  assert.deepEqual(modelProfile('opencode',free('opencode/iceman-free','Iceman Free')).capability,2);
  assert.equal(modelProfile('opencode',free('x/nemotron-3.5-super-vl-free','Nemotron 3.5 Super VL Free')).capability,3);
  assert.equal(modelProfile('opencode',free('x','DeepSeek Flash')).cost,0);
+ // A family OpenCode just added is inferred, not unproven: capable naming
+ // or a large context window raises the capability.
+ assert.equal(modelProfile('opencode',free('x/atlantis-r2-pro-free','Atlantis R2 Pro Free',false)).capability,3);
+ assert.deepEqual(modelProfile('opencode',free('x/atlantis-r2-pro-free','Atlantis R2 Pro Free',false)).strong,['reasoning']);
+ assert.equal(modelProfile('opencode',model('x/wide-context-free','Wide Context Free','low/medium',{cost:{input:0,output:0},context:500000})).capability,3);
+ // Light variants stay light whatever the signals say.
+ assert.equal(modelProfile('opencode',free('x/atlantis-flash-free','Atlantis Flash Free')).capability,2);
  assert.equal(modelProfile('claude',model('haiku','Haiku 5.5')).capability,2);
  assert.equal(modelProfile('codex',model('gpt-6-astra','GPT-6-Astra')).cost,5);
+});
+
+test('a newly added OpenCode family is offered to automatic selection ahead of light models',()=>{
+ const models=[
+  free('opencode/big-pickle','Big Pickle',false),
+  free('opencode/atlas-nano-free','Atlas Nano Free'),
+  free('opencode/brand-new-family-pro-free','Brand New Family Pro Free'),
+  free('opencode/deepseek-v4.1-flash-free','DeepSeek V4.1 Flash Free'),
+ ];
+ // Free first, then capability: the unknown capable family outranks the
+ // light variants instead of being crowded out by the shortlist limit.
+ assert.equal(currentModels('opencode',models,2)[0].id,'opencode/brand-new-family-pro-free');
+ assert.equal(currentModels('opencode',models,2).some(model=>model.id==='opencode/atlas-nano-free'),false);
 });
 
 test('simple questions use a free model; tool work avoids unproven models',()=>{

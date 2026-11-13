@@ -67,16 +67,17 @@ test('a model without variants still offers one reasoning level',()=>{
 });
 
 test('the OpenCode session allows only the OWLA tools and the bundled skills',()=>{
- const rules=opencodePermissions(true);
+ const rules=opencodePermissions(true,['read_note','propose_edit','read_note']);
  assert.deepEqual(rules[0],{action:'*',resource:'*',effect:'deny'});
- assert.ok(rules.some(rule=>rule.action==='owla_*'&&rule.effect==='allow'));
+ // Exact names only: a wildcard would also allow another plugin's owla_ tools.
+ assert.equal(rules.some(rule=>rule.action.includes('*')&&rule.effect==='allow'),false);
  const nonSkillAllows=rules.filter(rule=>rule.effect==='allow'&&rule.action!=='skill').map(rule=>rule.action);
- assert.deepEqual(nonSkillAllows,['owla_*','websearch']);
+ assert.deepEqual(nonSkillAllows,['owla_read_note','owla_propose_edit','websearch']);
  const skills=rules.filter(rule=>rule.action==='skill');
  assert.equal(skills.length,skillDefinitions().length);
  assert.ok(skills.every(rule=>rule.effect==='allow'));
- const offlineRules=opencodePermissions(false);
- assert.deepEqual(offlineRules.filter(rule=>rule.effect==='allow'&&rule.action!=='skill').map(rule=>rule.action),['owla_*']);
+ const offlineRules=opencodePermissions(false,['read_note']);
+ assert.deepEqual(offlineRules.filter(rule=>rule.effect==='allow'&&rule.action!=='skill').map(rule=>rule.action),['owla_read_note']);
  assert.equal(offlineRules.some(rule=>rule.action==='websearch'),false);
 });
 
@@ -153,7 +154,7 @@ test('the shipped plugin replaces the OpenCode tools with the OWLA tools',()=>{
 test('missing OpenCode limits are explained, with the free-limit reset when known',async()=>{
  const {opencodeNoLimitsMessage}=await import('../src/opencode');
  assert.match(opencodeNoLimitsMessage(null),/no plan limits/);
- assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:2000,reason:''},1000),/resets/);
- assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:null,reason:''},1000),/did not say/);
- assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:500,reason:''},1000),/did not say/);
+ assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:2000,reason:'',scope:'free models'},1000),/resets/);
+ assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:null,reason:'',scope:'provider'},1000),/did not say/);
+ assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:500,reason:'',scope:'provider'},1000),/did not say/);
 });

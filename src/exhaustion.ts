@@ -7,9 +7,12 @@ export interface ProviderExhaustion {
   /** Unix seconds when the provider reports that it becomes usable again. */
   resetsAt: number | null;
   reason: string;
+  /** Which models the limit covers. OpenCode's free tier shares one limit, so
+   *  a free-tier limit leaves paid models (such as OpenCode Go's) usable. */
+  scope: 'provider' | 'free models';
 }
 
-const OK = (provider: ProviderId): ProviderExhaustion => ({ provider, exhausted: false, resetsAt: null, reason: '' });
+const OK = (provider: ProviderId): ProviderExhaustion => ({ provider, exhausted: false, resetsAt: null, reason: '', scope: 'provider' });
 
 /**
  * Codex reports a percentage per usage window. A window that reached 100 per
@@ -28,6 +31,7 @@ export function codexExhaustion(usage: UsageSnapshot | null): ProviderExhaustion
           exhausted: true,
           resetsAt: typeof window.resetsAt === 'number' ? window.resetsAt : null,
           reason: 'Codex usage limit reached.',
+          scope: 'provider',
         };
       }
     }
@@ -42,11 +46,13 @@ export function codexExhaustion(usage: UsageSnapshot | null): ProviderExhaustion
 export function opencodeExhaustion(error: unknown, resetsAt: number | null): ProviderExhaustion {
   const text = error instanceof Error ? error.message : String(error);
   if (!/free-limit|free usage limit|usage limit|rate limit|429/i.test(text)) return OK('opencode');
+  const free = /free-limit|free usage limit/i.test(text);
   return {
     provider: 'opencode',
     exhausted: true,
     resetsAt,
-    reason: 'OpenCode usage limit reached.',
+    reason: free ? 'The OpenCode free models’ shared limit is reached.' : 'OpenCode usage limit reached.',
+    scope: free ? 'free models' : 'provider',
   };
 }
 
@@ -69,7 +75,7 @@ export function claudeExhaustion(usage: UsageSnapshot | null, error?: string, no
   }
   if (!exhausted && error && /rate.?limit|usage limit|limit reached|429|quota/i.test(error)) exhausted = true;
   return exhausted
-    ? { provider: 'claude', exhausted: true, resetsAt, reason: 'Claude usage limit reached.' }
+    ? { provider: 'claude', exhausted: true, resetsAt, reason: 'Claude usage limit reached.', scope: 'provider' }
     : OK('claude');
 }
 

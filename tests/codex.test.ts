@@ -1,4 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {CodexBridge,assertSessionPrivacy,replayHistory,supportedVersion,friendlyError} from '../src/codex';import {migrateSettings} from '../src/core';
+// The configuration a correctly isolated Codex session reports for every turn.
+const isolatedConfig={config:{features:{shell_tool:false,apps:false},analytics:{enabled:false},feedback:{enabled:false},otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'}}};
 test('migration removes inference configuration while preserving user work locations and exclusions',()=>{const s=migrateSettings({model:'qwen3:0.6b',executable:'/old/ollama',provider:'ollama',storageRoot:'/private/work',excludedFolders:'Private'});assert.equal(s.models.codex.model,'');assert.equal(s.storageRoot,'/private/work');assert.equal(s.excludedFolders,'Private');assert.equal('models' in s,true);assert.equal(s.provider,'codex');assert.equal(migrateSettings({...s,schemaVersion:3,models:{codex:{model:'selected',reasoning:'high'},opencode:{model:'',reasoning:''}}}).models.codex.model,'selected');});
 test('Codex version checks enforce the tested protocol baseline',()=>{assert.ok(supportedVersion('codex-cli 0.162.1'));assert.ok(supportedVersion('codex-cli 0.163.0'));assert.equal(supportedVersion('0.162.0'),false);assert.equal(supportedVersion('unknown'),false);});
 test('restart replay is bounded and never includes tool calls',()=>{const input=Array.from({length:20},(_,i)=>({role:'user' as const,content:'x'.repeat(6000)+i}));const r=replayHistory(input);assert.ok(r.shortened);assert.ok(r.messages.length<=12);assert.ok(r.messages.reduce((n,m)=>n+m.content.length,0)<=64000);assert.equal(r.messages.at(-1)?.content,input.at(-1)?.content);});
@@ -8,9 +10,9 @@ test('read-only turns cannot invoke an unadvertised proposal tool',async()=>{con
 
 test('disconnect rejects pending work and never touches external processes',async()=>{const b=new CodexBridge() as any;const promise=b.request('metadata',{});await assert.rejects(promise,/disconnected/);b.disconnect();assert.equal(b.status,'Disconnected');});
 
-test('live-turn interface limits tools and native environment, and rejects forged tool calls',async()=>{const b=new CodexBridge() as any;let executed=false;let start:any;const writes:string[]=[];b.child={stdin:{write:(s:string)=>writes.push(s),end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};b.connect=async()=>{};b.readAccount=async()=>{b.accountType='chatgpt';};b.models=[{model:'test',supportedReasoningEfforts:[{reasoningEffort:'low'}]}];b.request=async(method:string,params:any)=>{if(method==='thread/start'){start=params;return {thread:{id:'t'}};}if(method==='turn/start'){queueMicrotask(()=>{b.receive({id:4,method:'item/tool/call',params:{threadId:'t',tool:'propose_edit',arguments:{}}});setImmediate(()=>b.active.event('turn/completed',{threadId:'t',turn:{status:'completed'}}));});return {turn:{id:'turn'}};}return {};};const result=await b.run({executable:'',cwd:'/private/tmp',model:'test',effort:'low',instructions:'',text:'read only',images:[],tools:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},tool:async()=>{executed=true;return '';}});await new Promise(r=>setImmediate(r));assert.equal(executed,false);assert.deepEqual(start.environments,[]);assert.equal(start.sandbox,'read-only');assert.equal(start.approvalPolicy,'never');assert.equal(start.config.web_search,'disabled');assert.equal(start.allowProviderModelFallback,false);assert.equal(JSON.parse(writes[0]).result.success,false);b.child=null;b.disconnect();});
+test('live-turn interface limits tools and native environment, and rejects forged tool calls',async()=>{const b=new CodexBridge() as any;let executed=false;let start:any;const writes:string[]=[];b.child={stdin:{write:(s:string)=>writes.push(s),end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};b.connect=async()=>{};b.readAccount=async()=>{b.accountType='chatgpt';};b.models=[{model:'test',supportedReasoningEfforts:[{reasoningEffort:'low'}]}];b.request=async(method:string,params:any)=>{if(method==='config/read')return isolatedConfig;if(method==='thread/start'){start=params;return {thread:{id:'t'}};}if(method==='turn/start'){queueMicrotask(()=>{b.receive({id:4,method:'item/tool/call',params:{threadId:'t',tool:'propose_edit',arguments:{}}});setImmediate(()=>b.active.event('turn/completed',{threadId:'t',turn:{status:'completed'}}));});return {turn:{id:'turn'}};}return {};};const result=await b.run({executable:'',cwd:'/private/tmp',model:'test',effort:'low',instructions:'',text:'read only',images:[],tools:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},tool:async()=>{executed=true;return '';}});await new Promise(r=>setImmediate(r));assert.equal(executed,false);assert.deepEqual(start.environments,[]);assert.equal(start.sandbox,'read-only');assert.equal(start.approvalPolicy,'never');assert.equal(start.config.web_search,'disabled');assert.equal(start.allowProviderModelFallback,false);assert.equal(JSON.parse(writes[0]).result.success,false);b.child=null;b.disconnect();});
 
-function mockBridge(account:any={type:'chatgpt',planType:'plus'}){const b=new CodexBridge() as any;b.connect=async()=>{};b.models=[{model:'test',supportedReasoningEfforts:[{reasoningEffort:'low'}]}];b.request=async(method:string)=>method==='account/read'?{account}:method==='thread/start'?{thread:{id:'t'}}:{turn:{id:'turn'}};return b;}
+function mockBridge(account:any={type:'chatgpt',planType:'plus'}){const b=new CodexBridge() as any;b.connect=async()=>{};b.models=[{model:'test',supportedReasoningEfforts:[{reasoningEffort:'low'}]}];b.request=async(method:string)=>method==='config/read'?isolatedConfig:method==='account/read'?{account}:method==='thread/start'?{thread:{id:'t'}}:{turn:{id:'turn'}};return b;}
 const options=()=>({executable:'',cwd:'/private/tmp',model:'test',effort:'low',instructions:'',text:'test',images:[],tools:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},tool:async()=>''});
 test('signed-out and API-key accounts cannot start inference',async()=>{for(const account of [null,{type:'apiKey'}])await assert.rejects(mockBridge(account).run(options()),/Sign in|ChatGPT/);});
 test('unavailable models and unsupported reasoning never silently fall back',async()=>{const b=mockBridge();await assert.rejects(b.run({...options(),model:'missing'}),/unavailable/);await assert.rejects(b.run({...options(),effort:'ultra'}),/supported reasoning/);});
@@ -106,6 +108,29 @@ test('Codex protocol applies its size limit per message, including messages spli
  assert.equal(bridge.child,child);
  bridge.receiveChunk(child,'x'.repeat(16*1024*1024)+'x\n');
  assert.equal(bridge.child,null);
- assert.equal(bridge.buffer,'');
+ assert.equal(bridge.lines.overflow,false);
  assert.match(bridge.status,/16 MiB/);
+});
+
+test('a configuration change between turns that re-enables an inherited tool stops the next turn',async()=>{
+ const b=mockBridge(),base=b.request;let started=false;
+ b.request=async(method:string)=>{if(method==='config/read')return {config:{...isolatedConfig.config,features:{shell_tool:true,apps:false}}};if(method==='thread/start')started=true;return base(method);};
+ await assert.rejects(b.run(options()),/could not isolate/);
+ assert.equal(started,false);
+ b.request=async(method:string)=>method==='config/read'?{config:{...isolatedConfig.config,mcp_servers:{fs:{enabled:true}}}}:base(method);
+ await assert.rejects(b.run(options()),/could not isolate/);
+});
+
+test('project instructions above the session folder are found, the home folder and above are not',async()=>{
+ const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {inheritedInstructions}=await import('../src/codex');
+ const home=mkdtempSync(join(tmpdir(),'owla-home-'));
+ try{
+  const session=join(home,'shared','owla','session');mkdirSync(session,{recursive:true});
+  writeFileSync(join(home,'AGENTS.md'),'global');
+  assert.deepEqual(inheritedInstructions(session,home),[]);
+  writeFileSync(join(home,'shared','AGENTS.md'),'project');
+  assert.deepEqual(inheritedInstructions(session,home),[join(home,'shared','AGENTS.md')]);
+ }finally{rmSync(home,{recursive:true,force:true});}
 });

@@ -36,6 +36,14 @@ const server=createServer((req,res)=>{
      body:JSON.stringify({tool:'read_note',args:{path:'Note.md'}})});
     const payload=await response.json();
     toolResult=payload.error?('ERROR '+payload.error):String(payload.text);
+    const forged=await fetch(process.env.OWLA_TOOL_ENDPOINT+'/tool',{method:'POST',
+     headers:{'content-type':'application/json',authorization:'Bearer '+process.env.OWLA_TOOL_TOKEN},
+     body:JSON.stringify({tool:'propose_edit',args:{}})});
+    toolResult+=' | forged: '+((await forged.json()).error||'ACCEPTED');
+    const wrong=await fetch(process.env.OWLA_TOOL_ENDPOINT+'/tool',{method:'POST',
+     headers:{'content-type':'application/json',authorization:'Bearer wrong'},
+     body:JSON.stringify({tool:'read_note',args:{}})});
+    toolResult+=' | wrong token: '+wrong.status;
    }catch(error){toolResult='CALLBACK FAILED '+String(error);}
    setTimeout(()=>{
     send({type:'session.tool.input.started',data:{sessionID:'ses_test',assistantMessageID:'msg_2',id:'call_1',name:'owla_read_note'}});
@@ -63,11 +71,14 @@ test('the OpenCode bridge starts a private server, runs a turn and calls back in
  const calls:{name:string;args:unknown}[]=[];
  const seen:string[]=[];
  try{
+  writeFileSync(join(workdir,'opencode.json'),'{"plugins":["stale"]}');
   await bridge.connect(executable,workdir,true,[{type:'function',name:'read_note',description:'Read a note',inputSchema:{type:'object',properties:{path:{type:'string'}},required:['path']}}]);
   assert.equal(bridge.models.length,1);
   assert.equal(bridge.models[0].id,'opencode/free-model');
   assert.match(bridge.version,/2\.2\.7/);
-  assert.ok(existsSync(join(workdir,'opencode.json')));
+  // OWLA's config is the private global config; nothing is left for project discovery.
+  assert.ok(existsSync(join(workdir,'config','opencode','opencode.json')));
+  assert.equal(existsSync(join(workdir,'opencode.json')),false);
   assert.ok(existsSync(join(workdir,'plugins','owla','index.ts')));
   assert.ok(existsSync(join(workdir,'owla-tools.json')));
   assert.ok(existsSync(join(workdir,'owla-skills.json')));
@@ -84,6 +95,9 @@ test('the OpenCode bridge starts a private server, runs a turn and calls back in
    tool:async(name,args)=>{calls.push({name,args});return 'Note body';}
   });
   assert.match(result.text,/Tool said: Note body/);
+  // A valid token does not unlock tools that were not offered in this turn.
+  assert.match(result.text,/forged: OWLA did not offer that tool/);
+  assert.match(result.text,/wrong token: 401/);
   assert.equal(seen.length,1);
   assert.equal(calls.length,1);
   assert.equal(calls[0].name,'read_note');
