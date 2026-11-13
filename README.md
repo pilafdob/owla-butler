@@ -1,8 +1,40 @@
-<p align="center"><img src="assets/bird.svg" alt="OWLA Butler bird" width="64" height="64"></p>
+<p align="center"><img src="assets/bird.svg" alt="OWLA Butler bird" width="88" height="88"></p>
 
-# OWLA Butler
+<h1 align="center">OWLA Butler</h1>
 
-A native Obsidian assistant powered by an assistant you already installed and signed in to: **Codex**, **OpenCode** or **Claude Code**. Ask naturally, attach screenshots or PDFs, work with your open note and review suggested changes. There are no chat modes to select.
+<p align="center">
+  <strong>Your Codex, OpenCode or Claude Code assistant, inside Obsidian.</strong><br>
+  Chat with your open note, attach images and PDFs, search your vault and the web,<br>
+  and review every edit before it lands.
+</p>
+
+<p align="center">
+  <a href="https://github.com/pilafdob/owla-butler/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/pilafdob/owla-butler?label=release&color=blue"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://obsidian.md"><img alt="Obsidian 1.14.5+" src="https://img.shields.io/badge/Obsidian-1.14.5%2B-7c3aed"></a>
+  <img alt="macOS and Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> · <a href="#features">Features</a> · <a href="#how-it-works">How it works</a> · <a href="https://github.com/pilafdob/owla-butler/releases/latest">Download</a>
+</p>
+
+OWLA Butler is a native Obsidian sidebar assistant that runs on an assistant CLI you already installed and signed in to — **Codex**, **OpenCode** or **Claude Code**. There are no chat modes to pick and no separate OWLA account: it reuses your existing login, models and plan limits. Every change it proposes is applied provisionally and waits for your **Accept** or **Decline**.
+
+### Why OWLA Butler?
+
+- **Works with what you have.** Reuses Codex, OpenCode or Claude Code instead of adding another API key or subscription.
+- **Vault-aware, not vault-wide.** Reads your open note (including unsaved text), selections, attachments and allowed notes on demand. No background index, no whole-vault upload.
+- **Review before write.** Edits, moves, renames and deletions are staged for approval, with diffs and recovery snapshots.
+- **Same flow everywhere.** Switch providers without learning a new interface; the review flow and bundled Obsidian skills stay the same.
+
+## Quick start
+
+1. **Install a provider CLI** — Codex 0.162.1+, OpenCode 2.2+ or Claude Code 2.1.322+ — and sign in. If it works in your terminal, OWLA can use it.
+2. **Install OWLA Butler** from Obsidian's Community plugins, or copy `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/pilafdob/owla-butler/releases/latest).
+3. **Open Settings → OWLA Butler**, pick your provider, then open the bird sidebar and send a message.
+
+> Desktop Obsidian 1.14.5+ on macOS or Windows. Linux and mobile are not supported yet.
 
 ## Requirements and cost
 

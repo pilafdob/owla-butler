@@ -2,7 +2,7 @@
   "name": "owla-butler",
   "version": "3.1.4",
   "private": true,
-  "description": "An Obsidian sidebar assistant for Codex, OpenCode and Claude Code",
+  "description": "Obsidian sidebar assistant for Codex, OpenCode and Claude Code: current note context, attachments, vault search and reviewed edits",
   "scripts": {
     "build": "node esbuild.config.mjs",
     "check": "tsc --noEmit",
