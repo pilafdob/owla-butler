@@ -74,6 +74,13 @@ export interface ProviderBridge {
   hold(): () => Promise<void>;
   disconnect(status?: string, keepStartup?: boolean): void;
   models: ProviderModel[];
+  /**
+   * The models OWLA may choose on its own: the catalogue minus models the
+   * provider has refused for this workspace (OpenCode blocks models hosted
+   * outside the workspace's allowed privacy regions). A model the user picks
+   * by name is resolved against the full catalogue instead.
+   */
+  readonly selectableModels: ProviderModel[];
   usage: UsageSnapshot | null;
   usageUpdatedAt: number;
   usageError: string;

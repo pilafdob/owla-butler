@@ -100,6 +100,24 @@ export type RoutingContext={
  previousImages:number;
  previousPdfs:number;
  webSearch:boolean;
+ // Extra workspace context that helps automatic selection judge the real size
+ // of the request. All fields are optional so older callers keep working.
+ activeNoteChars?:number;
+ selectedChars?:number;
+ promptChars?:number;
+ promptWords?:number;
+ recentMessageChars?:number;
+ attachedNotes?:number;
+ attachedFolders?:number;
+ attachedPdfs?:number;
+ attachedDocuments?:number;
+ attachedImages?:number;
+ // Short previews that let the on-device model judge follow-ups and note content.
+ activeNotePreview?:string;
+ recentMessagePreview?:string;
+ previousProvider?:string;
+ previousModel?:string;
+ previousEffort?:string;
 };
 
 export function summarizeRoutingContext({attachments,...context}:RoutingContext){
@@ -183,6 +201,8 @@ export async function routeWithFoundationModels(
    : 'First match the task to a model’s taskFit, description and specialty. Compare the entire catalog and prefer the least costly model that can deliver the requested quality. Then select effort independently, using the examples below as anchors.',
   ...EFFORT_ANCHORS,
   'Return model as the catalog number, and effort as one exact supported value from that entry.',
+  'Use the attachment and workspace inventory, including counts, sizes, selected text, active-note size, recent chat depth and web search, to judge the real work and cost.',
+  'When previousProvider, previousModel or previousEffort are present, prefer continuing with that model unless the new request clearly needs a different capability or cost.',
   'Catalog: '+JSON.stringify(catalog),
   ...(context?['Attachment and workspace inventory: '+JSON.stringify(summarizeRoutingContext(context))]:[])
  ].join('\n');

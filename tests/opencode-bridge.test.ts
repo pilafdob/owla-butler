@@ -111,3 +111,92 @@ test('the OpenCode bridge starts a private server, runs a turn and calls back in
   rmSync(root,{recursive:true,force:true});
  }
 });
+
+const REGION_SERVER=`
+import {createServer} from 'node:http';
+const args=process.argv.slice(2);
+if(args.includes('--version')){console.log('opencode v2.2.7');process.exit(0);}
+const port=Number(args[args.indexOf('--port')+1]);
+const password=process.env.OPENCODE_SERVER_PASSWORD||'';
+const clients=[];
+const models=[
+ {id:'glm-5.3',modelID:'glm-5.3',providerID:'opencode-go',name:'GLM-5.3',type:'chat',enabled:true,
+  capabilities:{tools:true,input:['text'],output:['text']},variants:[{id:'low'},{id:'high'}],
+  cost:[{input:1.4,output:4.4,cache:{read:0,write:0}}],limit:{context:1000000}},
+ {id:'gpt-6-luna',modelID:'gpt-6-luna',providerID:'opencode-go',name:'GPT-6 Luna',type:'chat',enabled:true,
+  capabilities:{tools:true,input:['text'],output:['text']},variants:[{id:'low'},{id:'high'}],
+  cost:[{input:0.1,output:0.5,cache:{read:0,write:0}}],limit:{context:1000000}}];
+let sessionModel='';
+function send(event){for(const client of clients)client.write('data: '+JSON.stringify(event)+'\\n\\n');}
+const server=createServer((req,res)=>{
+ const auth=req.headers.authorization||'';
+ const expected='Basic '+Buffer.from('opencode:'+password).toString('base64');
+ if(auth!==expected){res.writeHead(401);res.end();return;}
+ let body='';
+ req.on('data',chunk=>body+=chunk);
+ req.on('end',()=>{
+  const url=req.url||'';
+  if(url==='/api/info'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({version:'2.2.7',pid:process.pid}));return;}
+  if(url==='/api/model'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({location:{directory:'/tmp'},data:models}));return;}
+  if(url==='/api/experimental/usage/limits'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({data:{}}));return;}
+  if(url==='/api/event'){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});clients.push(res);res.write('data: '+JSON.stringify({type:'server.connected'})+'\\n\\n');return;}
+  if(url==='/api/session'&&req.method==='POST'){
+   try{sessionModel=String(JSON.parse(body).model.id);}catch{sessionModel='';}
+   res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({data:{id:'ses_test',location:{directory:'/tmp'}}}));return;}
+  if(url.startsWith('/api/session/')&&url.endsWith('/prompt')){
+   res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({data:{id:'msg_1'}}));
+   setTimeout(()=>{
+    if(sessionModel==='glm-5.3')
+     send({type:'session.execution.failed',data:{sessionID:'ses_test',error:{message:'This OpenCode Go model is hosted outside Europe and the United States. Select Global at https://opencode.ai/console/org_01M78EJPAA9KSZNH1QD29D5KD3/settings/privacy#regions to use it.'}}});
+    else{
+     send({type:'session.text.delta',data:{sessionID:'ses_test',assistantMessageID:'msg_2',ordinal:0,delta:'ok'}});
+     send({type:'session.execution.succeeded',data:{sessionID:'ses_test'}});
+    }
+   },10);
+   return;}
+  if(url.startsWith('/api/session/')&&req.method==='DELETE'){res.writeHead(200,{'content-type':'application/json'});res.end('true');return;}
+  res.writeHead(404);res.end();
+ });
+});
+server.listen(port,'127.0.0.1',()=>console.log('server listening on http://127.0.0.1:'+port));
+`;
+
+test('a model refused for its hosting region is explained once and dropped from automatic offers',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'owla-opencode-region-'));
+ const workdir=join(root,'session');
+ mkdirSync(workdir,{recursive:true});
+ const serverFile=join(root,'fake-opencode-region.mjs');
+ writeFileSync(serverFile,REGION_SERVER);
+ const executable=join(root,process.platform==='win32'?'opencode.cmd':'opencode');
+ if(process.platform==='win32')writeFileSync(executable,'@echo off\r\n\"'+process.execPath+'\" \"'+serverFile+'\" %*\r\n');
+ else{writeFileSync(executable,'#!/bin/sh\nexec "'+process.execPath+'" "'+serverFile+'" "$@"\n',{mode:0o700});chmodSync(executable,0o700);}
+ const bridge=new OpencodeBridge();
+ const turn=(model:string)=>bridge.run({
+  executable,cwd:workdir,model,effort:'low',instructions:'Answer.',text:'Hello',
+  images:[],tools:[],web:false,signal:new AbortController().signal,
+  onText:()=>{},onActivity:()=>{},tool:async()=>''});
+ try{
+  await bridge.connect(executable,workdir,true,[]);
+  assert.equal(bridge.models.length,2);
+  assert.equal(bridge.selectableModels.length,2);
+  // The refusal is translated; the org-specific console link is not repeated.
+  await assert.rejects(turn('opencode-go/glm-5.3'),/privacy regions setting does not allow/);
+  assert.equal(bridge.isRegionRestricted('opencode-go/glm-5.3'),true);
+  assert.deepEqual(bridge.selectableModels.map(model=>model.id),['opencode-go/gpt-6-luna']);
+  // The memory survives a reconnect, so automatic selection does not re-offer the model.
+  bridge.disconnect('testing');
+  await (bridge as unknown as {closing:Promise<void>}).closing;
+  await bridge.connect(executable,workdir,true,[]);
+  assert.equal(bridge.models.length,2);
+  assert.deepEqual(bridge.selectableModels.map(model=>model.id),['opencode-go/gpt-6-luna']);
+  // An explicit user choice still reaches the model and gets the friendly explanation.
+  await assert.rejects(turn('opencode-go/glm-5.3'),/Choose another model/);
+  // A model in an allowed region answers normally.
+  const answer=await turn('opencode-go/gpt-6-luna');
+  assert.match(answer.text,/ok/);
+ }finally{
+  bridge.disconnect();
+  await (bridge as unknown as {closing:Promise<void>}).closing;
+  rmSync(root,{recursive:true,force:true});
+ }
+});

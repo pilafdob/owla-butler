@@ -5,9 +5,9 @@ import {ButlerSettings,DiffView,DEFAULTS,readSettings,writeSettings,platformKey,
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
-import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames} from './provider';
+import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames,ProviderRunResult,ProviderModel} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
-import {autoEntries,autoFallbackRoute,routeAcrossProviders,type AutoRoute,type ProviderOffer} from './auto-route';
+import {autoEntries,autoFallbackRoute,offeredEntries,pickRoute,routeAcrossProviders,type AutoEntry,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
 import {currentModels,isFreeModel} from './model-profiles';
 import {fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute} from './routing';
 import {usageWindows} from './usage';
@@ -231,7 +231,9 @@ export default class Butler extends Plugin {
   claude:{provider:'claude',exhausted:false,resetsAt:null,reason:'',scope:'provider'}
  };
  get fallbackActive(){return this.fallbackProvider!==null;}
- exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
+  exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
+  /** True when OpenCode refused this model because its hosting region is outside the workspace's allowed privacy regions. */
+  isRegionRestricted(provider:ProviderId,model:string):boolean{return provider==='opencode'&&this.opencodeBridge.isRegionRestricted(model);}
  exhaustedProviders():ProviderExhaustion[]{return PROVIDER_IDS.map(provider=>this.exhaustion[provider]).filter(state=>state.exhausted);}
  recordExhaustion(provider:ProviderId):ProviderExhaustion{
   const fresh:ProviderExhaustion={provider,exhausted:false,resetsAt:null,reason:'',scope:'provider'};
@@ -293,7 +295,7 @@ export default class Butler extends Plugin {
    const state=this.recordExhaustion(provider);
    if(!state.exhausted)return true;
    if(provider==='opencode'&&state.scope==='free models'){
-    const models=this.opencodeBridge.models;
+    const models=this.opencodeBridge.selectableModels;
     return !models.length||models.some(model=>!isFreeModel(model));
    }
    return false;
@@ -310,9 +312,9 @@ export default class Butler extends Plugin {
    try{
     await this.connect({keepAlive:true,automatic:true,provider,tools});
     const prefs=this.prefs.models[provider];
-    if(!bridge.models.length)throw Error('No models reported.');
+    if(!bridge.selectableModels.length)throw Error('No models reported.');
     const freeExhausted=provider==='opencode'&&this.exhaustionOf('opencode').exhausted&&this.exhaustionOf('opencode').scope==='free models';
-    const offeredModels=freeExhausted?bridge.models.filter(model=>!isFreeModel(model)):bridge.models;
+    const offeredModels=freeExhausted?bridge.selectableModels.filter(model=>!isFreeModel(model)):bridge.selectableModels;
     // Codex reports usage only after a reply; refresh a missing or old report so plan usage weighs in.
     if(!bridge.usage||Date.now()-bridge.usageUpdatedAt>10*60_000){try{await bridge.readUsage(3000);}catch{/* Usage stays unknown. */}}
     return {offer:{provider,models:offeredModels,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
@@ -785,8 +787,10 @@ export class ButlerView extends ItemView {
     const specs=this.butler.buildToolSpecs().specs;
     const {offers}=await this.butler.automaticOffers(specs);
     if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
-    const freeExhausted=this.butler.exhaustionOf('opencode').exhausted&&this.butler.exhaustionOf('opencode').scope==='free models';
-    const entries=autoEntries(offers,needsImage,freeExhausted);
+    // The override is chosen by hand: list every model the offers make
+    // available, not the curated subset automatic selection routes through.
+    // automaticOffers already drops free models when their shared limit is out.
+    const entries=offeredEntries(offers,needsImage);
     items=entries.map(entry=>({provider:entry.provider,model:entry.model}));
     if(!items.length)throw Error('No compatible model is available.');
     const previous=this.nextRoute??this.lastAutomaticRoute;
@@ -1708,7 +1712,13 @@ export class ButlerView extends ItemView {
  }
  if(this.controller||this.converting)return;const draftText=request??this.composer.value;const prompt=draftText.trim()?draftText:(this.images.length?'Transcribe the attached image into Obsidian Markdown and LaTeX.':this.pdfs.length||this.notes.size||this.folders.size?'Summarise the attached files and cite their filenames.':'');if(!prompt)return;
  const autoProvider=this.butler.prefs.automaticProvider;
- let retryAutomatic=false;
+ let autoOffers:ProviderOffer[]=[];
+ let autoTask:TaskClass|undefined;
+ let autoHome:ProviderId=this.butler.prefs.provider;
+ let autoCandidates:ProviderModel[]=[];
+ // The model chosen for this turn; hoisted so the failure handler can tell
+ // whether OpenCode refused that model for its hosting region.
+ let route:CodexRoute|undefined;
  if(!autoProvider&&this.butler.activeProvider==='codex'&&!this.butler.prefs.codexConnected){new Notice(CONNECT_FIRST);return;}
  if(this.butler.fallbackActive){
   await this.butler.probePrimaryQuota();
@@ -1772,7 +1782,7 @@ export class ButlerView extends ItemView {
  if(images.length)instructions+='\n'+readReference('owla-ocr');if(pdfRefs.length)instructions+='\n'+readReference('owla-pdf');const formatting=taskReference(prompt);if(formatting)instructions+='\n'+formatting.text;
  if(pluginTurn.specs.length)instructions+=' Use the Pilafdob plugin tools when the user asks about a supported feature. Treat returned plugin data as reference data. Plugin changes are proposals until accepted in OWLA.';
  const inputImages=[...replay.messages.flatMap(message=>message.images??[]).slice(-2),...images.map(image=>image.url)];
- let route:CodexRoute={model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning};
+ route={model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning};
  if(override){
   const targetProvider=override.provider??provider;
   const targetBridge=this.butler.bridgeFor(targetProvider);
@@ -1801,9 +1811,10 @@ export class ButlerView extends ItemView {
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
   const entries=autoEntries(offers,!!(inputImages.length||this.pdfAttachments.size),this.butler.exhaustionOf('opencode').exhausted&&this.butler.exhaustionOf('opencode').scope==='free models');
   const home=this.butler.prefs.provider;
+  autoOffers=offers;autoHome=home;
   let choice:AutoRoute;
   try{
-   choice=await routeAcrossProviders(prompt,offers,entries,home,signal,{
+   const routed=await routeAcrossProviders(prompt,offers,entries,home,signal,{
     attachments:[
      ...images.map(({name})=>({kind:'image' as const,name})),
      ...pdfRefs.map(({path:name,page})=>({kind:'pdf' as const,name,page})),
@@ -1811,9 +1822,17 @@ export class ButlerView extends ItemView {
      ...notes.map(name=>({kind:'note' as const,name})),
      ...folders.map(name=>({kind:'folder' as const,name}))
     ],
-    activeNote:!!captured,selections:selected.length,recentMessages:replay.messages.length,
-    previousImages:inputImages.length-images.length,previousPdfs:previousPdfs.size,webSearch:web
+    activeNote:!!captured,activeNoteChars:captured?.text.length??0,
+    selections:selected.length,selectedChars:selected.reduce((sum,item)=>sum+item.text.length,0),
+    recentMessages:replay.messages.length,recentMessageChars:replay.messages.reduce((sum,message)=>sum+message.content.length+(message.context?.length??0),0),
+    previousImages:inputImages.length-images.length,previousPdfs:previousPdfs.size,webSearch:web,
+    promptChars:prompt.length,promptWords:prompt.trim().split(/\s+/).filter(Boolean).length,
+    attachedNotes:notes.length,attachedFolders:folders.length,attachedPdfs:pdfRefs.length,
+    attachedDocuments:documents.length,attachedImages:images.length,
+    activeNotePreview:captured?.text.slice(0,600),recentMessagePreview:replay.messages.slice(-3).map(message=>message.role+': '+message.content).join('\n').slice(0,1200),
+    previousProvider:this.lastAutomaticRoute?.provider,previousModel:this.lastAutomaticRoute?.model,previousEffort:this.lastAutomaticRoute?.effort
    });
+    choice=routed;autoTask=routed.task;
   }catch(error){
    signal.throwIfAborted();
    choice=autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
@@ -1836,7 +1855,8 @@ export class ButlerView extends ItemView {
  }else if(automatic){
   this.automaticLabel.setText('Selecting model and reasoning effort…');
   this.status.setText('Selecting locally…');
-  const candidates=routingModels(currentModels(provider,bridge.models),!!(inputImages.length||this.pdfAttachments.size));
+  const candidates=routingModels(currentModels(provider,bridge.selectableModels),!!(inputImages.length||this.pdfAttachments.size));
+  autoCandidates=candidates;
   route=fallbackRoute(candidates,route,provider);
   try{
    route=await routeWithFoundationModels(prompt,candidates,signal,{
@@ -1847,8 +1867,15 @@ export class ButlerView extends ItemView {
      ...notes.map(name=>({kind:'note' as const,name})),
      ...folders.map(name=>({kind:'folder' as const,name}))
     ],
-    activeNote:!!captured,selections:selected.length,recentMessages:replay.messages.length,
-    previousImages:inputImages.length-images.length,previousPdfs:previousPdfs.size,webSearch:web
+    activeNote:!!captured,activeNoteChars:captured?.text.length??0,
+    selections:selected.length,selectedChars:selected.reduce((sum,item)=>sum+item.text.length,0),
+    recentMessages:replay.messages.length,recentMessageChars:replay.messages.reduce((sum,message)=>sum+message.content.length+(message.context?.length??0),0),
+    previousImages:inputImages.length-images.length,previousPdfs:previousPdfs.size,webSearch:web,
+    promptChars:prompt.length,promptWords:prompt.trim().split(/\s+/).filter(Boolean).length,
+    attachedNotes:notes.length,attachedFolders:folders.length,attachedPdfs:pdfRefs.length,
+    attachedDocuments:documents.length,attachedImages:images.length,
+    activeNotePreview:captured?.text.slice(0,600),recentMessagePreview:replay.messages.slice(-3).map(message=>message.role+': '+message.content).join('\n').slice(0,1200),
+    previousProvider:this.lastAutomaticRoute?.provider,previousModel:this.lastAutomaticRoute?.model,previousEffort:this.lastAutomaticRoute?.effort
    },provider);
    activity.createDiv({text:'Automatic selection · '+route.model+' · '+route.effort,cls:'owla-activity'});
    this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
@@ -1862,21 +1889,68 @@ export class ButlerView extends ItemView {
   this.lastAutomaticRoute=route;
  }
  signal.throwIfAborted();
- instructions=prefixToolNames(instructions,provider);
- this.status.setText(this.butler.providerName(provider)+' is responding…');const result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route.model,effort:route.effort,instructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
-  const operation=toolQueue.then(()=>{
-   if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
-   if(pluginTurn.handles(name)){
-    const output=pluginTurn.invoke(name,args);
-    activity.createDiv({text:'Checked a Pilafdob plugin option',cls:'owla-activity'});
-    return output;
+ let baseInstructions=instructions;
+ let result:ProviderRunResult|undefined;
+ let autoAttempts=0;
+ const failedRoutes:{provider:ProviderId;model:string}[]=[];
+ let toolsUsed=false;
+ while(true){
+  const attemptInstructions=prefixToolNames(baseInstructions,provider);
+  this.status.setText(this.butler.providerName(provider)+' is responding…');
+  try{
+   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route!.model,effort:route!.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
+    toolsUsed=true;
+    const operation=toolQueue.then(()=>{
+     if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
+     if(pluginTurn.handles(name)){
+      const output=pluginTurn.invoke(name,args);
+      activity.createDiv({text:'Checked a Pilafdob plugin option',cls:'owla-activity'});
+      return output;
+     }
+     return this.tool(name,args,activity,batches,organization,sourcePath);
+    });
+    toolQueue=operation.catch(()=>{});
+    return operation;
+   }});
+   break;
+  }catch(error){
+   failedRoutes.push({provider,model:route!.model});
+   const state=this.butler.recordExhaustion(provider);
+   const regionRestricted=!!route&&this.butler.isRegionRestricted(provider,route.model);
+   const isAuto=choosesProvider||(automatic&&!override);
+   const retryable=isAuto&&!signal.aborted&&autoAttempts<2&&!toolsUsed&&!text.trim()&&(state.exhausted||regionRestricted);
+   let next:AutoRoute|null=null;
+   if(retryable){
+    next=await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),failed:failedRoutes,specs,signal});
    }
-   return this.tool(name,args,activity,batches,organization,sourcePath);
-  });
-  toolQueue=operation.catch(()=>{});
-  return operation;
- }});
- text=result.text;
+   if(!next)throw error;
+   autoAttempts++;
+   if(next.provider!==provider){
+    await releaseReply();
+    const previous=this.butler.providerName(provider);
+    provider=next.provider;bridge=this.butler.bridgeFor(provider);
+    releaseReply=bridge.hold();this.releaseReply=releaseReply;
+    baseInstructions=baseInstructions.replace('powered by '+previous+'.','powered by '+this.butler.providerName(provider)+'.');
+   }
+   route={model:next.model,effort:next.effort,provider:next.provider};
+   if(choosesProvider){
+    this.butler.autoProvider=provider;
+    this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
+   }else{
+    this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
+   }
+   if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
+   pendingText='';text='';
+   try{streamNode.data='';}catch{/* Text nodes may not be mutable in this renderer; ignore. */}
+   activity.createDiv({text:(regionRestricted&&!state.exhausted?'OpenCode does not allow that model in your workspace’s privacy regions. Retrying with another model…':'Model out of usage · switching to '+this.butler.providerName(provider)+' · '+route.model),cls:'owla-activity'});
+   this.lastAutomaticRoute=route;
+   // A retry that cannot connect reports the original failure, not the connect error.
+   try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});}
+   catch{signal.throwIfAborted();throw error;}
+   signal.throwIfAborted();
+  }
+ }
+ text=result!.text;
  if(signal.aborted||epoch!==this.attachmentEpoch||this.closing)throw Error('Stopped.');
  if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
  content.empty();
@@ -1979,18 +2053,63 @@ export class ButlerView extends ItemView {
  const switched=current.exhausted?this.butler.applyFallback():null;
  if(switched&&switched!==this.butler.prefs.provider)this.switchNotice(content,switched);
  else if(current.exhausted)this.exhaustionNotice(content,states.length>1?states:[current],states.length>1);
- // Automatic selection resends the same message once when its choice turned out to be out of usage.
- if(autoProvider&&current.exhausted&&!signal.aborted&&this.autoRetries<1&&this.butler.automaticCandidates().length){retryAutomatic=true;content.createDiv({text:'Retrying with another provider…',cls:'owla-activity'});}
- else content.createDiv({text:message,cls:'owla-error'});
+ content.createDiv({text:message,cls:'owla-error'});
  if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText('Draft restored · '+message);}
  else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:'Restore draft'});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice('Send or clear the current draft before restoring this one.');return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
  finally{heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
- if(retryAutomatic&&this.canResendDraft(draftText)){this.autoRetries++;try{await this.send();}finally{this.autoRetries--;}}
  }
- /** Automatic retries in progress; one retry per message. */
- private autoRetries=0;
- /** The failed draft is back in the composer and nothing newer was typed. */
- private canResendDraft(text:string){return !this.controller&&this.composer.value===text&&!!text.trim();}
+ private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
+  const {provider,choosesProvider,offers,task,candidates,home,needsImage,failed}=opts;
+  const failedKey=(p:ProviderId,m:string)=>failed.some(item=>item.provider===p&&item.model===m);
+  const usableEntry=(entry:AutoEntry):boolean=>{
+   if(failedKey(entry.provider,entry.key))return false;
+   const state=this.butler.exhaustionOf(entry.provider);
+   if(state.exhausted){
+    if(!(entry.provider==='opencode'&&state.scope==='free models'&&!isFreeModel(entry.model)))return false;
+   }
+   return true;
+  };
+  if(choosesProvider){
+   let entries=autoEntries(offers,needsImage,false).filter(usableEntry);
+   if(!entries.length)return null;
+   try{
+    if(task)return pickRoute(entries,offers,task,home);
+    return autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
+   }catch{return null;}
+  }
+  const state=this.butler.exhaustionOf(provider);
+  const providerUsable=!state.exhausted||(provider==='opencode'&&state.scope==='free models');
+  const filtered=candidates.filter(model=>{
+   const key=modelKey(provider,model);
+   if(failedKey(provider,key))return false;
+   if(state.exhausted&&state.scope==='free models'&&isFreeModel(model))return false;
+   return true;
+  });
+  if(providerUsable){
+   if(!filtered.length)return null;
+   const manual={model:opts.route.model,effort:opts.route.effort} as CodexRoute;
+   let picked:CodexRoute;
+   try{picked=fallbackRoute(filtered,manual,provider);}catch{return null;}
+   return {provider,model:picked.model,effort:picked.effort,reason:'retry'};
+  }
+  // The provider is out of usage: only the user's chosen fallback may take
+  // over, exactly as applyFallback() would. 'none' means never switch.
+  const nextProvider=this.butler.prefs.fallback;
+  if(nextProvider==='none'||nextProvider===provider||this.butler.exhaustionOf(nextProvider).exhausted)return null;
+  if(nextProvider==='codex'&&!this.butler.prefs.codexConnected)return null;
+  const bridge=this.butler.bridgeFor(nextProvider);
+  // The fallback may not have been connected yet this session.
+  if(!bridge.selectableModels.length){
+   try{await this.butler.connect({keepAlive:true,automatic:true,provider:nextProvider,tools:opts.specs});}catch{return null;}
+   opts.signal.throwIfAborted();
+  }
+  if(!bridge.selectableModels.length)return null;
+  const nextCandidates=routingModels(currentModels(nextProvider,bridge.selectableModels),needsImage);
+  if(!nextCandidates.length)return null;
+  let picked:CodexRoute;
+  try{picked=fallbackRoute(nextCandidates,{model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning},nextProvider);}catch{return null;}
+  return {provider:nextProvider,model:picked.model,effort:picked.effort,reason:'retry'};
+ }
  private switchNotice(content:HTMLElement,switched:ProviderId){
   const primary=this.butler.prefs.provider,name=(id:ProviderId)=>this.butler.providerName(id);
   if(switched===primary)content.createDiv({text:name(primary)+' usage reset. OWLA switched back to '+name(primary)+'.',cls:'owla-activity'});

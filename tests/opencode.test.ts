@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {decodeOpencodeModel,findOpencodeExecutable,opencodePermissions,adaptSkillContent,supportedOpencodeVersion,friendlyOpencodeError,OPENCODE_TOOL_NAMESPACE} from '../src/opencode';
+import {decodeOpencodeModel,findOpencodeExecutable,opencodePermissions,adaptSkillContent,supportedOpencodeVersion,friendlyOpencodeError,opencodeRegionRestricted,OPENCODE_TOOL_NAMESPACE} from '../src/opencode';
 import {decodeOpencodeUsage} from '../src/usage';
 import {skillDefinitions} from '../src/knowledge';
 import {OPENCODE_PLUGIN_SOURCE} from '../src/opencode-plugin';
@@ -137,6 +137,17 @@ test('OpenCode errors stay readable and never leak a raw body',()=>{
  assert.match(friendlyOpencodeError(Error('Free usage limit reached.')),/usage limit/i);
  assert.match(friendlyOpencodeError(Error('429 quota')),/usage limit/i);
  assert.equal(friendlyOpencodeError(Error('x'.repeat(2000))).length,800);
+});
+
+test('a privacy-regions refusal is recognised and explained without the console link',()=>{
+ const notice='This OpenCode Go model is hosted outside Europe and the United States. Select Global at https://opencode.ai/console/org_01M78EJPAA9KSZNH1QD29D5KD3/settings/privacy#regions to use it.';
+ assert.equal(opencodeRegionRestricted(Error(notice)),true);
+ assert.equal(opencodeRegionRestricted(Error('Free usage limit reached.')),false);
+ assert.equal(opencodeRegionRestricted('hosted outside the allowed regions'),true);
+ const friendly=friendlyOpencodeError(Error(notice));
+ assert.match(friendly,/privacy regions setting does not allow/i);
+ assert.match(friendly,/Choose another model/i);
+ assert.ok(!friendly.includes('opencode.ai/console'),'the org-specific console URL must not be repeated');
 });
 
 test('the shipped plugin replaces the OpenCode tools with the OWLA tools',()=>{
