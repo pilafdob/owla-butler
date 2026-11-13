@@ -11,6 +11,7 @@
  */
 
 import type {ProviderModel,ProviderId} from './provider';
+import {isOpencodeFreeModel} from './opencode-availability';
 
 /** The kinds of work automatic selection distinguishes. */
 export const TASK_KINDS=['lookup','edit','writing','transcription','vision','synthesis','organisation','reasoning','research','coding'] as const;
@@ -63,7 +64,8 @@ export const OPEN_FAMILIES:[RegExp,TaskKind[]][]=[
  [/grok/i,['reasoning']],
 ];
 
-const isFree=(model:ProviderModel)=>!!model.cost&&model.cost.input===0&&model.cost.output===0;
+// Priced at zero, or named free such as OpenCode Go's limited-time free models.
+const isFree=isOpencodeFreeModel;
 
 export const isFreeModel=isFree;
 

@@ -150,7 +150,10 @@ export function scoreEntries(entries:AutoEntry[],offers:ProviderOffer[],task:Tas
  const left=new Map(offers.map(offer=>[offer.provider,remainingUsage(offer.usage,now)]));
  const scored=entries.map(entry=>{
   const profile=modelProfile(entry.provider,entry.model);
-  const usage=left.get(entry.provider)??null;
+  // OpenCode's meters belong to the OpenCode Go plan. They weigh on Go's paid
+  // models only: free models and other sources do not draw on that plan.
+  const goPlan=entry.provider!=='opencode'||(entry.model.providerID??entry.key.split('/')[0])==='opencode-go'&&profile.cost>0;
+  const usage=goPlan?left.get(entry.provider)??null:null;
   // Plan cost grows quickly as a plan drains: twice as dear at half used, three times when nearly empty.
   const scarcity=profile.cost===0?1:usage?1+2*(100-usage.remaining)/100:1.3;
   const strong=profile.strong.includes(task.kind),weak=profile.weak.includes(task.kind);

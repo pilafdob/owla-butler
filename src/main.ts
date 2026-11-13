@@ -7,8 +7,8 @@ import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
 import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames,ProviderRunResult,ProviderModel} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
-import {autoEntries,autoFallbackRoute,offeredEntries,pickRoute,routeAcrossProviders,type AutoEntry,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
-import {currentModels,isFreeModel} from './model-profiles';
+import {autoEntries,autoFallbackRoute,offeredEntries,pickRoute,routeAcrossProviders,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
+import {currentModels} from './model-profiles';
 import {fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute} from './routing';
 import {usageWindows} from './usage';
 import {searchScore} from './search';
@@ -33,6 +33,8 @@ import {brokenLinks,linkWarning,textHasSubpath,updateProperties} from './note-to
 import {VAULT_GRAPH_TOOL,decodeGraphQuery,queryGraph,type GraphSource} from './vault-graph';
 const VIEW='owla-butler-chat';
 const DIFF_VIEW='owla-butler-diff';
+/** How many other models automatic selection tries after a failed attempt. */
+const MAX_AUTO_RETRIES=4;
 const CONNECT_FIRST='Choose Connect Codex in OWLA Butler settings first.';
 type ChangeCardUpdate=(status:string,activate?:(()=>void)|null)=>void;
 type ProposedRemoval={review:RemovalReview;requires?:string[]};
@@ -238,6 +240,8 @@ export default class Butler extends Plugin {
   exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
   /** True when OpenCode refused this model because its hosting region is outside the workspace's allowed privacy regions. */
   isRegionRestricted(provider:ProviderId,model:string):boolean{return provider==='opencode'&&this.opencodeBridge.isRegionRestricted(model);}
+  /** Why OpenCode refused the last attempt, when it said. */
+  get opencodeFailure(){return this.opencodeBridge.lastFailure;}
  exhaustedProviders():ProviderExhaustion[]{return PROVIDER_IDS.map(provider=>this.exhaustion[provider]).filter(state=>state.exhausted);}
  recordExhaustion(provider:ProviderId):ProviderExhaustion{
   const fresh:ProviderExhaustion={provider,exhausted:false,resetsAt:null,reason:'',scope:'provider'};
@@ -296,13 +300,8 @@ export default class Butler extends Plugin {
    if(provider==='codex'&&!this.prefs.codexConnected)return false;
    if(provider==='opencode'&&!(this.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'')))return false;
    if(provider==='claude'&&!(this.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'')))return false;
-   const state=this.recordExhaustion(provider);
-   if(!state.exhausted)return true;
-   if(provider==='opencode'&&state.scope==='free models'){
-    const models=this.opencodeBridge.selectableModels;
-    return !models.length||models.some(model=>!isFreeModel(model));
-   }
-   return false;
+   // OpenCode counts as exhausted only once every one of its models is blocked.
+   return !this.recordExhaustion(provider).exhausted;
   });
  }
  /** Connects every candidate in parallel and collects what each can offer. */
@@ -317,11 +316,14 @@ export default class Butler extends Plugin {
     await this.connect({keepAlive:true,automatic:true,provider,tools});
     const prefs=this.prefs.models[provider];
     if(!bridge.selectableModels.length)throw Error('No models reported.');
-    const freeExhausted=provider==='opencode'&&this.exhaustionOf('opencode').exhausted&&this.exhaustionOf('opencode').scope==='free models';
-    const offeredModels=freeExhausted?bridge.selectableModels.filter(model=>!isFreeModel(model)):bridge.selectableModels;
+    // OpenCode already leaves out models whose pool, plan or region refused them.
+    const offeredModels=bridge.selectableModels;
     // Codex reports usage only after a reply; refresh a missing or old report so plan usage weighs in.
     if(!bridge.usage||Date.now()-bridge.usageUpdatedAt>10*60_000){try{await bridge.readUsage(3000);}catch{/* Usage stays unknown. */}}
-    return {offer:{provider,models:offeredModels,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
+    // A usage read can block OpenCode Go's paid models; offer what is left.
+    const remaining=provider==='opencode'?bridge.selectableModels:offeredModels;
+    if(!remaining.length)throw Error('Every model is out of usage or unavailable on your plans.');
+    return {offer:{provider,models:remaining,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
    }catch(error){return {failed:{provider,message:friendlyError(error)}};}
    finally{await release();}
   }));
@@ -582,11 +584,15 @@ class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private bu
 private items:TFile[]|null=null;getItems(){return this.items??=this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
 class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 class TurnRouteModal extends Modal {
- constructor(app:App,butler:Butler,private items:{provider:ProviderId;model:CodexModel}[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void){
+ constructor(app:App,butler:Butler,private items:{provider:ProviderId;model:CodexModel}[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void,private skipped:{provider:ProviderId;message:string}[]=[]){
   super(app);butler.ownModal(this);
  }
  onOpen(){
   this.setTitle('Override the next message');
+  // A provider missing from the list is explained: out of usage with its
+  // reset time, or not reachable. Otherwise a connected but depleted Codex
+  // would simply vanish from the choices.
+  for(const item of this.skipped)this.contentEl.createDiv({text:PROVIDER_NAMES[item.provider]+' is not listed · '+item.message,cls:'owla-activity'});
   const distinctProviders=new Set(this.items.map(item=>item.provider));
   const showProvider=distinctProviders.size>1;
   const key=(item:{provider:ProviderId;model:CodexModel})=>modelKey(item.provider,item.model);
@@ -788,16 +794,18 @@ export class ButlerView extends ItemView {
     ||replayHistory(this.history).messages.some(message=>message.images?.length));
    let items:{provider:ProviderId;model:CodexModel}[];
    let initial:CodexRoute;
+   let skipped:{provider:ProviderId;message:string}[]=[];
    if(this.butler.prefs.automaticProvider){
     const specs=this.butler.buildToolSpecs().specs;
-    const {offers}=await this.butler.automaticOffers(specs);
+    const {offers,failed}=await this.butler.automaticOffers(specs);
+    skipped=failed;
     if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
     // The override is chosen by hand: list every model the offers make
     // available, not the curated subset automatic selection routes through.
-    // automaticOffers already drops free models when their shared limit is out.
+    // automaticOffers already drops OpenCode models whose pool, plan or region refused them.
     const entries=offeredEntries(offers,needsImage);
     items=entries.map(entry=>({provider:entry.provider,model:entry.model}));
-    if(!items.length)throw Error('No compatible model is available.');
+    if(!items.length)throw Error(['No compatible model is available.',...failed.map(item=>this.butler.providerName(item.provider)+': '+item.message)].join(' '));
     const previous=this.nextRoute??this.lastAutomaticRoute;
     const preferredProvider=previous?.provider??provider;
     const preferredModel=previous?.model;
@@ -819,7 +827,7 @@ export class ButlerView extends ItemView {
    new TurnRouteModal(this.app,this.butler,items,initial,route=>{
     this.nextRoute=route;
     this.automaticLabel.setText(route?'Next message · '+route.model+' · '+route.effort:'Automatic selection');
-   }).open();
+   },skipped).open();
   }catch(error){new Notice(friendlyError(error));}
   finally{this.selectingRoute=false;}
  }
@@ -1814,7 +1822,7 @@ export class ButlerView extends ItemView {
   const {offers,failed}=await this.butler.automaticOffers(specs);
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
-  const entries=autoEntries(offers,!!(inputImages.length||this.pdfAttachments.size),this.butler.exhaustionOf('opencode').exhausted&&this.butler.exhaustionOf('opencode').scope==='free models');
+  const entries=autoEntries(offers,!!(inputImages.length||this.pdfAttachments.size));
   const home=this.butler.prefs.provider;
   autoOffers=offers;autoHome=home;
   let choice:AutoRoute;
@@ -1923,7 +1931,12 @@ export class ButlerView extends ItemView {
    const state=this.butler.recordExhaustion(provider);
    const regionRestricted=!!route&&this.butler.isRegionRestricted(provider,route.model);
    const isAuto=choosesProvider||(automatic&&!override);
-   const retryable=isAuto&&!signal.aborted&&autoAttempts<2&&!toolsUsed&&!text.trim()&&(state.exhausted||regionRestricted);
+   // Automatic selection retries any failure that produced nothing yet with
+   // another model: a refused plan, an empty balance, a full limit or an
+   // unexplained error. Work that already used tools or streamed text is not
+   // repeated, so nothing runs twice.
+   const retryable=isAuto&&!signal.aborted&&autoAttempts<MAX_AUTO_RETRIES&&!toolsUsed&&!text.trim();
+   const failedModel=route!.model,failureReason=provider==='opencode'&&this.butler.opencodeFailure?.reason?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
    let next:AutoRoute|null=null;
    if(retryable){
     next=await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),failed:failedRoutes,specs,signal});
@@ -1947,7 +1960,7 @@ export class ButlerView extends ItemView {
    if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
    pendingText='';text='';
    try{streamNode.data='';}catch{/* Text nodes may not be mutable in this renderer; ignore. */}
-   activity.createDiv({text:(regionRestricted&&!state.exhausted?'OpenCode does not allow that model in your workspace’s privacy regions. Retrying with another model…':'Model out of usage · switching to '+this.butler.providerName(provider)+' · '+route.model),cls:'owla-activity'});
+   activity.createDiv({text:(regionRestricted&&!state.exhausted?'OpenCode does not allow that model in your workspace’s privacy regions. Retrying with another model…':failedModel+' failed · '+failureReason+' · retrying with '+this.butler.providerName(provider)+' · '+route.model),cls:'owla-activity'});
    this.lastAutomaticRoute=route;
    // A retry that cannot connect reports the original failure, not the connect error.
    try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});}
@@ -2064,37 +2077,29 @@ export class ButlerView extends ItemView {
  finally{heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
  }
  private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
-  const {provider,choosesProvider,offers,task,candidates,home,needsImage,failed}=opts;
+  const {provider,choosesProvider,task,home,needsImage,failed}=opts;
   const failedKey=(p:ProviderId,m:string)=>failed.some(item=>item.provider===p&&item.model===m);
-  const usableEntry=(entry:AutoEntry):boolean=>{
-   if(failedKey(entry.provider,entry.key))return false;
-   const state=this.butler.exhaustionOf(entry.provider);
-   if(state.exhausted){
-    if(!(entry.provider==='opencode'&&state.scope==='free models'&&!isFreeModel(entry.model)))return false;
-   }
-   return true;
-  };
+  // The bridges know what was refused since the offers were collected: a
+  // blocked OpenCode pool or plan leaves only its other models selectable.
+  const offers=opts.offers.map(offer=>offer.provider==='opencode'?{...offer,models:this.butler.bridgeFor('opencode').selectableModels}:offer);
   if(choosesProvider){
-   let entries=autoEntries(offers,needsImage,false).filter(usableEntry);
+   const entries=autoEntries(offers,needsImage).filter(entry=>!failedKey(entry.provider,entry.key)&&!this.butler.recordExhaustion(entry.provider).exhausted);
    if(!entries.length)return null;
    try{
     if(task)return pickRoute(entries,offers,task,home);
     return autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
    }catch{return null;}
   }
-  const state=this.butler.exhaustionOf(provider);
-  const providerUsable=!state.exhausted||(provider==='opencode'&&state.scope==='free models');
-  const filtered=candidates.filter(model=>{
-   const key=modelKey(provider,model);
-   if(failedKey(provider,key))return false;
-   if(state.exhausted&&state.scope==='free models'&&isFreeModel(model))return false;
-   return true;
-  });
-  if(providerUsable){
+  const state=this.butler.recordExhaustion(provider);
+  if(!state.exhausted){
+   // The full selectable list, not only the curated six, so a run of refusals
+   // can still reach a model that works.
+   const current=this.butler.bridgeFor(provider).selectableModels;
+   const pool=[...routingModels(currentModels(provider,current),needsImage),...routingModels(current,needsImage)];
+   const filtered=pool.filter((model,index)=>!failedKey(provider,modelKey(provider,model))&&pool.findIndex(other=>other.id===model.id)===index);
    if(!filtered.length)return null;
-   const manual={model:opts.route.model,effort:opts.route.effort} as CodexRoute;
    let picked:CodexRoute;
-   try{picked=fallbackRoute(filtered,manual,provider);}catch{return null;}
+   try{picked=fallbackRoute(filtered,{model:opts.route.model,effort:opts.route.effort},provider);}catch{return null;}
    return {provider,model:picked.model,effort:picked.effort,reason:'retry'};
   }
   // The provider is out of usage: only the user's chosen fallback may take
@@ -2109,7 +2114,7 @@ export class ButlerView extends ItemView {
    opts.signal.throwIfAborted();
   }
   if(!bridge.selectableModels.length)return null;
-  const nextCandidates=routingModels(currentModels(nextProvider,bridge.selectableModels),needsImage);
+  const nextCandidates=routingModels(currentModels(nextProvider,bridge.selectableModels),needsImage).filter(model=>!failedKey(nextProvider,modelKey(nextProvider,model)));
   if(!nextCandidates.length)return null;
   let picked:CodexRoute;
   try{picked=fallbackRoute(nextCandidates,{model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning},nextProvider);}catch{return null;}

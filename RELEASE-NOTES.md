@@ -1,9 +1,9 @@
-# OWLA Butler 3.1.5
+# OWLA Butler 3.1.6
 
-- The one-message model override now lists every model from every connected provider, including previous generations and all OpenCode models.
-- Automatic selection prefers continuing with the model that served the previous turn when the new request fits it.
-- Automatic selection weighs the real size of a request when choosing a model and reasoning effort.
-- OpenCode models hosted outside the workspace’s allowed privacy regions are detected, explained once, and skipped in automatic selection.
-- Automatic selection retries with another model or provider when the chosen one is out of usage or unavailable in the workspace’s privacy regions.
+- OpenCode’s separate billing sources are now treated independently, so one running dry leaves the others available.
+- Refusals are remembered per pool, model or account and retried after their reported reset.
+- OpenCode Go meter usage is reported and Go’s paid models are blocked when a meter is full.
+- Automatic selection retries up to four more times when a model fails before answering or using a tool, naming the failed model and reason.
+- A connected but exhausted provider is named in the one-message override with its reset time instead of being hidden.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.6
+
+- Treat OpenCode’s separate billing sources independently: an empty console balance blocks only its paid models, a depleted Go plan blocks only Go’s paid models, and a model missing from another signed-in provider’s plan is blocked on its own. Free and limited-time free models stay available.
+- Remember refusals per pool, model or account until OWLA reloads; limits and balances become usable again after their reported reset, or after 30 minutes.
+- Report OpenCode Go meter usage and block Go’s paid models when a meter is full.
+- Retry automatic selection up to four more times when a model fails before answering or using a tool, naming the failed model and reason under the reply.
+- Leave a connected but exhausted provider out of the one-message override, naming it and its reset time instead of hiding it.
+
 ## 3.1.5
 
 - Let the one-message model override show every model from every connected provider, including previous generations and all OpenCode models, instead of the curated automatic-selection shortlist.
