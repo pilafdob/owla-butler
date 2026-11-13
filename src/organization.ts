@@ -58,6 +58,7 @@ function strings(value:unknown):value is string[]{
 
 export class Organization {
  private journal:Journal|null=null;
+  private symlinkCache=new Map<string,boolean>();
  busy=false;
  loadError='';
  constructor(
@@ -132,11 +133,13 @@ export class Organization {
  }
 
  private safeSource(path:string){
-  if(!this.allowed(path))return false;
-  for(let current=path;current;current=parent(current)){
-   if(this.stat(current)?.isSymbolicLink())return false;
-  }
-  return true;
+  const cached=this.symlinkCache.get(path);
+  if(cached!==undefined)return cached;
+  let result=true;
+  if(!this.allowed(path))result=false;
+  else for(let current=path;current;current=parent(current)){if(this.stat(current)?.isSymbolicLink()){result=false;break;}}
+  this.symlinkCache.set(path,result);
+  return result;
  }
 
  private tree(path:string):string[][]{
