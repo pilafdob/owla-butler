@@ -148,11 +148,11 @@ export class ClaudeBridge implements ProviderBridge{
  get signInPending(){return false;}
 
  private env():NodeJS.ProcessEnv{
-  const env:NodeJS.ProcessEnv={...sanitizedEnv(),PATH:[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter),
+  const env:NodeJS.ProcessEnv=sanitizedEnv();for(const key of Object.keys(env))if(key.toLowerCase()==='path')delete env[key];env.PATH=[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter);
    // DISABLE_TELEMETRY and CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC also hide the live model
    // catalogue (verified with 2.1.322: Fable 5.2 and pinned versions disappear), so OWLA keeps the
    // user's own Claude Code telemetry choice and turns off only error reports and self-updates.
-   DISABLE_ERROR_REPORTING:'1',DISABLE_AUTOUPDATER:'1'};
+   env.DISABLE_ERROR_REPORTING='1';env.DISABLE_AUTOUPDATER='1';
   for(const key of ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX'])delete env[key];
   return env;
  }
@@ -225,7 +225,7 @@ export class ClaudeBridge implements ProviderBridge{
     for(const raw of lines.push(chunk)){
      const line=raw.trim();
      if(!line)continue;
-     let message:Message;try{message=record(JSON.parse(line));}catch{continue;}
+     let message:Message;try{message=record(JSON.parse(line.trim()));}catch{continue;}
      const response=record(message.response);
      if(message.type==='control_response'&&response.request_id==='owla-init'){
       if(response.subtype!=='success'){finish(Error(typeof response.error==='string'?response.error:'Claude Code refused the connection.'));continue;}
@@ -357,7 +357,7 @@ export class ClaudeBridge implements ProviderBridge{
      for(const raw of lines.push(chunk)){
       const line=raw.trim();
       if(!line)continue;
-      let message:Message;try{message=record(JSON.parse(line));}catch{continue;}
+      let message:Message;try{message=record(JSON.parse(line.trim()));}catch{continue;}
       try{handle(message);}catch(error){finish(error instanceof Error?error:Error(String(error)));}
      }
     });

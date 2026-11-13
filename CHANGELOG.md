@@ -8,6 +8,11 @@
 - Detect OpenCode models hosted outside the workspace’s allowed privacy regions, explain the restriction once, and skip them in automatic selection while still allowing an explicit choice.
 - Retry automatic selection with another model or provider when the chosen one is out of usage or unavailable in the workspace’s privacy regions.
 - Reserve the highest reasoning effort for genuinely deep work and clarify the effort anchors.
+- Merge the Windows-side performance and reliability changes into main: cache vault file access checks and invalidate them on vault create/modify/delete/rename, deduplicate Codex web sources, and make Codex inherited-instruction discovery case-insensitive on Windows.
+- Improve Claude Code bridge robustness: case-insensitive PATH handling in the child environment and trimmed JSON line parsing.
+- Deduplicate note link targets and use consistent case folding in vault search.
+- Cache organization symlink checks and keep the PDF skill's export guidance in the reference pack.
+- Remove the stale HANDOFF.md.
 
 ## 3.1.3
 
