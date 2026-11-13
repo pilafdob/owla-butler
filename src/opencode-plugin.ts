@@ -22,6 +22,9 @@ const REMOVED = [
   "opencode_session_rename", "opencode_session_move",
   "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove",
   "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource",
+  "todowrite", "opencode_schedule_create", "opencode_schedule_list", "opencode_schedule_delete",
+  "opencode_artifact_create", "opencode_artifact_list", "opencode_artifact_read",
+  "opencode_image_generate",
 ]
 
 function readJson(path) {
