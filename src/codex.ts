@@ -68,6 +68,7 @@ export class CodexBridge implements ProviderBridge{
  private setStatus(s:string){this.status=s;this.onStatus(s);}
  get ready(){return !!this.child&&this.initialized&&this.accountType==='chatgpt';}
  get running(){return !!this.child;}
+ get selectableModels(){return this.models;}
  get needsSignIn(){return this.accountType==='';}
  get signInPending(){return !!this.idle;}
 

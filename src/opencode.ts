@@ -71,11 +71,24 @@ export function supportedOpencodeVersion(version:string):boolean{
  const major=Number(match[1]),minor=Number(match[2]);
  if(major!==2)return false;
  return minor>2||(minor===2&&Number(match[3])>=0);
-}export function friendlyOpencodeError(error:unknown):string{
+}/**
+ * OpenCode refuses a model whose hosting region the workspace's privacy
+ * settings do not allow, for example an OpenCode Go model hosted outside
+ * Europe and the United States while only those regions are selected. The
+ * user may not want to widen that setting, so OWLA remembers the model as
+ * unusable and stops offering it instead of repeating the notice.
+ */
+export function opencodeRegionRestricted(error:unknown):boolean{
+ const text=error instanceof Error?error.message:String(error);
+ return /hosted outside/i.test(text);
+}
+export function friendlyOpencodeError(error:unknown):string{
  const text=error instanceof Error?error.message:String(error);
  if(/free-limit|Free usage limit/i.test(text))return 'OpenCode’s free models reached their shared usage limit. Wait for the reported reset time.';
  if(/429|quota|rate.limit/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
  if(/401|unauthorized|authentication|credential/i.test(text))return 'OpenCode needs you to sign in again. Check your OpenCode account.';
+ if(opencodeRegionRestricted(text))
+  return 'OpenCode hosts this model outside Europe and the United States, and your workspace’s privacy regions setting does not allow it. Choose another model, or select Global in the OpenCode console under Settings → Privacy → Regions.';
  return text.slice(0,800);
 }
 
@@ -224,6 +237,18 @@ export class OpencodeBridge implements ProviderBridge{
  private toolsDigest='';
  private sessionId='';
  models:ProviderModel[]=[];
+ /** Model ids OpenCode refused because their hosting region is outside the workspace's allowed privacy regions. */
+ private regionRestrictedModels=new Set<string>();
+ /** True when OpenCode refused this model id for its hosting region. */
+ isRegionRestricted(model:string):boolean{return this.regionRestrictedModels.has(model);}
+ /**
+  * The models OWLA may choose on its own. A model refused for its hosting
+  * region stays in the full catalogue for an explicit user choice, but is
+  * dropped here until OWLA is reloaded, so automatic selection stops landing
+  * on it. The set survives reconnects: the bridge rests between turns, and a
+  * fresh connect would otherwise re-offer the same refused model.
+  */
+ get selectableModels():ProviderModel[]{return this.models.filter(model=>!this.regionRestrictedModels.has(model.id));}
  exhaustion:ProviderExhaustion|null=null;
  usage:UsageSnapshot|null=null;
  usageUpdatedAt=0;
@@ -464,7 +489,7 @@ export class OpencodeBridge implements ProviderBridge{
    if(!sessionId)throw Error('OpenCode did not return a session ID.');
    this.sessionId=sessionId;
    this.active={sessionId,controller};
-   const answer=await this.prompt(options,sessionId,controller);
+   const answer=await this.prompt(options,sessionId,controller,model);
    return answer;
   }finally{
    options.signal.removeEventListener('abort',onAbort);
@@ -480,7 +505,7 @@ export class OpencodeBridge implements ProviderBridge{
   }
  }
 
- private async prompt(options:ProviderRunOptions,sessionId:string,controller:AbortController):Promise<ProviderRunResult>{
+ private async prompt(options:ProviderRunOptions,sessionId:string,controller:AbortController,model:ProviderModel):Promise<ProviderRunResult>{
   let stream:IncomingMessage;
   try{stream=await openEventStream({port:this.port,password:this.password,signal:controller.signal});}
   catch(error){if(controller.signal.aborted)throw Error('Stopped.');throw error;}
@@ -514,6 +539,9 @@ export class OpencodeBridge implements ProviderBridge{
     const resetsAt=retryAfterMs===null?null:Math.round((Date.now()+retryAfterMs)/1000);
     const state=opencodeExhaustion(message,resetsAt);
     this.exhaustion=state.exhausted?state:null;
+    // A model refused for its hosting region is remembered so OWLA stops
+    // offering it automatically; the raw notice is not repeated to the user.
+    if(opencodeRegionRestricted(message))this.regionRestrictedModels.add(model.id);
     failure=new Error(friendlyOpencodeError(message));
     if(!settled){settled=true;resolveTurn();}
    }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.1.4
+
+- Let the one-message model override show every model from every connected provider, including previous generations and all OpenCode models, instead of the curated automatic-selection shortlist.
+- Make automatic selection prefer continuing with the model that served the previous turn when the new request fits it.
+- Weigh the real size of a request — attached notes, folders, PDFs, images, selected text, active note and recent chat — when choosing a model and reasoning effort.
+- Detect OpenCode models hosted outside the workspace’s allowed privacy regions, explain the restriction once, and skip them in automatic selection while still allowing an explicit choice.
+- Retry automatic selection with another model or provider when the chosen one is out of usage or unavailable in the workspace’s privacy regions.
+- Reserve the highest reasoning effort for genuinely deep work and clarify the effort anchors.
+
 ## 3.1.3
 
 - Let a one-message model override switch providers mid-reply: the override picker now lists models from every connected provider, including OpenCode models offered by more than one provider, and choosing another provider reconnects for that turn.

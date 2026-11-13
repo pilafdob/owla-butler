@@ -141,6 +141,7 @@ export class ClaudeBridge implements ProviderBridge{
  get ready(){return this.loggedIn&&this.models.length>0;}
  /** Claude Code has no resident process; it runs only while a reply or check is under way. */
  get running(){return this.children.size>0;}
+ get selectableModels(){return this.models;}
  private track(child:ChildProcessWithoutNullStreams){this.children.add(child);this.onStatus(this.status);}
  private untrack(child:ChildProcessWithoutNullStreams){if(this.children.delete(child))this.onStatus(this.status);}
  get needsSignIn(){return this.accountType==='';}

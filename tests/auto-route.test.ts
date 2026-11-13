@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {autoEntries,autoFallbackRoute,classifyInstructions,decodeTaskClass,nearestEffort,pickRoute,remainingUsage,type ProviderOffer,type TaskClass} from '../src/auto-route';
+import {autoEntries,autoFallbackRoute,classifyInstructions,decodeTaskClass,nearestEffort,offeredEntries,pickRoute,remainingUsage,scoreEntries,type ProviderOffer,type TaskClass} from '../src/auto-route';
 import {currentModels,modelProfile} from '../src/model-profiles';
 import {migrateSettings} from '../src/core';
 import type {ProviderModel} from '../src/provider';
@@ -26,6 +26,23 @@ test('older generations are not offered to automatic selection',()=>{
  // Free first, then the most capable: the capable family ranks ahead of light variants.
  assert.equal(currentModels('opencode',offers()[1].models)[0].id,'opencode/nemotron-3.5-super-vl-free');
  assert.equal(autoEntries(offers(),true).some(entry=>entry.key==='opencode/big-pickle'),false);
+});
+
+test('the manual override lists every model automatic selection curates away',()=>{
+ const list=offers();
+ // Automatic selection offers current generations and Claude aliases only.
+ assert.equal(autoEntries(list,false).some(entry=>entry.key==='gpt-6-sol'),false);
+ assert.equal(autoEntries(list,false).some(entry=>entry.key==='claude-opus-4-6'),false);
+ // The hand-picked override shows the previous generation and the pinned version.
+ assert.equal(offeredEntries(list,false).some(entry=>entry.key==='gpt-6-sol'),true);
+ assert.equal(offeredEntries(list,false).some(entry=>entry.key==='claude-opus-4-6'),true);
+ // No shortlist limit either: every OpenCode model is listed.
+ const wide:ProviderOffer={provider:'opencode',plan:'',usage:null,
+  models:Array.from({length:8},(_,index)=>free('opencode/model-'+index,'Model '+index))};
+ assert.equal(autoEntries([wide],false).length,6);
+ assert.equal(offeredEntries([wide],false).length,8);
+ // Genuine compatibility still applies: text-only models drop off when images need reading.
+ assert.equal(offeredEntries(list,true).some(entry=>entry.key==='opencode/big-pickle'),false);
 });
 
 test('profiles rate unknown free models from their own signals and paid tiers by family',()=>{
@@ -138,4 +155,19 @@ test('a drained plan makes its expensive tiers much dearer',()=>{
  assert.equal(decodeTaskClass('{"difficulty":2,"kind":"reading","tools":true,"effort":"low"}').kind,'lookup');
  // An unknown kind falls back by difficulty rather than failing the selection.
  assert.equal(decodeTaskClass('{"difficulty":4,"kind":"zzz","tools":true,"effort":"low"}').kind,'synthesis');
+});
+
+test('continuity favours the previous model only on the provider that served it',()=>{
+ // The same model id on two providers: only the previous provider's entry gets the model bonus.
+ const list:ProviderOffer[]=[
+  {provider:'codex',plan:'plus',usage:null,models:[model('shared-id','Shared')]},
+  {provider:'opencode',plan:'',usage:null,models:[model('shared-id','Shared')]},
+ ];
+ const entries=offeredEntries(list,false),t=task(1,'lookup');
+ const scores=(ctx?:Parameters<typeof scoreEntries>[5])=>new Map(scoreEntries(entries,list,t,'claude',now,ctx).map(item=>[item.entry.provider,item.score]));
+ const base=scores();
+ const ctx={attachments:[],activeNote:false,selections:0,recentMessages:2,previousImages:0,previousPdfs:0,webSearch:false,previousProvider:'opencode',previousModel:'shared-id'};
+ const next=scores(ctx);
+ assert.equal(Number((base.get('opencode')!-next.get('opencode')!).toFixed(2)),0.35);
+ assert.equal(base.get('codex'),next.get('codex'));
 });

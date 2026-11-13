@@ -1,11 +1,9 @@
-# OWLA Butler 3.1.3
+# OWLA Butler 3.1.4
 
-- One-message model overrides can now switch providers mid-reply; the override picker lists models from every connected provider.
-- Excluded-folder checks, vault search and note reading stay responsive in large vaults.
-- Unchanged OpenCode workspaces are no longer rewritten.
-- Claude Code web-search sources are collected from structured tool results as well as text matches.
-- Codex disconnect races while requests are pending are prevented, and source lists are deduplicated.
-- Additional non-OWLA tools are removed from OpenCode sessions.
-- The split diff view syncs only when split diff is enabled.
+- The one-message model override now lists every model from every connected provider, including previous generations and all OpenCode models.
+- Automatic selection prefers continuing with the model that served the previous turn when the new request fits it.
+- Automatic selection weighs the real size of a request when choosing a model and reasoning effort.
+- OpenCode models hosted outside the workspace’s allowed privacy regions are detected, explained once, and skipped in automatic selection.
+- Automatic selection retries with another model or provider when the chosen one is out of usage or unavailable in the workspace’s privacy regions.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.
