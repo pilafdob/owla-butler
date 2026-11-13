@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.1.4
+## 3.1.5
 
 - Let the one-message model override show every model from every connected provider, including previous generations and all OpenCode models, instead of the curated automatic-selection shortlist.
 - Make automatic selection prefer continuing with the model that served the previous turn when the new request fits it.
@@ -8,6 +8,9 @@
 - Detect OpenCode models hosted outside the workspace’s allowed privacy regions, explain the restriction once, and skip them in automatic selection while still allowing an explicit choice.
 - Retry automatic selection with another model or provider when the chosen one is out of usage or unavailable in the workspace’s privacy regions.
 - Reserve the highest reasoning effort for genuinely deep work and clarify the effort anchors.
+
+## 3.1.4
+
 - Merge the Windows-side performance and reliability changes into main: cache vault file access checks and invalidate them on vault create/modify/delete/rename, deduplicate Codex web sources, and make Codex inherited-instruction discovery case-insensitive on Windows.
 - Improve Claude Code bridge robustness: case-insensitive PATH handling in the child environment and trimmed JSON line parsing.
 - Deduplicate note link targets and use consistent case folding in vault search.
