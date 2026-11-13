@@ -1,11 +1,8 @@
-# OWLA Butler 3.1.3
+# OWLA Butler 3.1.4
 
-- One-message model overrides can now switch providers mid-reply; the override picker lists models from every connected provider.
-- Excluded-folder checks, vault search and note reading stay responsive in large vaults.
-- Unchanged OpenCode workspaces are no longer rewritten.
-- Claude Code web-search sources are collected from structured tool results as well as text matches.
-- Codex disconnect races while requests are pending are prevented, and source lists are deduplicated.
-- Additional non-OWLA tools are removed from OpenCode sessions.
-- The split diff view syncs only when split diff is enabled.
+- Windows performance and reliability changes are merged into main: cached vault file access checks, Codex source deduplication, and case-insensitive Codex instruction discovery.
+- Claude Code bridge robustness improvements: case-insensitive PATH handling and trimmed JSON parsing.
+- Note link target deduplication and consistent case folding in vault search.
+- Cached organization symlink checks and PDF export guidance in the reference pack.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.
