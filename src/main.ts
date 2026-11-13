@@ -1,7 +1,7 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DiffView,DEFAULTS,migrateSettings,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings} from './core';
+import {ButlerSettings,DiffView,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
@@ -87,7 +87,7 @@ export default class Butler extends Plugin {
 
  async onload(){
   addIcon('owla-bird',BIRD_ICON);
-  const previous:unknown=await this.loadData(),migrated=migrateSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);if(record(previous).schemaVersion!==3||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();
+  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();
   try {
    this.pending = loadPendingEdits(this.vaultStorage());
   } catch (e) {
@@ -395,7 +395,7 @@ export default class Butler extends Plugin {
   return {path:v.file.path,text:v.editor.getValue(),start:v.editor.posToOffset(v.editor.getCursor('from')),end:v.editor.posToOffset(v.editor.getCursor('to'))};
  }
  async open(){let leaf=this.app.workspace.getLeavesOfType(VIEW)[0];if(!leaf){leaf=this.app.workspace.getRightLeaf(false)!;if(!leaf)throw Error('Could not open the sidebar.');await leaf.setViewState({type:VIEW,active:true});}await this.app.workspace.revealLeaf(leaf);return leaf.view as ButlerView;}
- save(){const snapshot={...this.prefs};this.saveQueue=this.saveQueue.catch(()=>{}).then(()=>this.saveData(snapshot));return this.saveQueue;}
+ save(){const snapshot=structuredClone(this.prefs);this.saveQueue=this.saveQueue.catch(()=>{}).then(async()=>this.saveData(writeSettings(snapshot,await this.loadData())));return this.saveQueue;}
  onunload(){for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}

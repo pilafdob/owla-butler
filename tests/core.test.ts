@@ -104,3 +104,25 @@ test('diff view settings preserve the legacy toggle and validate selector values
  assert.equal(migrateSettings({diffView:'none',editingViewDiff:true}).diffView,'none');
  assert.equal(migrateSettings({diffView:'unexpected'}).diffView,'none');
 });
+
+test('AI settings are kept separately per platform while vault settings stay shared',async()=>{
+ const {readSettings,writeSettings}=await import('../src/core');
+ const legacy={schemaVersion:3,provider:'claude',automaticProvider:false,codexExecutable:'/usr/local/bin/codex',excludedFolders:'Private'};
+ const mac=readSettings(legacy,'mac'),windows=readSettings(legacy,'windows');
+ assert.equal(mac.provider,'claude');assert.equal(windows.provider,'claude');
+ mac.automaticProvider=true;mac.models.codex.model='gpt-mac';mac.excludedFolders='Private\nArchive';
+ const afterMac=writeSettings(mac,legacy,'mac');
+ assert.equal(readSettings(afterMac,'mac').automaticProvider,true);
+ assert.equal(readSettings(afterMac,'windows').automaticProvider,false);
+ assert.equal(readSettings(afterMac,'windows').models.codex.model,'');
+ assert.equal(readSettings(afterMac,'windows').excludedFolders,'Private\nArchive');
+ windows.codexExecutable='C:\\codex.exe';windows.automaticRouting=true;
+ const afterWindows=writeSettings(windows,afterMac,'windows');
+ assert.equal(readSettings(afterWindows,'mac').automaticProvider,true);
+ assert.equal(readSettings(afterWindows,'mac').codexExecutable,'/usr/local/bin/codex');
+ assert.equal(readSettings(afterWindows,'mac').automaticRouting,false);
+ assert.equal(readSettings(afterWindows,'windows').codexExecutable,'C:\\codex.exe');
+ assert.equal(readSettings(afterWindows,'windows').automaticProvider,false);
+ // A platform's later save keeps the other platform's entry, even if it synced in after load.
+ assert.equal(readSettings(writeSettings(readSettings(afterWindows,'mac'),afterWindows,'mac'),'windows').automaticRouting,true);
+});
