@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.1
+
+- Keep the assistant settings separately for each operating system. With a vault synced between a Mac and a Windows PC, choosing a provider, Automatic mode, models, the fallback or executable paths on one computer no longer changes the other. Each computer starts from the settings saved before this release, and other computers' settings are kept when one saves. Vault settings such as excluded folders stay shared.
+- Document where OWLA stores its working folders, that it recreates them while in use, and how to clear a storage folder kept from an earlier build.
+
 ## 3.1.0
 
 - Add Windows desktop support for `.exe` and `.cmd` assistant launchers, per-user storage, vault path containment and process-tree cleanup.

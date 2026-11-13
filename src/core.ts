@@ -76,6 +76,25 @@ export function migrateSettings(value:unknown):ButlerSettings{
 export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,platform=process.platform):ButlerSettings{
   return platform==='darwin'?settings:{...settings,automaticProvider:false,automaticRouting:false};
 }
+/**
+ * AI settings are kept per operating system, so a vault synced between a Mac
+ * and a Windows PC keeps each machine's provider, models and modes apart. The
+ * remaining settings (vault folders, review view) stay shared.
+ */
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
+/** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
+export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
+ const data=record(value),own=record(record(data.platforms)[platform]);
+ return migrateSettings({...data,...own,schemaVersion:data.schemaVersion});
+}
+/** Stored form: shared settings at the top level, this platform's AI settings under `platforms`, other platforms untouched. */
+export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platformKey()):Record<string,unknown>{
+ const data=record(stored),seed:Record<string,unknown>={...migrateSettings(data)};
+ const shared:Record<string,unknown>={...prefs},own:Record<string,unknown>={};
+ for(const key of PLATFORM_SETTINGS){own[key]=structuredClone(prefs[key]);shared[key]=seed[key];}
+ return {...shared,schemaVersion:3,platforms:{...record(data.platforms),[platform]:own}};
+}
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
