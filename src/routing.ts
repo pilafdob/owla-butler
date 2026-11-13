@@ -9,7 +9,7 @@ import {record} from './validation';
 
 const fm='/usr/bin/fm';
 export const FOUNDATION_MODELS_LICENSE_COMMAND='fm license';
-export type CodexRoute={model:string;effort:string};
+export type CodexRoute={model:string;effort:string;provider?:ProviderId};
 export const supportsAutomaticSelection=(platform=process.platform)=>platform==='darwin';
 export const hasFoundationModelsCLI=()=>supportsAutomaticSelection()&&existsSync(fm);
 

@@ -61,7 +61,7 @@ function decodeModel(value:unknown):CodexModel|null{
 }
 export class CodexBridge implements ProviderBridge{
  readonly id='codex' as const;
- private child:ChildProcessWithoutNullStreams|null=null;private connectionKey='';private initialized=false;private startupAbort:AbortController|null=null;private holders=new Set<symbol>();private generation=0;private closing:Promise<void>=Promise.resolve();private nextId=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>();private lines=newProtocolLines();private idle:ReturnType<typeof setTimeout>|undefined;private connecting:Promise<void>|null=null;private active:{threadId:string;turnId?:string;event:(method:string,params:Record<string,unknown>)=>void;tool:(name:string,args:unknown)=>Promise<ToolOutput>;reject:(e:Error)=>void}|null=null;
+ private child:ChildProcessWithoutNullStreams|null=null;private connectionKey='';private initialized=false;private startupAbort:AbortController|null=null;private holders=new Set<symbol>();private generation=0;private closing:Promise<void>=Promise.resolve();private nextId=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>();private lines=newProtocolLines();private idle:ReturnType<typeof setTimeout>|undefined;private connecting:Promise<void>|null=null;private active:{threadId:string;turnId?:string;event:(method:string,params:Record<string,unknown>)=>void;tool:(name:string,args:unknown)=>Promise<ToolOutput>;reject:(e:Error)=>void}|null=null;private pendingDrained:(()=>void)|null=null;
  usage:UsageSnapshot|null=null;usageUpdatedAt=0;usageError='';onUsage:()=>void=()=>{};models:CodexModel[]=[];accountType:string|undefined;plan='';version='';status='Not connected';executable='';onStatus:(status:string)=>void=()=>{};
  private finishSignIn:(()=>void)|undefined;
  private env(){return {...sanitizedEnv(),PATH:[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter)};}
@@ -136,7 +136,7 @@ export class CodexBridge implements ProviderBridge{
   this.setStatus('Complete sign-in in your browser.');
  }
  private notify(method:string,params?:Record<string,unknown>){this.child?.stdin.write(JSON.stringify({method,...(params?{params}:{})})+'\n');}
- private request(method:string,params:Record<string,unknown>,timeout=20000):Promise<unknown>{const child=this.child;if(!child)return Promise.reject(Error('Codex is disconnected.'));const id=this.nextId++;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('Codex timed out during '+method+'. Reconnect and retry.'));},timeout);this.pending.set(id,{resolve,reject,timer});child.stdin.write(JSON.stringify({id,method,params})+'\n');});}
+ private request(method:string,params:Record<string,unknown>,timeout=20000):Promise<unknown>{const child=this.child;if(!child)return Promise.reject(Error('Codex is disconnected.'));const id=this.nextId++;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);const waiter=this.pendingDrained;this.pendingDrained=null;waiter?.();reject(Error('Codex timed out during '+method+'. Reconnect and retry.'));},timeout);this.pending.set(id,{resolve,reject,timer});child.stdin.write(JSON.stringify({id,method,params})+'\n');});}
  private reply(id:string|number,result:unknown){this.child?.stdin.write(JSON.stringify({id,result})+'\n');}
  private receiveChunk(owner:ChildProcessWithoutNullStreams,chunk:string){
   if(this.child!==owner)return;
@@ -153,7 +153,7 @@ export class CodexBridge implements ProviderBridge{
  private receive(value:unknown){
   const msg=record(value),params=record(msg.params),method=typeof msg.method==='string'?msg.method:'',id=msg.id;
   if(method==='account/rateLimits/updated'){const usage=decodeUsage(params);if(usage)this.acceptUsage(usage);}
-  if(typeof id==='number'&&!method){const p=this.pending.get(id);if(p){clearTimeout(p.timer);this.pending.delete(id);const error=record(msg.error);msg.error?p.reject(Error(typeof error.message==='string'?error.message:'Codex request failed.')):p.resolve(msg.result);}return;}
+  if(typeof id==='number'&&!method){const p=this.pending.get(id);if(p){clearTimeout(p.timer);this.pending.delete(id);const waiter=this.pendingDrained;this.pendingDrained=null;waiter?.();const error=record(msg.error);msg.error?p.reject(Error(typeof error.message==='string'?error.message:'Codex request failed.')):p.resolve(msg.result);}return;}
   const active=this.active;
   if(typeof id==='string'||typeof id==='number'){
    const tool=params.tool;
@@ -228,10 +228,11 @@ export class CodexBridge implements ProviderBridge{
  }
  if(method==='item/completed'&&item.type==='agentMessage'){
   if(!text&&typeof item.text==='string'&&item.text){text=item.text;options.onText(text);}
-  for(const value of list(item.annotations)){const {url,title}=record(value);if(typeof url==='string'&&/^https?:\/\//.test(url)&&!sources.some(s=>s.url===url))sources.push({url,title:typeof title==='string'&&title?title:url});}
+  const seen=new Set(sources.map(source=>source.url));
+  for(const value of list(item.annotations)){const {url,title}=record(value);if(typeof url==='string'&&/^https?:\/\//.test(url)&&sources.length<20&&!seen.has(url)){seen.add(url);sources.push({url,title:typeof title==='string'&&title?title:url});}}
  }
  if(method==='turn/completed'){
-  if(options.web&&usedWeb)for(const match of text.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)){if(sources.length<20&&!sources.some(s=>s.url===match[2]))sources.push({url:match[2],title:match[1]});}
+  if(options.web&&usedWeb){const seen=new Set(sources.map(source=>source.url));for(const match of text.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)){if(sources.length>=20)break;if(!seen.has(match[2])){seen.add(match[2]);sources.push({url:match[2],title:match[1]});}}}
   const message=record(turn.error).message;
   end(turn.status!=='completed'?Error(typeof message==='string'?message:'Codex '+(typeof turn.status==='string'?turn.status:'did not complete')+'.'):options.requireWeb&&!usedWeb?Error('Codex did not run live web search. No online answer was verified.'):undefined);
  }
@@ -255,7 +256,10 @@ export class CodexBridge implements ProviderBridge{
   if(!this.child&&!this.connecting)return;
   const owner=this.child;
   while(!this.connecting&&this.child===owner&&!this.holders.size&&!this.active&&!this.idle&&this.pending.size){
-   await new Promise<void>(resolve=>setTimeout(resolve,10));
+   await new Promise<void>(resolve=>{
+    this.pendingDrained=resolve;
+    setTimeout(()=>{if(this.pendingDrained===resolve){this.pendingDrained=null;resolve();}},10);
+   });
   }
   if(this.child!==owner||this.holders.size||this.active||this.idle)return;
   const status=this.initialized&&this.accountType!=='chatgpt'
@@ -266,5 +270,5 @@ export class CodexBridge implements ProviderBridge{
   if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus(status);
  }
  private fail(e:Error){this.disconnect(friendlyError(e));}
- disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;this.finishSignIn=undefined;const child=this.child;this.child=null;this.lines=newProtocolLines();const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>terminateProcessTree(child,signal);if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
+ disconnect(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;this.finishSignIn=undefined;const child=this.child;this.child=null;this.lines=newProtocolLines();const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();const waiter=this.pendingDrained;this.pendingDrained=null;waiter?.();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>terminateProcessTree(child,signal);if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
 }

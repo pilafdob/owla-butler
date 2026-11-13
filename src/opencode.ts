@@ -1,8 +1,8 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {createServer,IncomingMessage,Server,request as httpRequest} from 'node:http';
 import {createServer as createSocketServer} from 'node:net';
-import {randomBytes,timingSafeEqual} from 'node:crypto';
+import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
@@ -338,6 +338,9 @@ export class OpencodeBridge implements ProviderBridge{
  }
 
  private writeWorkspace(directory:string,tools:ToolSpec[]):void{
+  const digestHash=createHash('sha256').update(OPENCODE_PLUGIN_SOURCE).update(JSON.stringify({tools:tools.map(tool=>[tool.name,tool.description]),skills:skillDefinitions().map(skill=>[skill.id,skill.content])})).digest('hex');
+  const digestFile=join(directory,'owla-workspace.sha256');
+  try{if(readFileSync(digestFile,'utf8')===digestHash)return;}catch{/* Write the workspace below. */}
   const pluginDirectory=join(directory,'plugins','owla');
   mkdirSync(pluginDirectory,{recursive:true,mode:0o700});
   writeFileSync(join(pluginDirectory,'index.ts'),OPENCODE_PLUGIN_SOURCE,{mode:0o600});
@@ -359,6 +362,7 @@ export class OpencodeBridge implements ProviderBridge{
   // Earlier versions wrote the same file as project config. Project discovery is
   // off now, but an OpenCode that ignores the switch would load the plugin twice.
   rmSync(join(directory,'opencode.json'),{force:true});
+  writeFileSync(digestFile,digestHash,{mode:0o600});
  }
 
  private async ensureCallback():Promise<void>{

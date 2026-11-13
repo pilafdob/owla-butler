@@ -1,7 +1,7 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DiffView,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings} from './core';
+import {ButlerSettings,DiffView,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
@@ -39,7 +39,7 @@ type ProposedRemoval={review:RemovalReview;requires?:string[]};
 type OrganizationDraft={review?:OrganizationReview;removals?:ProposedRemoval[]};
 type RelatedReview={container:HTMLElement;decisions:Map<string,'pending'|'accepted'|'declined'>};
 function pathsOverlap(first:string,second:string){
- const a=first.normalize('NFC').toLowerCase(),b=second.normalize('NFC').toLowerCase();
+ const a=foldPath(first),b=foldPath(second);
  return a===b||a.startsWith(b+'/')||b.startsWith(a+'/');
 }
 type Captured={path:string;text:string;start:number;end:number};
@@ -202,10 +202,12 @@ export default class Butler extends Plugin {
   return new PluginTurn(this.app.workspace,path=>this.allowedVaultFile(path),()=>this.prefs.pluginInterconnectivity&&revision===this.pluginAccessRevision);
  }
  /** The tools OWLA offers to the assistant. Codex receives them directly; OpenCode registers them in its own process. */
- baseToolSpecs():ToolSpec[]{return [{type:'function',name:'propose_note',description:'Draft a new Markdown note for review. Use a bare filename for the Obsidian default folder, a vault-relative path for an explicit folder, or vaultRoot=true for an explicitly requested vault root.',inputSchema:{type:'object',properties:{path:{type:'string'},content:{type:'string'},reason:{type:'string'},vaultRoot:{type:'boolean'}},required:['path','content','reason'],additionalProperties:false}},{type:'function',name:'read_pdf',description:'Read an attached or allowed vault PDF. Set query to find a phrase in its text layer, page and endPage for a range, or page and visual for a scanned page. Follow returned continuation parameters. Accepts [[file.pdf#page=3]].',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},endPage:{type:'integer'},offset:{type:'integer'},visual:{type:'boolean'},query:{type:'string'}},required:['path'],additionalProperties:false}},{type:'function',name:'propose_pdf_annotation',description:'Prepare a PDF sticky-note comment for user review. Saves a separate annotated copy only after confirmation.',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},text:{type:'string'}},required:['path','page','text'],additionalProperties:false}},{type:'function',name:'read_note',description:'Read an allowed Markdown note by exact vault-relative path. Optionally read a specific indexed heading, or a block by its ID (for [[note#^id]]), for an exact citation.',inputSchema:{type:'object',properties:{path:{type:'string'},heading:{type:'string'},block:{type:'string'}},required:['path'],additionalProperties:false}},{type:'function',name:'search_vault',description:'Search allowed Markdown notes and read up to two top matches. Set folder to search only within that vault folder and its descendants.',inputSchema:{type:'object',properties:{query:{type:'string'},folder:{type:'string'}},required:['query'],additionalProperties:false}},{type:'function',name:'read_reference',description:'Read bundled Obsidian syntax/skills. Names: obsidian-markdown, obsidian-bases, json-canvas, owla-pdf, owla-math, owla-ocr, owla-formatting, owla-mermaid.',inputSchema:{type:'object',properties:{name:{type:'string'},offset:{type:'integer'}},required:['name'],additionalProperties:false}},{type:'function',name:'propose_edit',description:'Stage an exact change for provisional application after this reply. The note must have a known snapshot. Further changes apply to the staged preview. Empty oldText appends.',inputSchema:{type:'object',properties:{path:{type:'string'},oldText:{type:'string'},newText:{type:'string'},reason:{type:'string'}},required:['path','oldText','newText','reason'],additionalProperties:false}}];}
+ private baseSpecsCache:ToolSpec[]|null=null;
+ baseToolSpecs():ToolSpec[]{if(!this.baseSpecsCache)this.baseSpecsCache=[{type:'function',name:'propose_note',description:'Draft a new Markdown note for review. Use a bare filename for the Obsidian default folder, a vault-relative path for an explicit folder, or vaultRoot=true for an explicitly requested vault root.',inputSchema:{type:'object',properties:{path:{type:'string'},content:{type:'string'},reason:{type:'string'},vaultRoot:{type:'boolean'}},required:['path','content','reason'],additionalProperties:false}},{type:'function',name:'read_pdf',description:'Read an attached or allowed vault PDF. Set query to find a phrase in its text layer, page and endPage for a range, or page and visual for a scanned page. Follow returned continuation parameters. Accepts [[file.pdf#page=3]].',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},endPage:{type:'integer'},offset:{type:'integer'},visual:{type:'boolean'},query:{type:'string'}},required:['path'],additionalProperties:false}},{type:'function',name:'propose_pdf_annotation',description:'Prepare a PDF sticky-note comment for user review. Saves a separate annotated copy only after confirmation.',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},text:{type:'string'}},required:['path','page','text'],additionalProperties:false}},{type:'function',name:'read_note',description:'Read an allowed Markdown note by exact vault-relative path. Optionally read a specific indexed heading, or a block by its ID (for [[note#^id]]), for an exact citation.',inputSchema:{type:'object',properties:{path:{type:'string'},heading:{type:'string'},block:{type:'string'}},required:['path'],additionalProperties:false}},{type:'function',name:'search_vault',description:'Search allowed Markdown notes and read up to two top matches. Set folder to search only within that vault folder and its descendants.',inputSchema:{type:'object',properties:{query:{type:'string'},folder:{type:'string'}},required:['query'],additionalProperties:false}},{type:'function',name:'read_reference',description:'Read bundled Obsidian syntax/skills. Names: obsidian-markdown, obsidian-bases, json-canvas, owla-pdf, owla-math, owla-ocr, owla-formatting, owla-mermaid.',inputSchema:{type:'object',properties:{name:{type:'string'},offset:{type:'integer'}},required:['name'],additionalProperties:false}},{type:'function',name:'propose_edit',description:'Stage an exact change for provisional application after this reply. The note must have a known snapshot. Further changes apply to the staged preview. Empty oldText appends.',inputSchema:{type:'object',properties:{path:{type:'string'},oldText:{type:'string'},newText:{type:'string'},reason:{type:'string'}},required:['path','oldText','newText','reason'],additionalProperties:false}}];return this.baseSpecsCache!;
+ }
  buildToolSpecs():{specs:ToolSpec[];pluginTurn:PluginTurn}{
   const pluginTurn=this.startPluginTurn();
-  const specs=this.baseToolSpecs();
+  const specs=[...this.baseToolSpecs()];
   specs.push(...pluginTurn.specs,VAULT_GRAPH_TOOL,
    {type:'function',name:'propose_properties',description:'Stage frontmatter property changes for review without rewriting the note body. set maps property names to values (text, number, boolean, list or null); remove lists property names to delete. Names match case-insensitively. Read the note first.',inputSchema:{type:'object',properties:{path:{type:'string'},set:{type:'object',additionalProperties:true},remove:{type:'array',items:{type:'string'}},reason:{type:'string'}},required:['path','reason'],additionalProperties:false}},
    {type:'function',name:'propose_deletion',description:'Suggest moving an existing vault path to Trash. Use requires to list exact note or move destination paths that must be accepted first. Without it all note and move steps in this reply are required.',inputSchema:{type:'object',properties:{path:{type:'string'},reason:{type:'string'},requires:{type:'array',items:{type:'string'}}},required:['path','reason'],additionalProperties:false}},
@@ -269,6 +271,10 @@ export default class Butler extends Plugin {
  async probePrimaryQuota():Promise<void>{
   if(this.prefs.provider!=='codex'){this.recordExhaustion(this.prefs.provider);return;}
   if(!this.prefs.codexConnected)return;
+  const state=this.exhaustion.codex;
+  // The exhaustion record already says when the quota resets; do not spend a
+  // connect + usage round-trip on every message before that time has passed.
+  if(state.exhausted&&state.resetsAt!==null&&state.resetsAt>Date.now()/1000)return;
   const bridge=this.codexBridge;
   const release=bridge.hold();
   try{
@@ -397,9 +403,10 @@ export default class Butler extends Plugin {
  ownModal(modal:Modal){this.ownedModals.add(modal);const close=modal.onClose.bind(modal);modal.onClose=()=>{this.ownedModals.delete(modal);close();};}
  async selection(editor:Editor,file:TFile|null){if(!file||!editor.getSelection())return;const v=await this.open();v.selections.push({path:file.path,text:clip(editor.getSelection(),3000)});v.renderAttachments();v.composer.focus();}
  capture():Captured|null {
+  const leaves=this.app.workspace.getLeavesOfType('markdown');
   const current=this.app.workspace.getActiveViewOfType(MarkdownView);if(current)this.last=current;
-  if(this.last&&!this.app.workspace.getLeavesOfType('markdown').some(l=>l.view===this.last))this.last=null;
-  if(!this.last){const active=this.app.workspace.getActiveFile();this.last=(this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===active?.path) as MarkdownView|undefined)??null;}
+  if(this.last&&!leaves.some(l=>l.view===this.last))this.last=null;
+  if(!this.last){const active=this.app.workspace.getActiveFile();this.last=(leaves.map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===active?.path) as MarkdownView|undefined)??null;}
   const v=this.last;if(!v?.file||!this.allowedNote(v.file.path))return null;
   return {path:v.file.path,text:v.editor.getValue(),start:v.editor.posToOffset(v.editor.getCursor('from')),end:v.editor.posToOffset(v.editor.getCursor('to'))};
  }
@@ -419,7 +426,7 @@ export default class Butler extends Plugin {
  private resolvedRoot:{base:string;root:string}|null=null;
  private vaultRoot(base:string){if(this.resolvedRoot?.base!==base)this.resolvedRoot={base,root:realpathSync(base)};return this.resolvedRoot.root;}
  allowedVaultFile(path:string,extension:string|null=null){if(!allowedPath(path,this.prefs.excludedFolders,extension))return false;try{const base=this.vaultBasePath();if(!base)return false;const root=this.vaultRoot(base),file=realpathSync(join(base,path));if(!isPathInside(root,file))return false;return allowedPath(relative(root,file).split(/[\\/]/).join('/'),this.prefs.excludedFolders,extension);}catch{return false;}}
- async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.read(f);}
+ async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
  automaticLinksEnabled(){
   if(!this.settingsTab)return false;
@@ -568,31 +575,38 @@ class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private bu
 private items:TFile[]|null=null;getItems(){return this.items??=this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
 class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 class TurnRouteModal extends Modal {
- constructor(app:App,butler:Butler,private models:CodexModel[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void,private provider:ProviderId){
+ constructor(app:App,butler:Butler,private items:{provider:ProviderId;model:CodexModel}[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void){
   super(app);butler.ownModal(this);
  }
  onOpen(){
   this.setTitle('Override the next message');
-  const key=(item:CodexModel)=>modelKey(this.provider,item);
-  let model=this.models.find(item=>key(item)===this.initial.model)??this.models[0];
-  const modelSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Codex model'}});
+  const distinctProviders=new Set(this.items.map(item=>item.provider));
+  const showProvider=distinctProviders.size>1;
+  const key=(item:{provider:ProviderId;model:CodexModel})=>modelKey(item.provider,item.model);
+  let current=this.items.find(item=>item.provider===this.initial.provider&&key(item)===this.initial.model)??this.items[0];
+  const modelSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Model'}});
   const effortSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Reasoning effort'}});
-  for(const item of this.models)modelSelect.createEl('option',{text:this.provider==='opencode'&&item.providerID&&item.providerID!=='opencode'?item.displayName+' ('+item.providerID+')':item.displayName,value:key(item)});
-  modelSelect.value=key(model);
+  for(const item of this.items){
+   const label=showProvider
+    ?PROVIDER_NAMES[item.provider]+' · '+(item.provider==='opencode'&&item.model.providerID&&item.model.providerID!=='opencode'?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName)
+    :(item.provider==='opencode'&&item.model.providerID&&item.model.providerID!=='opencode'?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName);
+   modelSelect.createEl('option',{text:label,value:key(item)});
+  }
+  modelSelect.value=key(current);
   const refresh=(effort:string)=>{
    effortSelect.empty();
-   for(const option of model.supportedReasoningEfforts)effortSelect.createEl('option',{text:option.reasoningEffort,value:option.reasoningEffort});
+   for(const option of current.model.supportedReasoningEfforts)effortSelect.createEl('option',{text:option.reasoningEffort,value:option.reasoningEffort});
    effortSelect.value=effort;
   };
   refresh(this.initial.effort);
   modelSelect.onchange=()=>{
-   model=this.models.find(item=>key(item)===modelSelect.value)??model;
-   refresh(model.defaultReasoningEffort);
+   current=this.items.find(item=>key(item)===modelSelect.value)??current;
+   refresh(current.model.defaultReasoningEffort);
   };
   const actions=this.contentEl.createDiv('owla-review-actions');
   actions.createEl('button',{text:'Use automatic'}).onclick=()=>{this.choose();this.close();};
   actions.createEl('button',{text:'Use once',cls:'mod-cta'}).onclick=()=>{
-   this.choose({model:key(model),effort:effortSelect.value});
+   this.choose({provider:current.provider,model:key(current),effort:effortSelect.value});
    this.close();
   };
  }
@@ -760,20 +774,43 @@ export class ButlerView extends ItemView {
  private async chooseNextRoute(){
   if(this.isBusy()||this.selectingRoute||this.awaitingReview)return;
   const provider=this.butler.activeProvider;
-  if(provider==='codex'&&!this.butler.prefs.codexConnected){new Notice(CONNECT_FIRST);return;}
+  if(!this.butler.prefs.automaticProvider&&provider==='codex'&&!this.butler.prefs.codexConnected){new Notice(CONNECT_FIRST);return;}
   this.selectingRoute=true;
   try{
-   if(!this.butler.bridge.models.length)await this.butler.connect({automatic:true,provider});
-   if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
    const needsImage=!!(this.images.length||this.pdfAttachments.size||this.pdfs.some(item=>'file' in item)
     ||replayHistory(this.history).messages.some(message=>message.images?.length));
-   const models=routingModels(this.butler.bridge.models,needsImage);
-   if(!models.length)throw Error('No compatible Codex model is available.');
-   const modelPrefs=this.butler.modelPrefs;const initial=fallbackRoute(models,this.nextRoute??this.lastAutomaticRoute??{model:modelPrefs.model,effort:modelPrefs.reasoning},provider);
-   new TurnRouteModal(this.app,this.butler,models,initial,route=>{
+   let items:{provider:ProviderId;model:CodexModel}[];
+   let initial:CodexRoute;
+   if(this.butler.prefs.automaticProvider){
+    const specs=this.butler.buildToolSpecs().specs;
+    const {offers}=await this.butler.automaticOffers(specs);
+    if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
+    const freeExhausted=this.butler.exhaustionOf('opencode').exhausted&&this.butler.exhaustionOf('opencode').scope==='free models';
+    const entries=autoEntries(offers,needsImage,freeExhausted);
+    items=entries.map(entry=>({provider:entry.provider,model:entry.model}));
+    if(!items.length)throw Error('No compatible model is available.');
+    const previous=this.nextRoute??this.lastAutomaticRoute;
+    const preferredProvider=previous?.provider??provider;
+    const preferredModel=previous?.model;
+    const preferredEffort=previous?.effort??this.butler.modelPrefs.reasoning;
+    const initialItem=items.find(item=>item.provider===preferredProvider&&modelKey(item.provider,item.model)===preferredModel)??items[0];
+    const effort=initialItem.model.supportedReasoningEfforts.some(option=>option.reasoningEffort===preferredEffort)
+     ?preferredEffort:initialItem.model.defaultReasoningEffort;
+    initial={provider:initialItem.provider,model:modelKey(initialItem.provider,initialItem.model),effort};
+   }else{
+    if(!this.butler.bridge.models.length)await this.butler.connect({automatic:true,provider});
+    if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
+    const models=routingModels(this.butler.bridge.models,needsImage);
+    if(!models.length)throw Error('No compatible Codex model is available.');
+    items=models.map(model=>({provider,model}));
+    const modelPrefs=this.butler.modelPrefs;
+    initial=fallbackRoute(models,this.nextRoute??this.lastAutomaticRoute??{model:modelPrefs.model,effort:modelPrefs.reasoning},provider);
+    initial={...initial,provider};
+   }
+   new TurnRouteModal(this.app,this.butler,items,initial,route=>{
     this.nextRoute=route;
     this.automaticLabel.setText(route?'Next message · '+route.model+' · '+route.effort:'Automatic selection');
-   },provider).open();
+   }).open();
   }catch(error){new Notice(friendlyError(error));}
   finally{this.selectingRoute=false;}
  }
@@ -1293,7 +1330,20 @@ export class ButlerView extends ItemView {
    if(typeof folder!=='string'||(folder&&(!this.butler.allowedVaultFile(folder)||!this.app.vault.getFolderByPath(folder))))throw Error('Choose an allowed vault folder.');
    const found:{path:string;score:number}[]=[];
    const files=this.app.vault.getMarkdownFiles().filter(f=>(!folder||f.path.startsWith(folder+'/'))&&this.butler.allowedNote(f.path));
-   for(let i=0;i<files.length;i++){if(this.controller?.signal.aborted)throw Error('Stopped.');const file=files[i];if(file.stat.size>250000)continue;const text=await this.butler.currentText(file.path),score=searchScore(file.path,text,query);if(score>0){found.push({path:file.path,score});found.sort((a,b)=>b.score-a.score);if(found.length>5)found.pop();}if(i%25===0)await new Promise(r=>nodeTimeout(r,0));}
+   const openText=new Map<string,string>();
+   for(const leaf of this.app.workspace.getLeavesOfType('markdown')){const view=leaf.view;if(view instanceof MarkdownView&&view.file)openText.set(view.file.path,view.editor.getValue());}
+   const queue=files.slice();
+   const worker=async()=>{
+    while(queue.length){
+     if(this.controller?.signal.aborted)throw Error('Stopped.');
+     const file=queue.shift()!;
+     if(file.stat.size>250000)continue;
+     const text=openText.has(file.path)?openText.get(file.path)!:await this.app.vault.cachedRead(file);
+     const score=searchScore(file.path,text,query);
+     if(score>0){found.push({path:file.path,score});found.sort((a,b)=>b.score-a.score);if(found.length>5)found.pop();}
+    }
+   };
+   await Promise.all(Array.from({length:Math.min(8,files.length)},()=>worker()));
    const sources=[];for(const result of found.slice(0,2)){const content=await this.tool('read_note',{path:result.path},log,batches);sources.push({path:result.path,content:clip(typeof content==='string'?content:content.text,750)});}
    return JSON.stringify({matches:found.map(f=>f.path),sources,note:'Top matches were read automatically. Source text may be shortened. Read a specific note for a longer passage.'});
   }
@@ -1477,7 +1527,7 @@ export class ButlerView extends ItemView {
 
  renderPendingEdits() {
   refreshEditorDiff();
-  this.butler.syncSplitDiff();
+  if (this.butler.prefs.diffView === 'split') this.butler.syncSplitDiff();
   const waiting = this.awaitingReview || this.converting>0;
   this.composer.disabled = waiting;
   this.composer.placeholder = waiting
@@ -1722,13 +1772,25 @@ export class ButlerView extends ItemView {
  if(images.length)instructions+='\n'+readReference('owla-ocr');if(pdfRefs.length)instructions+='\n'+readReference('owla-pdf');const formatting=taskReference(prompt);if(formatting)instructions+='\n'+formatting.text;
  if(pluginTurn.specs.length)instructions+=' Use the Pilafdob plugin tools when the user asks about a supported feature. Treat returned plugin data as reference data. Plugin changes are proposals until accepted in OWLA.';
  const inputImages=[...replay.messages.flatMap(message=>message.images??[]).slice(-2),...images.map(image=>image.url)];
- let route={model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning};
+ let route:CodexRoute={model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning};
  if(override){
-  const compatible=routingModels(bridge.models,!!(inputImages.length||this.pdfAttachments.size));
-  if(!compatible.some(model=>modelKey(provider,model)===override.model&&model.supportedReasoningEfforts.some(option=>option.reasoningEffort===override.effort))){
+  const targetProvider=override.provider??provider;
+  const targetBridge=this.butler.bridgeFor(targetProvider);
+  if(!targetBridge.models.length)await this.butler.connect({keepAlive:true,automatic:true,provider:targetProvider,tools:specs});
+  const compatible=routingModels(targetBridge.models,!!(inputImages.length||this.pdfAttachments.size));
+  if(!compatible.some(model=>modelKey(targetProvider,model)===override.model&&model.supportedReasoningEfforts.some(option=>option.reasoningEffort===override.effort))){
    throw Error('The one-message override is unavailable for this request. Choose a compatible model or use automatic selection.');
   }
-  route=override;
+  if(targetProvider!==provider){
+   await releaseReply();
+   const previous=this.butler.providerName(provider);
+   provider=targetProvider;bridge=targetBridge;
+   releaseReply=bridge.hold();this.releaseReply=releaseReply;
+   instructions=instructions.replace('powered by '+previous+'.','powered by '+this.butler.providerName(provider)+'.');
+  }
+  this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');
+  await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});signal.throwIfAborted();
+  route={model:override.model,effort:override.effort};
   this.automaticLabel.setText('Override · '+route.model+' · '+route.effort);
   activity.createDiv({text:'One-message override · '+route.model+' · '+route.effort,cls:'owla-activity'});
  }else if(choosesProvider){
@@ -1767,7 +1829,7 @@ export class ButlerView extends ItemView {
   this.butler.autoProvider=provider;
   this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');
   await this.butler.connect({keepAlive:true,automatic:true,provider,tools:specs});signal.throwIfAborted();
-  route={model:choice.model,effort:choice.effort};
+  route={model:choice.model,effort:choice.effort,provider};
   activity.createDiv({text:'Automatic selection · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
   this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
   this.lastAutomaticRoute=route;
@@ -1796,11 +1858,12 @@ export class ButlerView extends ItemView {
    activity.createDiv({text:'Automatic selection unavailable · '+friendlyError(error)+' Using '+route.model+' · '+route.effort,cls:'owla-activity'});
    this.automaticLabel.setText('Fallback · '+route.model+' · '+route.effort);
   }
+  route={...route,provider};
   this.lastAutomaticRoute=route;
  }
  signal.throwIfAborted();
  instructions=prefixToolNames(instructions,provider);
- this.status.setText(this.butler.providerName(provider)+' is responding…');const result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route.model,effort:route.effort,instructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';this.feed.scrollTop=this.feed.scrollHeight;},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
+ this.status.setText(this.butler.providerName(provider)+' is responding…');const result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route.model,effort:route.effort,instructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
   const operation=toolQueue.then(()=>{
    if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
    if(pluginTurn.handles(name)){

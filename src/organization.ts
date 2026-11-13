@@ -60,6 +60,7 @@ export class Organization {
  private journal:Journal|null=null;
  busy=false;
  loadError='';
+ private symlinkCache=new Map<string,boolean>();
  constructor(
   private app:App,
   private storage:()=>string,
@@ -116,6 +117,7 @@ export class Organization {
  }
 
  list(folder:string,offset:number){
+  this.symlinkCache=new Map();
   if(folder&&(!this.allowed(folder)||!this.app.vault.getFolderByPath(folder)))throw Error('Choose an allowed vault folder.');
   if(!Number.isSafeInteger(offset)||offset<0)throw Error('Use a nonnegative listing offset.');
   const root=folder?this.app.vault.getFolderByPath(folder)!:this.app.vault.getRoot();
@@ -131,12 +133,19 @@ export class Organization {
   return lstatSync(join(base,path),{throwIfNoEntry:false});
  }
 
+ private ancestorSymlink(path:string):boolean{
+  for(let current=path;current;current=parent(current)){
+   const cached=this.symlinkCache.get(current);
+   if(cached!==undefined){if(cached)return true;continue;}
+   const isLink=this.stat(current)?.isSymbolicLink()===true;
+   this.symlinkCache.set(current,isLink);
+   if(isLink)return true;
+  }
+  return false;
+ }
  private safeSource(path:string){
   if(!this.allowed(path))return false;
-  for(let current=path;current;current=parent(current)){
-   if(this.stat(current)?.isSymbolicLink())return false;
-  }
-  return true;
+  return !this.ancestorSymlink(path);
  }
 
  private tree(path:string):string[][]{
@@ -163,6 +172,7 @@ export class Organization {
  }
 
  async previewRemoval(path:string,reason:string):Promise<RemovalReview>{
+  this.symlinkCache=new Map();
   const target=this.app.vault.getAbstractFileByPath(path);
   if(!validPath(path)||!target||!this.safeSource(path))throw Error('Choose an existing, allowed file or folder.');
   const tree=this.tree(path);
@@ -189,6 +199,7 @@ export class Organization {
  }
 
  async preview(moves:PathMove[],reason:string):Promise<OrganizationReview>{
+  this.symlinkCache=new Map();
   const folders=new Set<string>();
   const sources:string[][]=[];
   const movedNames=new Set<string>();
@@ -289,6 +300,7 @@ export class Organization {
  }
 
  async accept(review:OrganizationReview){
+  this.symlinkCache=new Map();
   if(this.review!==review||this.busy||this.progress)throw Error('Open the current organization preview before accepting.');
   this.busy=true;
   let progress:Progress|undefined;

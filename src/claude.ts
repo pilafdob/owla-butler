@@ -325,8 +325,15 @@ export class ClaudeBridge implements ProviderBridge{
       // WebSearch results arrive as tool results; collect the links as sources.
       for(const block of list(record(message.message).content).map(record)){
        if(block.type!=='tool_result')continue;
-       const raw=typeof block.content==='string'?block.content:JSON.stringify(block.content??'');
-       for(const match of raw.matchAll(/"title":"([^"]{1,200})","url":"(https?:\/\/[^"]+)"/g))sources.set(match[2],match[1]);
+       const collect=(value:unknown)=>{
+        if(!value||typeof value!=='object')return;
+        if(Array.isArray(value)){for(const item of value)collect(item);return;}
+        const recordValue=value as Record<string,unknown>;
+        const title=recordValue.title,url=recordValue.url;
+        if(typeof title==='string'&&typeof url==='string'&&/^https?:\/\//.test(url))sources.set(url,title.slice(0,200));
+        for(const key of Object.keys(recordValue))collect(recordValue[key]);
+       };
+       if(typeof block.content==='string'){try{collect(JSON.parse(block.content));}catch{for(const match of block.content.matchAll(/"title":"([^"]{1,200})","url":"(https?:\/\/[^"]+)"/g))sources.set(match[2],match[1]);}}else collect(block.content);
       }
       return;
      }

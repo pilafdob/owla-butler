@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.1.3
+
+- Let a one-message model override switch providers mid-reply: the override picker now lists models from every connected provider, including OpenCode models offered by more than one provider, and choosing another provider reconnects for that turn.
+- Keep excluded-folder checks, vault search and note reading responsive in large vaults: cache normalized excluded roots, search notes in parallel with cached reads, and reuse cached note text.
+- Avoid rewriting unchanged OpenCode workspaces by skipping regeneration when tool and skill definitions match.
+- Collect Claude Code web-search sources from structured tool results as well as text matches.
+- Prevent Codex disconnect races while requests are still pending, and deduplicate source lists.
+- Remove additional non-OWLA tools from OpenCode sessions (todo writes, scheduling, artifacts, image generation).
+- Sync the split diff view only when split diff is enabled.
+
 ## 3.1.2
 
 - Teach automatic mode about newly added models without code changes: an unknown OpenCode model family is now rated by its own catalogue entry (capable naming such as Pro/Max/Thinking, a large context window, accepted images) instead of counting as unproven, and the shortlist offered to Automatic selection ranks new capable free families ahead of light variants so the limit no longer crowds them out. Adding a curated family remains one line in the family list.

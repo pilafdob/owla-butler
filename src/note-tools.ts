@@ -41,12 +41,15 @@ export function updateProperties(text:string,set:Record<string,unknown>,remove:s
 /** Wikilink and Markdown link targets in text, without embeds of external URLs. */
 export function linkTargets(text:string):{link:string;path:string;subpath:string}[]{
  const found:{link:string;path:string;subpath:string}[]=[];
+ const seen=new Set<string>();
  const add=(link:string)=>{
   const target=link.split('|')[0].trim();
   if(!target||/^[a-z]+:/i.test(target))return;
   const hash=target.indexOf('#');
   const path=hash<0?target:target.slice(0,hash),subpath=hash<0?'':target.slice(hash);
-  if(!found.some(item=>item.link===target))found.push({link:target,path,subpath});
+  if(seen.has(target))return;
+  seen.add(target);
+  found.push({link:target,path,subpath});
  };
  const code=text.replace(/```[\s\S]*?```|`[^`\n]*`/g,'');
  for(const match of code.matchAll(/!?\[\[([^\]\n]+)\]\]/g))add(match[1]);

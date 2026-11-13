@@ -1,5 +1,5 @@
 export function searchScore(path:string,text:string,query:string):number{
- const q=query.toLocaleLowerCase().trim(),p=path.toLocaleLowerCase(),body=text.toLocaleLowerCase();const raw=q.split(/\s+/).filter(Boolean).slice(0,8);const stop=new Set(['the','a','an','and','about','for','notes','note','in','of','to','find','related','der','die','das','und','über','notizen']);const specific=raw.filter(w=>!stop.has(w));const words=specific.length?specific:raw;
+ const q=query.toLowerCase().trim(),p=path.toLowerCase(),body=text.toLowerCase();const raw=q.split(/\s+/).filter(Boolean).slice(0,8);const stop=new Set(['the','a','an','and','about','for','notes','note','in','of','to','find','related','der','die','das','und','über','notizen']);const specific=raw.filter(w=>!stop.has(w));const words=specific.length?specific:raw;
  let score=p.includes(q)?100:0;if(body.includes(q))score+=15;let hits=0;for(const word of words){if(p.includes(word)){score+=12;hits++;}else if(body.includes(word)){score+=3;hits++;}}
  return score+hits*10;
 }

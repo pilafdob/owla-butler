@@ -104,11 +104,18 @@ export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platf
  */
 const foldPath=(value:string)=>value.normalize('NFC').toLowerCase();
 export {foldPath};
+const excludedCache=new Map<string,string[]>();
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
- return !excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).some(s=>{const root=foldPath(s);return target===root||target.startsWith(root+'/');});
+ const cacheKey=excluded;
+ let roots=excludedCache.get(cacheKey);
+ if(!roots){
+  roots=excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).map(foldPath);
+  excludedCache.set(cacheKey,roots);
+ }
+ return !roots.some(root=>target===root||target.startsWith(root+'/'));
 }
 export function isPathInside(root:string,file:string,platform=process.platform):boolean {
  const path=platform==='win32'?win32:{relative,isAbsolute,sep};
