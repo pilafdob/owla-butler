@@ -183,6 +183,9 @@ test('a model refused for its hosting region is explained once and dropped from 
   await assert.rejects(turn('opencode-go/glm-5.3'),/privacy regions setting does not allow/);
   assert.equal(bridge.isRegionRestricted('opencode-go/glm-5.3'),true);
   assert.deepEqual(bridge.selectableModels.map(model=>model.id),['opencode-go/gpt-6-luna']);
+  // One refused model leaves OpenCode usable, so automatic selection can retry within it.
+  assert.equal(bridge.exhaustion,null);
+  assert.equal(bridge.lastFailure?.kind,'region');
   // The memory survives a reconnect, so automatic selection does not re-offer the model.
   bridge.disconnect('testing');
   await (bridge as unknown as {closing:Promise<void>}).closing;

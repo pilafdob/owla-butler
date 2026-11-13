@@ -7,7 +7,8 @@ import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {prefixToolNames,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
-import {opencodeExhaustion,ProviderExhaustion} from './exhaustion';
+import {ProviderExhaustion} from './exhaustion';
+import {OpencodeAvailability,type OpencodeFailure} from './opencode-availability';
 import {UsageSnapshot,decodeOpencodeUsage} from './usage';
 import {list,record} from './validation';
 import {skillDefinitions} from './knowledge';
@@ -84,6 +85,8 @@ export function opencodeRegionRestricted(error:unknown):boolean{
 }
 export function friendlyOpencodeError(error:unknown):string{
  const text=error instanceof Error?error.message:String(error);
+ if(/insufficient (balance|credit|fund)|top up/i.test(text))return 'Your OpenCode console balance is empty, so its paid models are unavailable. Free models and other connected providers still work. Add credit in the OpenCode console to use paid models.';
+ if(/^model unavailable/i.test(text.trim()))return 'This model is not available on your plan with that provider ('+text.trim().replace(/^model unavailable:?\s*/i,'').slice(0,120)+'). Choose another model.';
  if(/free-limit|Free usage limit/i.test(text))return 'OpenCode’s free models reached their shared usage limit. Wait for the reported reset time.';
  if(/429|quota|rate.limit/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
  if(/401|unauthorized|authentication|credential/i.test(text))return 'OpenCode needs you to sign in again. Check your OpenCode account.';
@@ -237,19 +240,33 @@ export class OpencodeBridge implements ProviderBridge{
  private toolsDigest='';
  private sessionId='';
  models:ProviderModel[]=[];
- /** Model ids OpenCode refused because their hosting region is outside the workspace's allowed privacy regions. */
- private regionRestrictedModels=new Set<string>();
- /** True when OpenCode refused this model id for its hosting region. */
- isRegionRestricted(model:string):boolean{return this.regionRestrictedModels.has(model);}
  /**
-  * The models OWLA may choose on its own. A model refused for its hosting
-  * region stays in the full catalogue for an explicit user choice, but is
-  * dropped here until OWLA is reloaded, so automatic selection stops landing
-  * on it. The set survives reconnects: the bridge rests between turns, and a
-  * fresh connect would otherwise re-offer the same refused model.
+  * Which models, billing pools and accounts OpenCode refused. See
+  * opencode-availability.ts: an empty Zen balance or a depleted Go plan
+  * blocks only those paid models, a plan that lacks a model blocks only that
+  * model, and the free models stay usable.
   */
- get selectableModels():ProviderModel[]{return this.models.filter(model=>!this.regionRestrictedModels.has(model.id));}
- exhaustion:ProviderExhaustion|null=null;
+ readonly availability=new OpencodeAvailability();
+ /** What the last failed turn was refused for, so automatic selection can explain the retry. */
+ lastFailure:OpencodeFailure|null=null;
+ /** True when OpenCode refused this model id for its hosting region. */
+ isRegionRestricted(model:string):boolean{return this.availability.isRegionRestricted(model);}
+ /**
+  * The models OWLA may choose on its own. A refused model stays in the full
+  * catalogue for an explicit user choice, but is dropped here until it is
+  * usable again, so automatic selection stops landing on it. The record
+  * survives reconnects: the bridge rests between turns, and a fresh connect
+  * would otherwise re-offer the same refused model.
+  */
+ get selectableModels():ProviderModel[]{return this.models.filter(model=>this.availability.available(model));}
+ /**
+  * OpenCode is exhausted only when every model is blocked; one empty pool
+  * leaves the others to automatic selection.
+  */
+ get exhaustion():ProviderExhaustion|null{
+  if(!this.models.length||this.selectableModels.length)return null;
+  return {provider:'opencode',exhausted:true,resetsAt:this.availability.nextReset(this.models),reason:'Every OpenCode model is out of usage or unavailable on your plans.',scope:'provider'};
+ }
  usage:UsageSnapshot|null=null;
  usageUpdatedAt=0;
  usageError='';
@@ -453,6 +470,7 @@ export class OpencodeBridge implements ProviderBridge{
  }
 
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
+  this.lastFailure=null;
   this.toolHandler=options.tool;
   this.toolNames=new Set(options.tools.map(tool=>tool.name));
   const digest=this.digest(options.tools);
@@ -537,11 +555,9 @@ export class OpencodeBridge implements ProviderBridge{
     const message=typeof error.message==='string'?error.message:'OpenCode did not complete.';
     const retryAfterMs=typeof error.retryAfterMs==='number'?error.retryAfterMs:null;
     const resetsAt=retryAfterMs===null?null:Math.round((Date.now()+retryAfterMs)/1000);
-    const state=opencodeExhaustion(message,resetsAt);
-    this.exhaustion=state.exhausted?state:null;
-    // A model refused for its hosting region is remembered so OWLA stops
-    // offering it automatically; the raw notice is not repeated to the user.
-    if(opencodeRegionRestricted(message))this.regionRestrictedModels.add(model.id);
+    // The refused model, its billing pool or its account is remembered so
+    // automatic selection stops offering it; the raw notice is not repeated.
+    this.lastFailure=this.availability.recordFailure(model,message,resetsAt);
     failure=new Error(friendlyOpencodeError(message));
     if(!settled){settled=true;resolveTurn();}
    }
@@ -582,13 +598,20 @@ export class OpencodeBridge implements ProviderBridge{
    stream.destroy();
   }
   if(failure)throw failure;
-  this.exhaustion=null;
+  this.lastFailure=null;
+  this.availability.recordSuccess(model);
   if(options.requireWeb&&!usedWeb)throw Error('OpenCode did not run live web search. No online answer was verified.');
   for(const match of text.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)){
    if(sources.length>=20)break;
    if(!sources.some(source=>source.url===match[2]))sources.push({url:match[2],title:match[1]});
   }
   return {text,sources};
+ }
+
+ /** The free models' shared limit, in the shape the usage panel reports. */
+ private freeLimitState():ProviderExhaustion|null{
+  const limit=this.availability.freeLimit();
+  return limit?{provider:'opencode',exhausted:true,resetsAt:limit.resetsAt,reason:'',scope:'free models'}:null;
  }
 
  async readUsage(timeout=8000):Promise<UsageSnapshot|null>{
@@ -600,11 +623,12 @@ export class OpencodeBridge implements ProviderBridge{
    if(!usage){
     this.usage=null;
     this.usageUpdatedAt=Date.now();
-    this.usageError=opencodeNoLimitsMessage(this.exhaustion);
+    this.usageError=opencodeNoLimitsMessage(this.freeLimitState());
     this.onUsage();
     return null;
    }
    this.usage=usage;
+   this.availability.applyUsage(usage);
    this.usageUpdatedAt=Date.now();
    this.usageError='';
    this.onUsage();
