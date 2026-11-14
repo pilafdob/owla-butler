@@ -11,6 +11,8 @@ export interface ButlerSettings {
  /** OWLA picks the provider, model and effort per message; `provider` stays the preferred one. */
  automaticProvider:boolean;
  codexConnected:boolean;
+ opencodeConnected:boolean;
+ claudeConnected:boolean;
  codexExecutable:string;
  /** Provider that serves messages while the selected one is out of usage. */
  fallback:FallbackChoice;
@@ -33,6 +35,8 @@ export const DEFAULTS:ButlerSettings={
  provider:'codex',
  automaticProvider:false,
  codexConnected:false,
+ opencodeConnected:false,
+ claudeConnected:false,
  codexExecutable:'',
  fallback:'none',
  opencodeExecutable:'',
@@ -77,6 +81,8 @@ export function migrateSettings(value:unknown):ButlerSettings{
   },
   ...(modern?{
    codexConnected:data.codexConnected===true,
+   opencodeConnected:data.opencodeConnected===true,
+   claudeConnected:data.claudeConnected===true,
    codexExecutable:string('codexExecutable'),
    fallback:fallback===provider?'none':fallback,
    opencodeExecutable:string('opencodeExecutable'),
@@ -95,7 +101,7 @@ export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,plat
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{

@@ -37,7 +37,7 @@ const VIEW='owla-butler-chat';
 const DIFF_VIEW='owla-butler-diff';
 /** How many other models automatic selection tries after a failed attempt. */
 const MAX_AUTO_RETRIES=4;
-const CONNECT_FIRST='Choose Connect Codex in OWLA Butler settings first.';
+const CONNECT_FIRST='Choose Connect for this provider in OWLA Butler settings first.';
 type ChangeCardUpdate=(status:string,activate?:(()=>void)|null)=>void;
 type ProposedRemoval={review:RemovalReview;requires?:string[]};
 type OrganizationDraft={review?:OrganizationReview;removals?:ProposedRemoval[]};
@@ -210,12 +210,12 @@ export default class Butler extends Plugin {
    (leaf.view as SplitDiffView).render();
   }).catch(error=>{new Notice(friendlyError(error));});
  }
+ isProviderConnected(provider:ProviderId){return this.prefs[`${provider}Connected`];}
  get canConnectCodex(){return !this.codexBridge.signInPending&&(!this.prefs.codexConnected||this.codexBridge.needsSignIn);}
- get canConnectProvider(){return this.activeProvider==='codex'?this.canConnectCodex:true;}
+ get canConnectProvider(){return this.activeProvider==='codex'?this.canConnectCodex:!this.isProviderConnected(this.activeProvider);}
  providerStatus(provider:ProviderId=this.activeProvider):string{
   const bridge=this.bridgeFor(provider);
-  if(provider==='opencode')return bridge.status==='Not connected'?'OpenCode starts on demand':bridge.status;
-  if(provider==='claude')return bridge.status==='Not connected'?'Claude Code starts on demand':bridge.status;
+  if(provider!=='codex')return this.isProviderConnected(provider)&&bridge.status==='Not connected'?'Connected to '+this.providerName(provider)+' · starts on demand':bridge.status;
   if(this.prefs.codexConnected&&bridge.status==='Not connected')return 'Connected to Codex · starts on demand';
   return bridge.status;
  }
@@ -274,7 +274,7 @@ export default class Butler extends Plugin {
   return state;
  }
  /** Whether a provider can serve as the fallback without a setup step. */
- private fallbackUsable(provider:ProviderId){return provider!=='codex'||this.prefs.codexConnected;}
+ private fallbackUsable(provider:ProviderId){return this.isProviderConnected(provider);}
  /** Decides whether the next turn moves to OpenCode or back to Codex. */
  applyFallback():ProviderId|null{
   // Automatic selection never offers an exhausted provider, so no fallback is needed.
@@ -316,7 +316,7 @@ export default class Butler extends Plugin {
  /** Providers that can be offered to Automatic selection this turn. */
  automaticCandidates():ProviderId[]{
   return PROVIDER_IDS.filter(provider=>{
-   if(provider==='codex'&&!this.prefs.codexConnected)return false;
+   if(!this.isProviderConnected(provider))return false;
    if(provider==='opencode'&&!(this.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'')))return false;
    if(provider==='claude'&&!(this.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'')))return false;
    // OpenCode counts as exhausted only once every one of its models is blocked.
@@ -370,7 +370,7 @@ export default class Butler extends Plugin {
  }
  async connect({keepAlive=false,automatic=this.automaticModels,explicit=false,provider=this.activeProvider,tools}:{keepAlive?:boolean;automatic?:boolean;explicit?:boolean;provider?:ProviderId;tools?:ToolSpec[]}={}){
   const bridge=this.bridgeFor(provider);
-  if(provider==='codex'&&!this.prefs.codexConnected&&!explicit)throw Error(CONNECT_FIRST);
+  if(!this.isProviderConnected(provider)&&!explicit)throw Error(CONNECT_FIRST);
   const release=keepAlive?undefined:bridge.hold();
   try{
    await this.startProvider(provider,tools??this.buildToolSpecs().specs);
@@ -386,12 +386,12 @@ export default class Butler extends Plugin {
      prefs.reasoning ||= model.defaultReasoningEffort;
     }
    }
-   const enabling=explicit&&provider==='codex'&&!this.prefs.codexConnected;
-   if(enabling)this.prefs.codexConnected=true;
+   const enabling=explicit&&!this.isProviderConnected(provider);
+   if(enabling)this.prefs[`${provider}Connected`]=true;
    if(enabling||changed){
     try{await this.save();}
     catch(e){
-     if(enabling){this.prefs.codexConnected=false;bridge.disconnect('Could not save the Codex connection.');}
+     if(enabling){this.prefs[`${provider}Connected`]=false;bridge.disconnect('Could not save the connection.');}
      throw e;
     }
    }
@@ -419,12 +419,13 @@ export default class Butler extends Plugin {
    );
   }finally{await release();}
  }
- async disconnectProvider(){
+ async disconnectProvider(provider:ProviderId=this.activeProvider){
   if(this.view?.isBusy())throw Error('Stop the current reply first.');
-  if(this.activeProvider==='codex')this.prefs.codexConnected=false;
+  this.prefs[`${provider}Connected`]=false;
   this.view?.clearWarmup();
-  this.bridge.accountType=undefined;
-  this.bridge.disconnect();
+  this.bridgeFor(provider).accountType=undefined;
+  this.bridgeFor(provider).disconnect();
+  this.refreshConnection();
   await this.save();
  }
  ownModal(modal:Modal){this.ownedModals.add(modal);const close=modal.onClose.bind(modal);modal.onClose=()=>{this.ownedModals.delete(modal);close();};}
@@ -793,7 +794,7 @@ export class ButlerView extends ItemView {
  async chooseModel(){
   if(this.controller||this.butler.automaticModels)return;
   const provider=this.butler.activeProvider;
-  if(provider==='codex'&&!this.butler.prefs.codexConnected){new Notice(CONNECT_FIRST);return;}
+  if(!this.butler.isProviderConnected(provider)){new Notice(CONNECT_FIRST);return;}
   try{await this.butler.connect({provider});}
   catch(e){if(!this.butler.bridge.models.length){new Notice(friendlyError(e));return;}}
   const models=this.butler.bridge.models;
@@ -810,7 +811,7 @@ export class ButlerView extends ItemView {
  private async chooseNextRoute(){
   if(this.isBusy()||this.selectingRoute||this.awaitingReview)return;
   const provider=this.butler.activeProvider;
-  if(!this.butler.prefs.automaticProvider&&provider==='codex'&&!this.butler.prefs.codexConnected){new Notice(CONNECT_FIRST);return;}
+  if(!this.butler.prefs.automaticProvider&&!this.butler.isProviderConnected(provider)){new Notice(CONNECT_FIRST);return;}
   this.selectingRoute=true;
   try{
    const needsImage=!!(this.images.length||this.pdfAttachments.size||this.pdfs.some(item=>'file' in item)
@@ -875,7 +876,7 @@ export class ButlerView extends ItemView {
  private scheduleWarmup(){
   // Typing is the cue to load Apple's model, so the routing call on Send runs warm.
   if((this.butler.automaticModels||this.butler.prefs.automaticProvider)&&this.composer.value.trim()&&!this.isBusy())void prewarmFoundationModels();
-  if(this.butler.activeProvider==='codex'&&!this.butler.prefs.codexConnected||this.isBusy()||this.awaitingReview||!this.composer.value.trim()){
+  if(!this.butler.isProviderConnected(this.butler.activeProvider)||this.isBusy()||this.awaitingReview||!this.composer.value.trim()){
    this.clearWarmup();
    return;
   }
@@ -1757,7 +1758,7 @@ export class ButlerView extends ItemView {
  // The model chosen for this turn; hoisted so the failure handler can tell
  // whether OpenCode refused that model for its hosting region.
  let route:CodexRoute|undefined;
- if(!autoProvider&&this.butler.activeProvider==='codex'&&!this.butler.prefs.codexConnected){new Notice(CONNECT_FIRST);return;}
+ if(!autoProvider&&!this.butler.isProviderConnected(this.butler.activeProvider)){new Notice(CONNECT_FIRST);return;}
  if(this.butler.fallbackActive){
   await this.butler.probePrimaryQuota();
   this.butler.applyFallback();
@@ -2232,7 +2233,7 @@ export class ButlerView extends ItemView {
   // over, exactly as applyFallback() would. 'none' means never switch.
   const nextProvider=this.butler.prefs.fallback;
   if(nextProvider==='none'||nextProvider===provider||this.butler.exhaustionOf(nextProvider).exhausted)return null;
-  if(nextProvider==='codex'&&!this.butler.prefs.codexConnected)return null;
+  if(!this.butler.isProviderConnected(nextProvider))return null;
   const bridge=this.butler.bridgeFor(nextProvider);
   // The fallback may not have been connected yet this session.
   if(!bridge.selectableModels.length){
@@ -2257,7 +2258,7 @@ export class ButlerView extends ItemView {
   if(all)box.createEl('p',{text:describeProviders(states)});
   else for(const state of states)box.createEl('p',{text:exhaustionLabel(state)});
   const current=states[0].provider,preferred=this.butler.prefs.fallback;
-  const usable=(id:ProviderId)=>id!==current&&!this.butler.exhaustionOf(id).exhausted&&(id!=='codex'||this.butler.prefs.codexConnected);
+  const usable=(id:ProviderId)=>id!==current&&!this.butler.exhaustionOf(id).exhausted&&(this.butler.isProviderConnected(id));
   const alternative:ProviderId|null=preferred!=='none'&&usable(preferred)?preferred:PROVIDER_IDS.find(usable)??null;
   if(this.butler.prefs.automaticProvider){
    box.createEl('p',{text:alternative?'Automatic selection uses another connected provider for the next message.':'No other connected provider is available.'});
@@ -2363,7 +2364,7 @@ class ButlerSettingsTab extends PluginSettingTab {
  }
  private async refreshUsage(provider:ProviderId){
   const bridge=this.bridgeOf(provider);
-  if(provider==='codex'&&(!this.butler.prefs.codexConnected||bridge.signInPending))return;
+  if((!this.butler.isProviderConnected(provider)||bridge.signInPending))return;
   const release=bridge.hold();
   try{
    await this.butler.connect({keepAlive:true,automatic:true,provider});
@@ -2375,7 +2376,7 @@ class ButlerSettingsTab extends PluginSettingTab {
   return {name:label,desc:description,visible:this.visibleFor(provider),render:setting=>{
    let refresh!:ButtonComponent;
    let refreshing=false;
-   const update=()=>{refresh.setDisabled(refreshing||provider==='codex'&&(!this.butler.prefs.codexConnected||this.butler.codexBridgeRef.signInPending));};
+   const update=()=>{refresh.setDisabled(refreshing||(!this.butler.isProviderConnected(provider)||provider==='codex'&&this.butler.codexBridgeRef.signInPending));};
    const refreshUsage=async()=>{
     refreshing=true;
     update();
@@ -2501,7 +2502,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.addButton(b=>{connect=b.setButtonText('Connect Codex').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'codex'})));})
    .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('codex')));})
    .addButton(b=>{signIn=b.setButtonText('Sign in').onClick(()=>run(()=>this.butler.signInToCodex()));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider()));});
+   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('codex')));});
    this.connectionUpdaters.add(update);
    update();
    return ()=>{this.connectionUpdaters.delete(update);};}},
@@ -2512,10 +2513,14 @@ class ButlerSettingsTab extends PluginSettingTab {
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'');
    setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'OpenCode was not found. Install it, or choose its executable.'});
-   let verify!:ButtonComponent,disconnect!:ButtonComponent;
+   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
     status.setText(this.butler.providerStatus('opencode'));
+    connect.buttonEl.toggle(!this.butler.isProviderConnected('opencode'));
+    verify.buttonEl.toggle(this.butler.isProviderConnected('opencode'));
+    disconnect.buttonEl.toggle(this.butler.isProviderConnected('opencode'));
+    connect.setDisabled(pending);
     verify.setDisabled(pending);
     disconnect.setDisabled(pending);
    };
@@ -2526,8 +2531,9 @@ class ButlerSettingsTab extends PluginSettingTab {
     catch(e){new Notice(friendlyError(e));}
     finally{pending=false;update();}
    };
-   setting.addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('opencode')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider()));});
+   setting.addButton(b=>{connect=b.setButtonText('Connect OpenCode').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'opencode'})));})
+   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('opencode')));})
+   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('opencode')));});
    this.connectionUpdaters.add(update);
    update();
    return ()=>{this.connectionUpdaters.delete(update);};}},
@@ -2538,10 +2544,14 @@ class ButlerSettingsTab extends PluginSettingTab {
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'');
    setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Claude Code was not found. Install it, or choose its executable.'});
-   let verify!:ButtonComponent,disconnect!:ButtonComponent;
+   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
     status.setText(this.butler.providerStatus('claude'));
+    connect.buttonEl.toggle(!this.butler.isProviderConnected('claude'));
+    verify.buttonEl.toggle(this.butler.isProviderConnected('claude'));
+    disconnect.buttonEl.toggle(this.butler.isProviderConnected('claude'));
+    connect.setDisabled(pending);
     verify.setDisabled(pending);
     disconnect.setDisabled(pending);
    };
@@ -2552,8 +2562,9 @@ class ButlerSettingsTab extends PluginSettingTab {
     catch(e){new Notice(friendlyError(e));}
     finally{pending=false;update();}
    };
-   setting.addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('claude')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider()));});
+   setting.addButton(b=>{connect=b.setButtonText('Connect Claude Code').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'claude'})));})
+   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('claude')));})
+   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('claude')));});
    this.connectionUpdaters.add(update);
    update();
    return ()=>{this.connectionUpdaters.delete(update);};}},

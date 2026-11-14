@@ -177,3 +177,19 @@ test('settings migrate cleanly from 3.1.6 and persist new routing prefs per plat
  assert.equal(winReloaded.routingMode,'balance');
  assert.equal(winReloaded.routingPrivacyMode,false);
 });
+
+test('every provider requires saved explicit consent, isolated by platform',async()=>{
+ const {migrateSettings,readSettings,writeSettings}=await import('../src/core');
+ for(const key of ['codexConnected','opencodeConnected','claudeConnected'] as const){
+  assert.equal(migrateSettings(null)[key],false);
+  assert.equal(migrateSettings({schemaVersion:3,[key]:'true'})[key],false);
+  const stored={schemaVersion:3};
+  const prefs=readSettings(stored,'mac');
+  prefs[key]=true;
+  const saved=writeSettings(prefs,stored,'mac');
+  assert.equal(readSettings(saved,'mac')[key],true);
+  assert.equal(readSettings(saved,'windows')[key],false);
+  prefs[key]=false;
+  assert.equal(readSettings(writeSettings(prefs,saved,'mac'),'mac')[key],false);
+ }
+});
