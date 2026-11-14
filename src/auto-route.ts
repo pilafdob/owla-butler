@@ -23,7 +23,6 @@
 
 import {createHash} from 'node:crypto';
 import {existsSync,readFileSync} from 'node:fs';
-import {join} from 'node:path';
 import type {RoutingMode} from './core';
 import type {ProviderId,ProviderModel} from './provider';
 import {PROVIDER_NAMES} from './provider';
