@@ -45,6 +45,14 @@ test('the manual override lists every model automatic selection curates away',()
  assert.equal(offeredEntries(list,true).some(entry=>entry.key==='opencode/big-pickle'),false);
 });
 
+test('the manual override keeps console models visible even when Go meters are exhausted',()=>{
+ const offer:ProviderOffer={provider:'opencode',plan:'',usage:null,
+  models:[model('opencode/claude-sonnet-5-5','Claude Sonnet 5.5','low/medium/high',{cost:{input:3,output:15}})]};
+ // Go paid models are already absent from the offer (their pool was blocked), but
+ // the console model the offer still carries is listed unchanged.
+ assert.equal(offeredEntries([offer],false).some(entry=>entry.key==='opencode/claude-sonnet-5-5'),true);
+});
+
 test('profiles rate unknown free models from their own signals and paid tiers by family',()=>{
  // A plain unknown name with no capability signals stays unproven.
  assert.deepEqual(modelProfile('opencode',free('opencode/iceman-free','Iceman Free')).capability,2);

@@ -27,7 +27,7 @@ import type {RoutingMode} from './core';
 import type {ProviderId,ProviderModel} from './provider';
 import {PROVIDER_NAMES} from './provider';
 import type {UsageSnapshot} from './usage';
-import {usageWindows} from './usage';
+import {opencodeGoUsage,usageWindows} from './usage';
 import {currentModels,modelProfile,isFreeModel,TASK_KINDS,type TaskKind} from './model-profiles';
 import {
  askFoundationModels,
@@ -224,11 +224,9 @@ export function remainingUsage(usage:UsageSnapshot|null,now=Date.now()/1000):{re
 }
 
 /** The choices on offer: current models from every provider that accept the inputs and context window. */
-export function autoEntries(offers:ProviderOffer[],needsImage:boolean,freeExhausted=false,estimatedTokens?:number):AutoEntry[]{
+export function autoEntries(offers:ProviderOffer[],needsImage:boolean,estimatedTokens?:number):AutoEntry[]{
  return offers.flatMap(offer=>{
-  const models=offer.provider==='opencode'&&freeExhausted
-   ?offer.models.filter(model=>!isFreeModel(model)):offer.models;
-  return routingModels(currentModels(offer.provider,models,undefined,estimatedTokens),needsImage,estimatedTokens)
+  return routingModels(currentModels(offer.provider,offer.models,undefined,estimatedTokens),needsImage,estimatedTokens)
    .map(model=>({provider:offer.provider,model,key:modelKey(offer.provider,model)}));
  });
 }
@@ -509,8 +507,19 @@ export function scoreEntries(
   const profile=modelProfile(entry.provider,entry.model);
   // OpenCode's meters belong to the OpenCode Go plan. They weigh on Go's paid
   // models only: free models and other sources do not draw on that plan.
-  const goPlan=entry.provider!=='opencode'||(entry.model.providerID??entry.key.split('/')[0])==='opencode-go'&&profile.cost>0;
-  const usage=goPlan?left.get(entry.provider)??null:null;
+   const isGoPaid=entry.provider==='opencode'
+    &&(entry.model.providerID??entry.key.split('/')[0])==='opencode-go'
+    &&profile.cost>0;
+   let usage:{remaining:number;window:string;resetsAt:number|null}|null=null;
+   if(entry.provider!=='opencode'){
+    usage=left.get(entry.provider)??null;
+   }else if(isGoPaid){
+    const offer=offers.find(item=>item.provider===entry.provider);
+    const filtered=opencodeGoUsage(offer?.usage??null);
+    usage=filtered?remainingUsage(filtered,now):null;
+   }else{
+    usage=null;
+   }
   // Plan cost grows quickly as a plan drains: twice as dear at half used, three times when nearly empty.
   const scarcity=profile.cost===0?1:usage?1+2*(100-usage.remaining)/100:1.3;
   const strong=profile.strong.includes(task.kind),weak=profile.weak.includes(task.kind);

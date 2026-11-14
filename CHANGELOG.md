@@ -1,3 +1,8 @@
+## 3.1.9
+
+- Scope OpenCode Go paid-model scarcity to Go's own meters in automatic selection, so a low console budget no longer makes Go paid models ineligible or skews their plan-cost weighting. Console budgets remain visible in the usage panel.
+- Keep OpenCode console models visible in the one-message override selector.
+
 # Changelog
 
 ## 3.1.7

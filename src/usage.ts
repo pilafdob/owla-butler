@@ -43,6 +43,16 @@ function decodeMeter(value:unknown,label:string):LimitWindow|null{
  if(data.limited===false)return null;
  return {usedPercent:Math.min(100,Math.max(0,data.percent)),resetsAt:typeof data.resetsAt==='number'?Math.round(data.resetsAt/1000):null,label};
 }
+/** Keeps only OpenCode Go's own meters, so a console budget or another
+ *  source's window cannot be mistaken for Go plan scarcity. */
+export function opencodeGoUsage(usage:UsageSnapshot|null):UsageSnapshot|null{
+ const buckets=usage?.rateLimitsByLimitId;
+ if(!buckets)return usage;
+ const filtered=Object.fromEntries(Object.entries(buckets).filter(([id])=>id.startsWith('opencode-go-')));
+ if(!Object.keys(filtered).length)return null;
+ return {...usage,rateLimitsByLimitId:filtered};
+}
+
 export function decodeOpencodeUsage(value:unknown):UsageSnapshot|null{
  const data=record(value);
  if(data==null||Object.keys(data).length===0)return null;
