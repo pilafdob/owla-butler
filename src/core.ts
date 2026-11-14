@@ -3,6 +3,7 @@ import {isAbsolute,relative,sep,win32} from 'node:path';
 import {record} from './validation';
 import type {FallbackChoice,ProviderId} from './provider';
 export type DiffView='highlights'|'none'|'split';
+export type RoutingMode='cost'|'balance'|'intelligence';
 export interface ProviderPrefs {model:string;reasoning:string;}
 export interface ButlerSettings {
  schemaVersion:3;
@@ -17,6 +18,10 @@ export interface ButlerSettings {
  claudeExecutable:string;
  models:Record<ProviderId,ProviderPrefs>;
  automaticRouting:boolean;
+ routingMode:RoutingMode;
+ routingPrivacyMode:boolean;
+ routingThorough:boolean;
+ showRoutingDetails:boolean;
  webSearch:boolean;
  pluginInterconnectivity:boolean;
  diffView:DiffView;
@@ -34,6 +39,10 @@ export const DEFAULTS:ButlerSettings={
  claudeExecutable:'',
  models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''}},
  automaticRouting:false,
+ routingMode:'balance',
+ routingPrivacyMode:false,
+ routingThorough:false,
+ showRoutingDetails:false,
  webSearch:true,
  pluginInterconnectivity:false,
  diffView:'none',
@@ -51,11 +60,16 @@ export function migrateSettings(value:unknown):ButlerSettings{
  // The fallback replaces the earlier Codex-only "switch to OpenCode" toggle.
  const storedFallback=['none',...providers].find(id=>id===data.fallback) as FallbackChoice|undefined;
  const fallback:FallbackChoice=storedFallback??(data.codexAutoFallback===true&&provider==='codex'?'opencode':'none');
+ const routingMode:RoutingMode=['cost','balance','intelligence'].includes(String(data.routingMode))?data.routingMode as RoutingMode:'balance';
  return {...DEFAULTS,
   diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',
   storageRoot:string('storageRoot'),
   excludedFolders:string('excludedFolders'),
   provider,
+  routingMode,
+  routingPrivacyMode:data.routingPrivacyMode===true,
+  routingThorough:data.routingThorough===true,
+  showRoutingDetails:data.showRoutingDetails===true,
   models:{
    codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
    opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
@@ -81,7 +95,7 @@ export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,plat
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{

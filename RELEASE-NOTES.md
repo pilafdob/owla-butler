@@ -1,9 +1,10 @@
-# OWLA Butler 3.1.6
+# OWLA Butler 3.1.7
 
-- OpenCode’s separate billing sources are now treated independently, so one running dry leaves the others available.
-- Refusals are remembered per pool, model or account and retried after their reported reset.
-- OpenCode Go meter usage is reported and Go’s paid models are blocked when a meter is full.
-- Automatic selection retries up to four more times when a model fails before answering or using a tool, naming the failed model and reason.
-- A connected but exhausted provider is named in the one-message override with its reset time instead of being hidden.
+- Automatic selection settles clear-cut requests locally and asks Apple’s on-device model only when the request is nuanced.
+- New settings: selection priority (Cost, Balanced or Intelligence), thorough selection, privacy mode and routing details under each reply.
+- Apple’s model is loaded while you type, so selection on Send is faster.
+- Note edits stay on models with proven tool use unless Cost mode is on or paid plans are nearly used up.
+- Short answers to simple questions are no longer re-sent to a stronger model.
+- Selection learns from outcomes and latency in each vault.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.

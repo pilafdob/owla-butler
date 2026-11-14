@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.7
+
+- Settle clear-cut requests with fast local rules and use Apple’s on-device model only for nuanced ones, in Automatic provider mode and in automatic model selection for a single provider.
+- Add an automatic selection priority (Cost, Balanced or Intelligence), thorough selection, a privacy mode that keeps note excerpts, outlines, chat topics and filenames out of the on-device classifier, and optional routing details under each reply.
+- Load Apple’s on-device model while you type, so selection on Send runs warm (about 1.5 s instead of 4.5 s after a short idle).
+- Correct the task kinds and tool needs Apple’s model misjudges, recognise chart and diagram questions, talk scripts and capitalised requests, and keep note edits off models whose tool use through OWLA is unproven unless Cost mode is on or paid plans are nearly used up.
+- Run medium-effort work on free models at the higher supported effort, and skip models whose context window is too small for the request.
+- Escalate an empty, uncertain or very short reply to multi-step work once to a stronger model, but keep short answers to simple questions.
+- Learn from turn outcomes and latency per vault, remember models refused for region or plan reasons for the session, and add commands to clear the history and reload a calibration file from OWLA’s private storage.
+- Add a Check automatic selection button in settings, and count tokens with Apple’s tokenizer.
+
 ## 3.1.6
 
 - Treat OpenCode’s separate billing sources independently: an empty console balance blocks only its paid models, a depleted Go plan blocks only Go’s paid models, and a model missing from another signed-in provider’s plan is blocked on its own. Free and limited-time free models stay available.
