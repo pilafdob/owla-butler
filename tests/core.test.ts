@@ -134,3 +134,46 @@ test('AI settings are kept separately per platform while vault settings stay sha
  // A platform's later save keeps the other platform's entry, even if it synced in after load.
  assert.equal(readSettings(writeSettings(readSettings(afterWindows,'mac'),afterWindows,'mac'),'windows').automaticRouting,true);
 });
+
+test('settings migrate cleanly from 3.1.6 and persist new routing prefs per platform',async()=>{
+ const {migrateSettings,readSettings,writeSettings}=await import('../src/core');
+ const stored316={
+  schemaVersion:3,
+  provider:'codex',
+  automaticProvider:true,
+  codexConnected:true,
+  fallback:'opencode',
+  models:{codex:{model:'gpt-6.1-sol',reasoning:'medium'},opencode:{model:'',reasoning:''},claude:{model:'sonnet',reasoning:'medium'}},
+  automaticRouting:true,
+  webSearch:true,
+  pluginInterconnectivity:false,
+  diffView:'highlights',
+  storageRoot:'',
+  excludedFolders:'Private',
+  platforms:{
+   mac:{provider:'claude',automaticProvider:true,codexConnected:true,codexExecutable:'',fallback:'none',opencodeExecutable:'',claudeExecutable:'',models:{codex:{model:'gpt-6.1-sol',reasoning:'medium'},opencode:{model:'',reasoning:''},claude:{model:'sonnet',reasoning:'medium'}},automaticRouting:true,webSearch:true}
+  }
+ };
+ const migrated=readSettings(stored316,'mac');
+ assert.equal(migrated.provider,'claude');
+ assert.equal(migrated.automaticProvider,true);
+ assert.equal(migrated.routingMode,'balance');
+ assert.equal(migrated.routingPrivacyMode,false);
+ assert.equal(migrated.routingThorough,false);
+ assert.equal(migrated.showRoutingDetails,false);
+ assert.equal(migrateSettings({schemaVersion:3,routingMode:'invalid'}).routingMode,'balance');
+
+ migrated.routingMode='intelligence';
+ migrated.routingPrivacyMode=true;
+ migrated.routingThorough=true;
+ migrated.showRoutingDetails=true;
+ const saved=writeSettings(migrated,stored316,'mac');
+ const macReloaded=readSettings(saved,'mac');
+ const winReloaded=readSettings(saved,'windows');
+ assert.equal(macReloaded.routingMode,'intelligence');
+ assert.equal(macReloaded.routingPrivacyMode,true);
+ assert.equal(macReloaded.routingThorough,true);
+ assert.equal(macReloaded.showRoutingDetails,true);
+ assert.equal(winReloaded.routingMode,'balance');
+ assert.equal(winReloaded.routingPrivacyMode,false);
+});

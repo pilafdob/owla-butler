@@ -1,20 +1,22 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DiffView,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath} from './core';
+import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
 import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames,ProviderRunResult,ProviderModel} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
-import {autoEntries,autoFallbackRoute,offeredEntries,pickRoute,routeAcrossProviders,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
-import {currentModels} from './model-profiles';
-import {fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute} from './routing';
+import {autoEntries,autoFallbackRoute,clearRoutingCache,getRoutingDecisions,heuristicPerProviderRoute,heuristicTaskClass,offeredEntries,pickEscalationRoute,pickRoute,quickPerProviderRoute,reloadRoutingCalibration,renderRoutingDetails,routeAcrossProviders,shouldEscalateQuality,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
+import {currentModels,type TaskKind} from './model-profiles';
+import {attachmentSizeBucket,buildRoutingContext,checkFoundationModelsHealth,DegradationNotifier,fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,prewarmFoundationModels,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute,type RoutingAttachment,type RoutingContext} from './routing';
+import {clearRoutingHistory,loadRoutingHistory,recordRoutingOutcome,saveRoutingHistory,type RoutingHistoryData} from './routing-history';
+import {SessionModelAvailability} from './opencode-availability';
 import {usageWindows} from './usage';
 import {searchScore} from './search';
 import {ChatStore,SavedChat} from './chats';
 import {join,relative} from 'node:path';
-import {lstatSync,realpathSync} from 'node:fs';
+import {existsSync,lstatSync,realpathSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {shell,webUtils} from 'electron';
 import {backupEdit,loadPendingEdits,savePendingEdits} from './recovery';
@@ -59,6 +61,8 @@ export default class Butler extends Plugin {
  private pluginAccessRevision=0;
  private readonly resolvingEdits = new Set<EditBatch>();
  pendingLoadError = '';
+ readonly sessionAvailability=new SessionModelAvailability();
+ routingHistory:RoutingHistoryData={};
 
  /** The provider that serves the next turn. The fallback may override the choice. */
  get activeProvider():ProviderId{
@@ -96,6 +100,8 @@ export default class Butler extends Plugin {
   } catch (e) {
    this.pendingLoadError = friendlyError(e);
   }
+  this.routingHistory=loadRoutingHistory(this.vaultStorage());
+  reloadRoutingCalibration(this.routingCalibrationPath());
   this.organization=new Organization(this.app,()=>this.vaultStorage(),()=>this.vaultBasePath(),
    path=>this.allowedVaultFile(path),()=>this.prefs.excludedFolders,()=>this.automaticLinksEnabled(),()=>this.recoverableTrashEnabled(),
    path=>this.currentText(path),(path,before,after)=>this.writeEdit({path,before,after,reason:'Restore organization link updates'}));
@@ -125,6 +131,18 @@ export default class Butler extends Plugin {
    if(this.activeProvider!=='claude')return false;
    if(!checking)void this.connect({explicit:true,provider:'claude'}).catch(e=>new Notice(friendlyError(e)));
    return true;
+  }});
+  this.addCommand({id:'clear-routing-history',name:'Clear automatic selection history',callback:()=>{
+   clearRoutingHistory(this.vaultStorage());
+   this.routingHistory={};
+   clearRoutingCache();
+   new Notice('Cleared automatic selection history.');
+  }});
+  this.addCommand({id:'reload-routing-calibration',name:'Reload automatic selection calibration',callback:()=>{
+   const path=this.routingCalibrationPath();
+   reloadRoutingCalibration(path);
+   clearRoutingCache();
+   new Notice(existsSync(path)?'Reloaded automatic selection calibration from '+path+'.':'No calibration file at '+path+'. Using the built-in calibration.');
   }});
   this.settingsTab=new ButlerSettingsTab(this.app,this);this.addSettingTab(this.settingsTab);
   this.registerEvent(this.app.workspace.on('active-leaf-change',leaf=>{if(leaf?.view instanceof MarkdownView)this.last=leaf.view;}));
@@ -238,8 +256,9 @@ export default class Butler extends Plugin {
  };
  get fallbackActive(){return this.fallbackProvider!==null;}
   exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
-  /** True when OpenCode refused this model because its hosting region is outside the workspace's allowed privacy regions. */
-  isRegionRestricted(provider:ProviderId,model:string):boolean{return provider==='opencode'&&this.opencodeBridge.isRegionRestricted(model);}
+  /** True when OpenCode or session availability refused this model because its hosting region is outside the workspace's allowed privacy regions. */
+  isRegionRestricted(provider:ProviderId,model:string):boolean{return (provider==='opencode'&&this.opencodeBridge.isRegionRestricted(model))||this.sessionAvailability.isRegionRestricted(provider,model);}
+  recordModelRefusal(provider:ProviderId,model:string,message:string):void{this.sessionAvailability.recordFailure(provider,model,message);}
   /** Why OpenCode refused the last attempt, when it said. */
   get opencodeFailure(){return this.opencodeBridge.lastFailure;}
  exhaustedProviders():ProviderExhaustion[]{return PROVIDER_IDS.map(provider=>this.exhaustion[provider]).filter(state=>state.exhausted);}
@@ -317,11 +336,11 @@ export default class Butler extends Plugin {
     const prefs=this.prefs.models[provider];
     if(!bridge.selectableModels.length)throw Error('No models reported.');
     // OpenCode already leaves out models whose pool, plan or region refused them.
-    const offeredModels=bridge.selectableModels;
+    const offeredModels=bridge.selectableModels.filter(m=>this.sessionAvailability.available(provider,modelKey(provider,m)));
     // Codex reports usage only after a reply; refresh a missing or old report so plan usage weighs in.
     if(!bridge.usage||Date.now()-bridge.usageUpdatedAt>10*60_000){try{await bridge.readUsage(3000);}catch{/* Usage stays unknown. */}}
     // A usage read can block OpenCode Go's paid models; offer what is left.
-    const remaining=provider==='opencode'?bridge.selectableModels:offeredModels;
+    const remaining=(provider==='opencode'?bridge.selectableModels:offeredModels).filter(m=>this.sessionAvailability.available(provider,modelKey(provider,m)));
     if(!remaining.length)throw Error('Every model is out of usage or unavailable on your plans.');
     return {offer:{provider,models:remaining,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
    }catch(error){return {failed:{provider,message:friendlyError(error)}};}
@@ -436,6 +455,8 @@ export default class Butler extends Plugin {
  private vaultRoot(base:string){if(this.resolvedRoot?.base!==base)this.resolvedRoot={base,root:realpathSync(base)};return this.resolvedRoot.root;}
  allowedVaultFile(path:string,extension:string|null=null){const key=path+'\u0000'+(extension??'')+'\u0000'+this.prefs.excludedFolders;const cached=this.pathCache.get(key);if(cached!==undefined)return cached;let result=false;if(!allowedPath(path,this.prefs.excludedFolders,extension))result=false;else try{const base=this.vaultBasePath();if(base){const root=this.vaultRoot(base),file=realpathSync(join(base,path));if(isPathInside(root,file))result=allowedPath(relative(root,file).split(/[\\]/).join('/'),this.prefs.excludedFolders,extension);}}catch{result=false;}this.pathCache.set(key,result);return result;}
  async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
+ /** Optional per-vault calibration override, kept in OWLA's private storage beside the routing history. */
+ routingCalibrationPath(){return join(this.vaultStorage(),'routing-calibration.json');}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
  automaticLinksEnabled(){
   if(!this.settingsTab)return false;
@@ -680,6 +701,8 @@ export class ButlerView extends ItemView {
  composer!:HTMLTextAreaElement;private feed!:HTMLElement;private pendingArea!:HTMLElement;private chips!:HTMLElement;private status!:HTMLElement;private sendBtn!:HTMLButtonElement;private modelLabel!:HTMLElement;private automaticLabel!:HTMLButtonElement;
  private nextRoute?:CodexRoute;
  private lastAutomaticRoute?:CodexRoute;
+ private lastAutomaticTaskKind?:TaskKind;
+ private readonly degradationNotifier=new DegradationNotifier();
  private selectingRoute=false;
  private readonly sourceLinks=new Map<string,{path:string;fragment:string}>();
  private readonly editCards=new WeakMap<EditBatch,ChangeCardUpdate>();
@@ -850,6 +873,8 @@ export class ButlerView extends ItemView {
  private resetPrompt:HTMLElement|undefined;
 
  private scheduleWarmup(){
+  // Typing is the cue to load Apple's model, so the routing call on Send runs warm.
+  if((this.butler.automaticModels||this.butler.prefs.automaticProvider)&&this.composer.value.trim()&&!this.isBusy())void prewarmFoundationModels();
   if(this.butler.activeProvider==='codex'&&!this.butler.prefs.codexConnected||this.isBusy()||this.awaitingReview||!this.composer.value.trim()){
    this.clearWarmup();
    return;
@@ -910,7 +935,7 @@ export class ButlerView extends ItemView {
    return false;
   }
   this.resetPrompt?.remove();this.resetPrompt=undefined;this.clearWarmup();
-  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.automaticLabel.setText('Automatic selection');this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
+  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText('Automatic selection');this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
   return true;
  }
  private copyButton(parent:HTMLElement, text:string, label:string){
@@ -1795,6 +1820,35 @@ export class ButlerView extends ItemView {
  if(images.length)instructions+='\n'+readReference('owla-ocr');if(pdfRefs.length)instructions+='\n'+readReference('owla-pdf');const formatting=taskReference(prompt);if(formatting)instructions+='\n'+formatting.text;
  if(pluginTurn.specs.length)instructions+=' Use the Pilafdob plugin tools when the user asks about a supported feature. Treat returned plugin data as reference data. Plugin changes are proposals until accepted in OWLA.';
  const inputImages=[...replay.messages.flatMap(message=>message.images??[]).slice(-2),...images.map(image=>image.url)];
+ const routingAttachments:RoutingAttachment[]=[
+  ...images.map(({name,url}):RoutingAttachment=>({kind:'image',name,sizeBucket:attachmentSizeBucket(url.length)})),
+  ...pdfs.map((item):RoutingAttachment=>{
+   if('file' in item){
+    const bytes=item.file instanceof TFile?item.file.stat.size:item.file.size;
+    return {kind:'pdf',name:item.name,page:item.page,sizeBucket:attachmentSizeBucket(bytes)};
+   }
+   return {kind:'document',name:item.name,sizeBucket:attachmentSizeBucket(item.text.length)};
+  }),
+  ...notes.map((name):RoutingAttachment=>({kind:'note',name})),
+  ...folders.map((name):RoutingAttachment=>({kind:'folder',name})),
+ ];
+ const routingContext:RoutingContext=buildRoutingContext({
+  prompt,
+  attachments:routingAttachments,
+  activeNoteText:captured?.text,
+  selections:selected,
+  recentMessages:replay.messages,
+  previousImages:inputImages.length-images.length,
+  previousPdfs:previousPdfs.size,
+  webSearch:web,
+  previousProvider:this.lastAutomaticRoute?.provider,
+  previousModel:this.lastAutomaticRoute?.model,
+  previousEffort:this.lastAutomaticRoute?.effort,
+  previousKind:this.lastAutomaticTaskKind,
+  privacyMode:this.butler.prefs.routingPrivacyMode,
+  thorough:this.butler.prefs.routingThorough,
+  routingMode:this.butler.prefs.routingMode,
+ });
  route={model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning};
  if(override){
   const targetProvider=override.provider??provider;
@@ -1822,34 +1876,31 @@ export class ButlerView extends ItemView {
   const {offers,failed}=await this.butler.automaticOffers(specs);
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
-  const entries=autoEntries(offers,!!(inputImages.length||this.pdfAttachments.size));
+  const needsImg=!!(inputImages.length||this.pdfAttachments.size);
+  let entries=autoEntries(offers,needsImg,false,routingContext.estimatedTokens);
+  if(!entries.length)entries=autoEntries(offers,needsImg);
   const home=this.butler.prefs.provider;
   autoOffers=offers;autoHome=home;
+  if(!hasFoundationModelsCLI()){
+   this.degradationNotifier.notifyOnce('on-device model unavailable',msg=>new Notice(msg));
+  }
   let choice:AutoRoute;
   try{
-   const routed=await routeAcrossProviders(prompt,offers,entries,home,signal,{
-    attachments:[
-     ...images.map(({name})=>({kind:'image' as const,name})),
-     ...pdfRefs.map(({path:name,page})=>({kind:'pdf' as const,name,page})),
-     ...documents.map(({name})=>({kind:'document' as const,name})),
-     ...notes.map(name=>({kind:'note' as const,name})),
-     ...folders.map(name=>({kind:'folder' as const,name}))
-    ],
-    activeNote:!!captured,activeNoteChars:captured?.text.length??0,
-    selections:selected.length,selectedChars:selected.reduce((sum,item)=>sum+item.text.length,0),
-    recentMessages:replay.messages.length,recentMessageChars:replay.messages.reduce((sum,message)=>sum+message.content.length+(message.context?.length??0),0),
-    previousImages:inputImages.length-images.length,previousPdfs:previousPdfs.size,webSearch:web,
-    promptChars:prompt.length,promptWords:prompt.trim().split(/\s+/).filter(Boolean).length,
-    attachedNotes:notes.length,attachedFolders:folders.length,attachedPdfs:pdfRefs.length,
-    attachedDocuments:documents.length,attachedImages:images.length,
-    activeNotePreview:captured?.text.slice(0,600),recentMessagePreview:replay.messages.slice(-3).map(message=>message.role+': '+message.content).join('\n').slice(0,1200),
-    previousProvider:this.lastAutomaticRoute?.provider,previousModel:this.lastAutomaticRoute?.model,previousEffort:this.lastAutomaticRoute?.effort
-   });
-    choice=routed;autoTask=routed.task;
+   const routed=await routeAcrossProviders(prompt,offers,entries,home,signal,routingContext,{history:this.butler.routingHistory});
+   choice=routed;autoTask=routed.task;
   }catch(error){
    signal.throwIfAborted();
-   choice=autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
-   activity.createDiv({text:'Automatic selection unavailable · '+friendlyError(error),cls:'owla-activity'});
+   const reasonText=friendlyError(error);
+   this.degradationNotifier.notifyOnce(reasonText,msg=>new Notice(msg));
+   try{
+    const fallbackTask=heuristicTaskClass(prompt,routingContext,true)!;
+    autoTask=fallbackTask;
+    choice=pickRoute(entries,offers,fallbackTask,home,Date.now()/1000,routingContext,this.butler.prefs.routingMode,this.butler.routingHistory);
+    activity.createDiv({text:'Automatic selection used heuristic fallback · '+reasonText,cls:'owla-activity'});
+   }catch{
+    choice=autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
+    activity.createDiv({text:'Automatic selection unavailable · '+reasonText,cls:'owla-activity'});
+   }
   }
   if(choice.provider!==provider){
    await releaseReply();
@@ -1865,51 +1916,53 @@ export class ButlerView extends ItemView {
   activity.createDiv({text:'Automatic selection · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
   this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
   this.lastAutomaticRoute=route;
+  if(autoTask)this.lastAutomaticTaskKind=autoTask.kind;
  }else if(automatic){
   this.automaticLabel.setText('Selecting model and reasoning effort…');
   this.status.setText('Selecting locally…');
-  const candidates=routingModels(currentModels(provider,bridge.selectableModels),!!(inputImages.length||this.pdfAttachments.size));
+  const needsImg=!!(inputImages.length||this.pdfAttachments.size);
+  const selectable=bridge.selectableModels.filter(m=>this.butler.sessionAvailability.available(provider,modelKey(provider,m)));
+  let candidates=routingModels(currentModels(provider,selectable,undefined,routingContext.estimatedTokens),needsImg,routingContext.estimatedTokens);
+  if(!candidates.length)candidates=routingModels(currentModels(provider,selectable.length?selectable:bridge.selectableModels),needsImg);
   autoCandidates=candidates;
   route=fallbackRoute(candidates,route,provider);
   try{
-   route=await routeWithFoundationModels(prompt,candidates,signal,{
-    attachments:[
-     ...images.map(({name})=>({kind:'image' as const,name})),
-     ...pdfRefs.map(({path:name,page})=>({kind:'pdf' as const,name,page})),
-     ...documents.map(({name})=>({kind:'document' as const,name})),
-     ...notes.map(name=>({kind:'note' as const,name})),
-     ...folders.map(name=>({kind:'folder' as const,name}))
-    ],
-    activeNote:!!captured,activeNoteChars:captured?.text.length??0,
-    selections:selected.length,selectedChars:selected.reduce((sum,item)=>sum+item.text.length,0),
-    recentMessages:replay.messages.length,recentMessageChars:replay.messages.reduce((sum,message)=>sum+message.content.length+(message.context?.length??0),0),
-    previousImages:inputImages.length-images.length,previousPdfs:previousPdfs.size,webSearch:web,
-    promptChars:prompt.length,promptWords:prompt.trim().split(/\s+/).filter(Boolean).length,
-    attachedNotes:notes.length,attachedFolders:folders.length,attachedPdfs:pdfRefs.length,
-    attachedDocuments:documents.length,attachedImages:images.length,
-    activeNotePreview:captured?.text.slice(0,600),recentMessagePreview:replay.messages.slice(-3).map(message=>message.role+': '+message.content).join('\n').slice(0,1200),
-    previousProvider:this.lastAutomaticRoute?.provider,previousModel:this.lastAutomaticRoute?.model,previousEffort:this.lastAutomaticRoute?.effort
-   },provider);
-   activity.createDiv({text:'Automatic selection · '+route.model+' · '+route.effort,cls:'owla-activity'});
+   // Clear-cut requests are settled locally in milliseconds; Apple's model decides the rest.
+   const quick=quickPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory);
+   if(quick){route={model:quick.model,effort:quick.effort};autoTask=quick.task;}
+   else route=await routeWithFoundationModels(prompt,candidates,signal,routingContext,provider);
+   activity.createDiv({text:'Automatic selection · '+route.model+' · '+route.effort+(quick?' · local':''),cls:'owla-activity'});
    this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
   }catch(error){
    if(signal.aborted)this.automaticLabel.setText('Automatic selection');
    signal.throwIfAborted();
-   activity.createDiv({text:'Automatic selection unavailable · '+friendlyError(error)+' Using '+route.model+' · '+route.effort,cls:'owla-activity'});
+   const reasonText=friendlyError(error);
+   this.degradationNotifier.notifyOnce(reasonText,msg=>new Notice(msg));
+   try{
+    const heur=heuristicPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory);
+    route={model:heur.model,effort:heur.effort};
+    autoTask=heur.task;
+   }catch{/* Keep fallbackRoute result. */}
+   activity.createDiv({text:'Automatic selection unavailable · '+reasonText+' Using '+route.model+' · '+route.effort,cls:'owla-activity'});
    this.automaticLabel.setText('Fallback · '+route.model+' · '+route.effort);
   }
   route={...route,provider};
   this.lastAutomaticRoute=route;
+  if(autoTask)this.lastAutomaticTaskKind=autoTask.kind;
  }
  signal.throwIfAborted();
  let baseInstructions=instructions;
  let result:ProviderRunResult|undefined;
  let autoAttempts=0;
+ let qualityEscalations=0;
  const failedRoutes:{provider:ProviderId;model:string}[]=[];
  let toolsUsed=false;
+ let turnStartMs=Date.now();
+ const isAutoTurn=choosesProvider||(automatic&&!override);
  while(true){
   const attemptInstructions=prefixToolNames(baseInstructions,provider);
   this.status.setText(this.butler.providerName(provider)+' is responding…');
+  turnStartMs=Date.now();
   try{
    result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route!.model,effort:route!.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
     toolsUsed=true;
@@ -1925,9 +1978,62 @@ export class ButlerView extends ItemView {
     toolQueue=operation.catch(()=>{});
     return operation;
    }});
+   if(isAutoTurn&&shouldEscalateQuality({text:result.text,toolsUsed,mode:this.butler.prefs.routingMode,escalations:qualityEscalations,difficulty:autoTask?.difficulty})){
+    failedRoutes.push({provider,model:route!.model});
+    // The thin reply counts against the model that gave it, not the one that replaces it.
+    if(autoTask)this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{provider,model:route!.model,kind:autoTask.kind,success:false,latencyMs:Date.now()-turnStartMs});
+    const needsImg=!!(inputImages.length||this.pdfAttachments.size);
+    const escalated:AutoRoute|null=choosesProvider&&autoTask
+     ?pickEscalationRoute({
+      entries:autoEntries(autoOffers,needsImg,false,routingContext.estimatedTokens).filter(e=>!this.butler.recordExhaustion(e.provider).exhausted),
+      offers:autoOffers,
+      task:autoTask,
+      exclude:failedRoutes,
+      home:autoHome,
+      context:routingContext,
+      mode:this.butler.prefs.routingMode,
+      history:this.butler.routingHistory,
+     })
+     :await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,failed:failedRoutes,specs,signal});
+    if(escalated){
+     qualityEscalations++;
+     if(escalated.provider!==provider){
+      await releaseReply();
+      const previous=this.butler.providerName(provider);
+      provider=escalated.provider;bridge=this.butler.bridgeFor(provider);
+      releaseReply=bridge.hold();this.releaseReply=releaseReply;
+      baseInstructions=baseInstructions.replace('powered by '+previous+'.','powered by '+this.butler.providerName(provider)+'.');
+     }
+     route={model:escalated.model,effort:escalated.effort,provider:escalated.provider};
+     if(choosesProvider){
+      this.butler.autoProvider=provider;
+      this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
+     }else{
+      this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
+     }
+     if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
+     pendingText='';text='';
+     try{streamNode.data='';}catch{/* Ignore non-mutable text node. */}
+     activity.createDiv({text:'Escalating thin reply to '+this.butler.providerName(provider)+' · '+route.model,cls:'owla-activity'});
+     this.lastAutomaticRoute=route;
+     try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});}
+     catch{signal.throwIfAborted();break;}
+     signal.throwIfAborted();
+     continue;
+    }
+   }
    break;
   }catch(error){
    failedRoutes.push({provider,model:route!.model});
+   this.butler.recordModelRefusal(provider,route!.model,friendlyError(error));
+   if(isAutoTurn&&autoTask){
+    this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{
+     provider,
+     model:route!.model,
+     kind:autoTask.kind,
+     success:false,
+    });
+   }
    const state=this.butler.recordExhaustion(provider);
    const regionRestricted=!!route&&this.butler.isRegionRestricted(provider,route.model);
    const isAuto=choosesProvider||(automatic&&!override);
@@ -1967,6 +2073,19 @@ export class ButlerView extends ItemView {
    catch{signal.throwIfAborted();throw error;}
    signal.throwIfAborted();
   }
+ }
+ const turnLatencyMs=Math.max(0,Date.now()-turnStartMs);
+ if(isAutoTurn){
+  const outcomeKind=autoTask?.kind??heuristicTaskClass(prompt,routingContext,true)?.kind??'lookup';
+  this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{
+   provider,
+   model:route!.model,
+   kind:outcomeKind,
+   // Earlier failed or thin attempts were recorded against their own models; this one answered.
+   success:true,
+   latencyMs:turnLatencyMs,
+  });
+  try{saveRoutingHistory(this.butler.vaultStorage(),this.butler.routingHistory);}catch{/* Ignore non-critical history write errors. */}
  }
  text=result!.text;
  if(signal.aborted||epoch!==this.attachmentEpoch||this.closing)throw Error('Stopped.');
@@ -2052,6 +2171,10 @@ export class ButlerView extends ItemView {
  summary.setText('Sources & activity');
  for(const source of this.turnSources)this.renderTurnSource(disclosure,source);
  for(const source of result.sources)disclosure.createEl('a',{text:source.title,attr:{href:source.url,target:'_blank',rel:'noopener noreferrer'}});
+ if(isAutoTurn&&this.butler.prefs.showRoutingDetails){
+  const latestDecision=getRoutingDecisions().at(-1);
+  if(latestDecision)renderRoutingDetails(disclosure,latestDecision,true);
+ }
  if(!this.turnSources.size&&!result.sources.length&&!activity.childElementCount)disclosure.createDiv({text:'No sources or activity for this reply.'});
  footer.append(disclosure);
  this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text,...(captured?{sourcePath:captured.path}:{})});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('Codex now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);
@@ -2081,12 +2204,15 @@ export class ButlerView extends ItemView {
   const failedKey=(p:ProviderId,m:string)=>failed.some(item=>item.provider===p&&item.model===m);
   // The bridges know what was refused since the offers were collected: a
   // blocked OpenCode pool or plan leaves only its other models selectable.
-  const offers=opts.offers.map(offer=>offer.provider==='opencode'?{...offer,models:this.butler.bridgeFor('opencode').selectableModels}:offer);
+  const offers=opts.offers.map(offer=>{
+   const baseModels=offer.provider==='opencode'?this.butler.bridgeFor('opencode').selectableModels:offer.models;
+   return {...offer,models:baseModels.filter(m=>this.butler.sessionAvailability.available(offer.provider,modelKey(offer.provider,m)))};
+  });
   if(choosesProvider){
    const entries=autoEntries(offers,needsImage).filter(entry=>!failedKey(entry.provider,entry.key)&&!this.butler.recordExhaustion(entry.provider).exhausted);
    if(!entries.length)return null;
    try{
-    if(task)return pickRoute(entries,offers,task,home);
+    if(task)return pickRoute(entries,offers,task,home,Date.now()/1000,undefined,this.butler.prefs.routingMode,this.butler.routingHistory);
     return autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
    }catch{return null;}
   }
@@ -2094,7 +2220,7 @@ export class ButlerView extends ItemView {
   if(!state.exhausted){
    // The full selectable list, not only the curated six, so a run of refusals
    // can still reach a model that works.
-   const current=this.butler.bridgeFor(provider).selectableModels;
+   const current=this.butler.bridgeFor(provider).selectableModels.filter(m=>this.butler.sessionAvailability.available(provider,modelKey(provider,m)));
    const pool=[...routingModels(currentModels(provider,current),needsImage),...routingModels(current,needsImage)];
    const filtered=pool.filter((model,index)=>!failedKey(provider,modelKey(provider,model))&&pool.findIndex(other=>other.id===model.id)===index);
    if(!filtered.length)return null;
@@ -2443,6 +2569,20 @@ class ButlerSettingsTab extends PluginSettingTab {
     setup.createEl('code',{text:FOUNDATION_MODELS_LICENSE_COMMAND});
     setup.appendText(', and follow the prompts to accept Apple’s Foundation Models terms. If local selection is unavailable, OWLA shows the fallback it used.');
    }
+   let checkBtn!:ButtonComponent;
+   setting.addButton(b=>{
+    checkBtn=b.setButtonText('Check automatic selection').onClick(async()=>{
+     checkBtn.setDisabled(true);
+     try{
+      const status=await checkFoundationModelsHealth();
+      new Notice(status.message);
+     }catch(e){
+      new Notice(friendlyError(e));
+     }finally{
+      checkBtn.setDisabled(false);
+     }
+    });
+   });
    setting.addToggle(toggle=>toggle.setValue(this.butler.automaticModels)
     .setDisabled(this.butler.prefs.automaticProvider||!available&&!this.butler.prefs.automaticRouting)
     .onChange(async value=>{
@@ -2450,7 +2590,40 @@ class ButlerSettingsTab extends PluginSettingTab {
      this.butler.prefs.automaticRouting=value;
      this.butler.view?.refreshModel();
      await this.butler.save();
+     this.update();
     }));
+  }},
+  {name:'Automatic selection priority',desc:'Balance cost and capability, favour lower plan usage and free models, or favour higher-tier models and quality escalation.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+   setting.addDropdown(dropdown=>dropdown
+    .addOption('cost','Cost')
+    .addOption('balance','Balanced')
+    .addOption('intelligence','Intelligence')
+    .setValue(this.butler.prefs.routingMode)
+    .onChange(async value=>{
+     this.butler.prefs.routingMode=value as RoutingMode;
+     clearRoutingCache();
+     await this.butler.save();
+    }));
+  }},
+  {name:'Thorough automatic selection',desc:'Always run the on-device classifier with chain-of-thought reasoning, attachment names and raw note previews instead of fast local heuristics.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.routingThorough).onChange(async value=>{
+    this.butler.prefs.routingThorough=value;
+    clearRoutingCache();
+    await this.butler.save();
+   }));
+  }},
+  {name:'Automatic selection privacy mode',desc:'Keep note excerpts, heading outlines, chat topics and filenames out of the on-device classifier. It still reads your request, on this Mac, so it can judge the task. The chosen assistant receives everything as usual.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.routingPrivacyMode).onChange(async value=>{
+    this.butler.prefs.routingPrivacyMode=value;
+    clearRoutingCache();
+    await this.butler.save();
+   }));
+  }},
+  {name:'Show automatic selection details',desc:'Include a collapsible section under each reply with the top candidate models and their scores.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.showRoutingDetails).onChange(async value=>{
+    this.butler.prefs.showRoutingDetails=value;
+    await this.butler.save();
+   }));
   }},
   {name:'Allow web search',desc:'The assistant can search the web when needed. Search queries may be based on the context you provide.',render:setting=>{setting.addToggle(t=>t.setValue(this.butler.prefs.webSearch).onChange(async value=>{this.butler.view?.clearWarmup();this.butler.prefs.webSearch=value;await this.butler.save();}));}},
   {name:'Plugin Interconnectivity',desc:'Let OWLA use the Pilafdob plugins enabled in this vault. It can look up and propose changes to Nicons icons, Pinup pins, and Folder and Graphs Plus graph options. You review each change before it is applied.',render:setting=>{

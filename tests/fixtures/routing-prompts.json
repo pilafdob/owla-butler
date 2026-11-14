@@ -1,0 +1,212 @@
+[
+  {
+    "id": "readme-compare-biology",
+    "prompt": "Compare my biology notes with Exam Plan; cite the exact paths and separate evidence from your suggested schedule.",
+    "context": { "attachments": [{ "kind": "note", "name": "Biology.md" }, { "kind": "note", "name": "Exam Plan.md" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":3,\"kind\":\"synthesis\",\"tools\":true,\"effort\":\"medium\"}",
+    "expected": { "kind": "synthesis", "minDifficulty": 3, "maxDifficulty": 4, "tools": true, "families": ["free", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "readme-missing-info",
+    "prompt": "What information is missing from this note? Don’t invent it.",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"lookup\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "lookup", "minDifficulty": 1, "maxDifficulty": 2, "tools": true, "families": ["free", "luna", "haiku"] }
+  },
+  {
+    "id": "readme-improve-paragraph",
+    "prompt": "Improve this paragraph without changing its citation keys, links or meaning.",
+    "context": { "attachments": [], "activeNote": true, "selections": 1 },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"edit\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "edit", "minDifficulty": 1, "maxDifficulty": 3, "tools": true, "families": ["luna", "haiku", "terra", "sonnet"] }
+  },
+  {
+    "id": "readme-transcribe-equation",
+    "prompt": "Transcribe this faithfully and prepare an insertion below Worked example.",
+    "context": { "attachments": [{ "kind": "image", "name": "equation.png" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"transcription\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "transcription", "minDifficulty": 1, "maxDifficulty": 2, "tools": true, "families": ["luna", "haiku", "terra"] }
+  },
+  {
+    "id": "readme-summarise-pdf-page",
+    "prompt": "Summarise this page with its filename and page reference.",
+    "context": { "attachments": [{ "kind": "pdf", "name": "Books/Study.pdf", "page": 3 }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"lookup\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "lookup", "minDifficulty": 1, "maxDifficulty": 2, "tools": true, "families": ["free", "luna", "haiku"] }
+  },
+  {
+    "id": "readme-callout-docs",
+    "prompt": "Check the official documentation for current Obsidian callout syntax and link the source.",
+    "context": { "attachments": [], "activeNote": false, "webSearch": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"research\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "research", "minDifficulty": 2, "maxDifficulty": 3, "tools": false, "families": ["free", "luna", "haiku", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "edge-jamaica-script",
+    "prompt": "write a script to talk for 7+ minutes, for this presentation. add to current note.",
+    "context": { "attachments": [{ "kind": "pdf", "name": "Jamaica Reggae Präsentation.pdf" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":5,\"kind\":\"writing\",\"tools\":false,\"effort\":\"max\"}",
+    "expected": { "kind": "writing", "minDifficulty": 3, "maxDifficulty": 4, "tools": true, "families": ["sonnet", "gpt-6.1-sol", "terra"] }
+  },
+  {
+    "id": "edge-multi-pdf-synthesis",
+    "prompt": "Compare these three lecture PDFs and combine their key theorems into a revision note.",
+    "context": { "attachments": [{ "kind": "pdf", "name": "Lec1.pdf" }, { "kind": "pdf", "name": "Lec2.pdf" }, { "kind": "pdf", "name": "Lec3.pdf" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":4,\"kind\":\"synthesis\",\"tools\":true,\"effort\":\"high\"}",
+    "expected": { "kind": "synthesis", "minDifficulty": 3, "maxDifficulty": 4, "tools": true, "families": ["sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "simple-arithmetic",
+    "prompt": "What is 17/12 as a mixed fraction?",
+    "context": { "attachments": [], "activeNote": false },
+    "recordedFm": "{\"difficulty\":1,\"kind\":\"lookup\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "lookup", "minDifficulty": 1, "maxDifficulty": 2, "tools": false, "families": ["free", "luna", "haiku"] }
+  },
+  {
+    "id": "typo-fix-current-note",
+    "prompt": "Fix the typo in this note.",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":1,\"kind\":\"edit\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "edit", "minDifficulty": 1, "maxDifficulty": 2, "tools": true, "families": ["luna", "haiku"] }
+  },
+  {
+    "id": "organise-project-folders",
+    "prompt": "Organise my project notes and move archived files into the Archive folder.",
+    "context": { "attachments": [{ "kind": "folder", "name": "Projects" }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"organisation\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "organisation", "minDifficulty": 2, "maxDifficulty": 3, "tools": true, "families": ["luna", "haiku", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "rename-meeting-notes",
+    "prompt": "Rename the files in Meetings so each starts with its YYYY-MM-DD date.",
+    "context": { "attachments": [{ "kind": "folder", "name": "Meetings" }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"organisation\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "organisation", "minDifficulty": 2, "maxDifficulty": 3, "tools": true, "families": ["luna", "haiku", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "whiteboard-ocr",
+    "prompt": "Transcribe the attached image into Obsidian Markdown and LaTeX.",
+    "context": { "attachments": [{ "kind": "image", "name": "whiteboard.jpg" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"transcription\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "transcription", "minDifficulty": 1, "maxDifficulty": 2, "tools": false, "families": ["free", "luna", "haiku", "terra"] }
+  },
+  {
+    "id": "chart-interpretation",
+    "prompt": "Explain what this chart shows about seasonal temperature anomalies.",
+    "context": { "attachments": [{ "kind": "image", "name": "anomaly-chart.png" }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"vision\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "vision", "minDifficulty": 2, "maxDifficulty": 3, "tools": false, "families": ["free", "terra", "sonnet", "luna"] }
+  },
+  {
+    "id": "rigorous-induction-proof",
+    "prompt": "Provide a rigorous proof by mathematical induction that the red-black tree height invariant holds after deletion.",
+    "context": { "attachments": [], "activeNote": false },
+    "recordedFm": "{\"difficulty\":5,\"kind\":\"reasoning\",\"tools\":false,\"effort\":\"high\"}",
+    "expected": { "kind": "reasoning", "minDifficulty": 4, "maxDifficulty": 5, "tools": false, "families": ["opus", "fable", "gpt-6-astra"] }
+  },
+  {
+    "id": "concurrency-race-debug",
+    "prompt": "Debug the race condition in this async lock implementation and find the root cause.",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":4,\"kind\":\"reasoning\",\"tools\":false,\"effort\":\"high\"}",
+    "expected": { "kind": "reasoning", "minDifficulty": 4, "maxDifficulty": 5, "tools": false, "families": ["sonnet", "gpt-6.1-sol", "opus", "gpt-6-astra"] }
+  },
+  {
+    "id": "dataview-query",
+    "prompt": "Write a Dataview query to list all notes tagged #project sorted by due date.",
+    "context": { "attachments": [], "activeNote": false },
+    "recordedFm": "{\"difficulty\":3,\"kind\":\"coding\",\"tools\":false,\"effort\":\"medium\"}",
+    "expected": { "kind": "coding", "minDifficulty": 2, "maxDifficulty": 3, "tools": false, "families": ["free", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "typescript-refactor-fence",
+    "prompt": "Refactor this function to avoid quadratic array concatenation:\n```ts\nfunction joinAll(items: string[]) { return items.reduce((a, b) => a + b, ''); }\n```",
+    "context": { "attachments": [], "activeNote": false },
+    "recordedFm": "{\"difficulty\":3,\"kind\":\"coding\",\"tools\":false,\"effort\":\"medium\"}",
+    "expected": { "kind": "coding", "minDifficulty": 2, "maxDifficulty": 4, "tools": false, "families": ["free", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "summarize-single-pdf",
+    "prompt": "Summarize this PDF in five bullet points.",
+    "context": { "attachments": [{ "kind": "pdf", "name": "Report.pdf" }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"lookup\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "lookup", "minDifficulty": 2, "maxDifficulty": 2, "tools": true, "families": ["free", "luna", "haiku"] }
+  },
+  {
+    "id": "translate-note-german",
+    "prompt": "Translate this note into German and preserve all wikilinks.",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":3,\"kind\":\"writing\",\"tools\":true,\"effort\":\"medium\"}",
+    "expected": { "kind": "writing", "minDifficulty": 2, "maxDifficulty": 4, "tools": true, "families": ["free", "terra", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "essay-draft-from-notes",
+    "prompt": "Write an essay on urban sustainability based on my attached note.",
+    "context": { "attachments": [{ "kind": "note", "name": "Urban.md" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":3,\"kind\":\"writing\",\"tools\":true,\"effort\":\"medium\"}",
+    "expected": { "kind": "writing", "minDifficulty": 3, "maxDifficulty": 4, "tools": true, "families": ["free", "terra", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "exact-replace-instruction",
+    "prompt": "replace exactly \"Revise biology.\" with \"Use active recall.\" in my note",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"edit\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "edit", "minDifficulty": 1, "maxDifficulty": 2, "tools": true, "families": ["luna", "haiku"] }
+  },
+  {
+    "id": "syllabus-to-textbook-match",
+    "prompt": "Compare the attached syllabus PDF with my textbook chapters and build a study plan.",
+    "context": { "attachments": [{ "kind": "pdf", "name": "Syllabus.pdf" }, { "kind": "pdf", "name": "Textbook.pdf" }], "activeNote": true },
+    "recordedFm": "{\"difficulty\":3,\"kind\":\"synthesis\",\"tools\":true,\"effort\":\"medium\"}",
+    "expected": { "kind": "synthesis", "minDifficulty": 3, "maxDifficulty": 4, "tools": true, "families": ["free", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "quick-definition",
+    "prompt": "What is Eigenvalue decomposition?",
+    "context": { "attachments": [], "activeNote": false },
+    "recordedFm": "{\"difficulty\":1,\"kind\":\"lookup\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "lookup", "minDifficulty": 1, "maxDifficulty": 2, "tools": false, "families": ["free", "luna", "haiku"] }
+  },
+  {
+    "id": "frontmatter-tags-edit",
+    "prompt": "Add the tag #reviewed to this note.",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"edit\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "edit", "minDifficulty": 1, "maxDifficulty": 2, "tools": true, "families": ["luna", "haiku"] }
+  },
+  {
+    "id": "diagram-mermaid-explain",
+    "prompt": "Describe what this architecture diagram image shows.",
+    "context": { "attachments": [{ "kind": "image", "name": "arch.png" }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"vision\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "vision", "minDifficulty": 2, "maxDifficulty": 3, "tools": false, "families": ["free", "terra", "sonnet"] }
+  },
+  {
+    "id": "handwritten-math-scan",
+    "prompt": "Transcribe these handwritten lecture equations into LaTeX.",
+    "context": { "attachments": [{ "kind": "image", "name": "scan1.png" }], "activeNote": false },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"transcription\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "transcription", "minDifficulty": 1, "maxDifficulty": 2, "tools": false, "families": ["free", "luna", "haiku", "terra"] }
+  },
+  {
+    "id": "web-verify-release",
+    "prompt": "Search the web to verify the latest Obsidian desktop release version.",
+    "context": { "attachments": [], "activeNote": false, "webSearch": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"research\",\"tools\":false,\"effort\":\"low\"}",
+    "expected": { "kind": "research", "minDifficulty": 2, "maxDifficulty": 3, "tools": false, "families": ["free", "luna", "haiku", "sonnet", "gpt-6.1-sol"] }
+  },
+  {
+    "id": "append-summary-section",
+    "prompt": "Append a short conclusion section to the current note.",
+    "context": { "attachments": [], "activeNote": true },
+    "recordedFm": "{\"difficulty\":2,\"kind\":\"edit\",\"tools\":true,\"effort\":\"low\"}",
+    "expected": { "kind": "edit", "minDifficulty": 1, "maxDifficulty": 3, "tools": true, "families": ["luna", "haiku", "terra"] }
+  },
+  {
+    "id": "formal-counterexample",
+    "prompt": "Find a counterexample or prove that every connected graph with even degree has an Eulerian circuit.",
+    "context": { "attachments": [], "activeNote": false },
+    "recordedFm": "{\"difficulty\":5,\"kind\":\"reasoning\",\"tools\":false,\"effort\":\"high\"}",
+    "expected": { "kind": "reasoning", "minDifficulty": 4, "maxDifficulty": 5, "tools": false, "families": ["opus", "fable", "gpt-6-astra"] }
+  }
+]

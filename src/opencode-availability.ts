@@ -18,7 +18,7 @@
  * OpenCode as a whole counts as exhausted only once every model is blocked.
  */
 
-import type {ProviderModel} from './provider';
+import type {ProviderId,ProviderModel} from './provider';
 import type {UsageSnapshot} from './usage';
 
 /** How far a failure reaches. */
@@ -142,5 +142,40 @@ export class OpencodeAvailability{
    if(earliest===null||block.until<earliest)earliest=block.until;
   }
   return earliest;
+ }
+}
+
+/**
+ * Session-scoped model availability cache across all providers (Codex, OpenCode, Claude).
+ * When a model is refused because of region restrictions, plan entitlement, or unsupported
+ * model status, it is marked unavailable for the remainder of the session.
+ */
+export class SessionModelAvailability{
+ private refused=new Map<string,{reason:string;kind:'region'|'unavailable'}>();
+ private static key(provider:ProviderId,model:string):string{return provider+':'+model;}
+
+ recordFailure(provider:ProviderId,model:string,message:string):{refused:boolean;reason:string}{
+  const classified=classifyOpencodeFailure(message);
+  if(classified.scope==='model'&&(classified.kind==='region'||classified.kind==='unavailable')){
+   this.refused.set(SessionModelAvailability.key(provider,model),{reason:classified.reason,kind:classified.kind});
+   return {refused:true,reason:classified.reason};
+  }
+  return {refused:false,reason:''};
+ }
+
+ available(provider:ProviderId,model:string):boolean{
+  return !this.refused.has(SessionModelAvailability.key(provider,model));
+ }
+
+ reasonOf(provider:ProviderId,model:string):string|undefined{
+  return this.refused.get(SessionModelAvailability.key(provider,model))?.reason;
+ }
+
+ isRegionRestricted(provider:ProviderId,model:string):boolean{
+  return this.refused.get(SessionModelAvailability.key(provider,model))?.kind==='region';
+ }
+
+ clear():void{
+  this.refused.clear();
  }
 }

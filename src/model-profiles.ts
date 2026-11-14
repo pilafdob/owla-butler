@@ -131,14 +131,17 @@ export function modelProfile(provider:ProviderId,model:ProviderModel):ModelProfi
  * The models worth offering in automatic selection: older generations are
  * dropped when a current one exists.
  */
-export function currentModels(provider:ProviderId,models:ProviderModel[],limit=provider==='opencode'?6:8):ProviderModel[]{
- let result=models;
+export function currentModels(provider:ProviderId,models:ProviderModel[],limit=provider==='opencode'?6:8,estimatedTokens?:number):ProviderModel[]{
+ const eligible=estimatedTokens!==undefined&&estimatedTokens>0
+  ?models.filter(model=>(model.context??200_000)>=estimatedTokens*1.15)
+  :models;
+ let result=eligible;
  if(provider==='codex'){
-  const current=models.filter(model=>!/previous generation|older/i.test(model.description??''));
+  const current=eligible.filter(model=>!/previous generation|older/i.test(model.description??''));
   if(current.length)result=current;
  }else if(provider==='claude'){
   // Aliases such as "opus" always point at the newest model of the family.
-  const aliases=models.filter(model=>!model.id.startsWith('claude-'));
+  const aliases=eligible.filter(model=>!model.id.startsWith('claude-'));
   if(aliases.length)result=aliases;
  }else{
   const dedupe=(list:ProviderModel[]):ProviderModel[]=>{
@@ -156,7 +159,7 @@ export function currentModels(provider:ProviderId,models:ProviderModel[],limit=p
    }
    return [...seen.values()];
   };
-  const unique=dedupe(models);
+  const unique=dedupe(eligible);
   const free=unique.filter(isFree).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability);
   const paid=unique.filter(m=>!isFree(m)).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability||((a.cost?.input??0)+(a.cost?.output??0))-((b.cost?.input??0)+(b.cost?.output??0)));
   const freeCap=paid.length?Math.ceil(limit/2):limit;

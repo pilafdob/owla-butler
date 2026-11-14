@@ -1,0 +1,53 @@
+{
+  "kindCeiling": {
+    "lookup": 2,
+    "transcription": 2,
+    "edit": 3,
+    "vision": 3,
+    "organisation": 3,
+    "writing": 4,
+    "synthesis": 4,
+    "coding": 5,
+    "reasoning": 5,
+    "research": 5
+  },
+  "editVerbs": [
+    "add",
+    "append",
+    "insert",
+    "edit",
+    "change",
+    "update",
+    "rewrite",
+    "fix",
+    "rename",
+    "move",
+    "organise",
+    "organize",
+    "create",
+    "delete",
+    "replace",
+    "put"
+  ],
+  "editTargets": [
+    "note",
+    "notes",
+    "file",
+    "folder",
+    "vault",
+    "heading",
+    "section",
+    "page"
+  ],
+  "effortCaps": {
+    "1": "low",
+    "2": "low",
+    "3": "medium",
+    "4": "high",
+    "5": "max",
+    "maxKinds": [
+      "reasoning",
+      "research"
+    ]
+  }
+}
