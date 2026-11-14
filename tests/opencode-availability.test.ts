@@ -86,3 +86,11 @@ test('a spent OpenCode Go meter does not rule out the free OpenCode models in au
  assert.equal(free?.usage,null);
  assert.equal(scored.find(item=>item.entry.key===goPaid.id),undefined,'the nearly spent Go model is not eligible');
 });
+
+test('a spent console budget does not rule out Go’s paid models in automatic selection',()=>{
+ const offers:ProviderOffer[]=[{provider:'opencode',plan:'',models:[zenFree,goPaid],
+  usage:{rateLimitsByLimitId:{'opencode-go-weekly':{limitId:'opencode-go-weekly',primary:{usedPercent:20,resetsAt:NOW+7200}},'opencode-budget-daily':{limitId:'opencode-budget-daily',primary:{usedPercent:95}}}}}];
+ const scored=scoreEntries(autoEntries(offers,false),offers,{difficulty:2,kind:'lookup',tools:false,effort:'low'},'opencode',NOW);
+ const paid=scored.find(item=>item.entry.key===goPaid.id);
+ assert.ok(paid?.eligible,'the Go paid model stays eligible when only a console budget is low');
+});

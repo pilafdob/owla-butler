@@ -1878,7 +1878,7 @@ export class ButlerView extends ItemView {
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
   const needsImg=!!(inputImages.length||this.pdfAttachments.size);
-  let entries=autoEntries(offers,needsImg,false,routingContext.estimatedTokens);
+  let entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
   if(!entries.length)entries=autoEntries(offers,needsImg);
   const home=this.butler.prefs.provider;
   autoOffers=offers;autoHome=home;
@@ -1986,7 +1986,7 @@ export class ButlerView extends ItemView {
     const needsImg=!!(inputImages.length||this.pdfAttachments.size);
     const escalated:AutoRoute|null=choosesProvider&&autoTask
      ?pickEscalationRoute({
-      entries:autoEntries(autoOffers,needsImg,false,routingContext.estimatedTokens).filter(e=>!this.butler.recordExhaustion(e.provider).exhausted),
+      entries:autoEntries(autoOffers,needsImg,routingContext.estimatedTokens).filter(e=>!this.butler.recordExhaustion(e.provider).exhausted),
       offers:autoOffers,
       task:autoTask,
       exclude:failedRoutes,
