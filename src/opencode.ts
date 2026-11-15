@@ -59,7 +59,7 @@ export function opencodeConfigPath(directory:string):string{
 }
 
 /** The bundled skills are registered under these IDs with OpenCode. */
-export const OPENCODE_SKILL_IDS=skillDefinitions().map(skill=>skill.id);
+const OPENCODE_SKILL_IDS=skillDefinitions().map(skill=>skill.id);
 
 // `~/.cache/opencode/bin` is the Linux installer's location; on Windows the
 // per-user install folders in defaultCliDirectories cover it.
@@ -602,9 +602,12 @@ export class OpencodeBridge implements ProviderBridge{
   this.lastFailure=null;
   this.availability.recordSuccess(model);
   if(options.requireWeb&&!usedWeb)throw Error('OpenCode did not run live web search. No online answer was verified.');
+  const seenSources=new Set(sources.map(source=>source.url));
   for(const match of text.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)){
    if(sources.length>=20)break;
-   if(!sources.some(source=>source.url===match[2]))sources.push({url:match[2],title:match[1]});
+   if(seenSources.has(match[2]))continue;
+   seenSources.add(match[2]);
+   sources.push({url:match[2],title:match[1]});
   }
   return {text,sources};
  }
