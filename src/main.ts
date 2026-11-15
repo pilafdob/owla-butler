@@ -689,6 +689,7 @@ function renderSourceDiff(container:HTMLElement,batch:EditBatch) {
 class SplitDiffView extends ItemView {
  private path='';
  private decisions = new Map<EditBatch, (boolean | null)[][]>();
+ private resolving = new Set<EditBatch>();
  constructor(leaf:WorkspaceLeaf,private butler:Butler){super(leaf);}
  getViewType(){return DIFF_VIEW;}
  getDisplayText(){return 'OWLA diff';}
@@ -762,19 +763,23 @@ class SplitDiffView extends ItemView {
   this.decisions.set(batch,decisions);
  }
  private async decideHunk(batch:EditBatch,hunkIndex:number,accepted:boolean){
+  if(this.resolving.has(batch))return;
   const decisions=this.decisions.get(batch);
   if(!decisions||!decisions[hunkIndex])return;
   decisions[hunkIndex]=decisions[hunkIndex].map(()=>accepted);
   await this.checkResolved(batch,decisions);
  }
  private async decideLine(batch:EditBatch,hunkIndex:number,lineIndex:number,accepted:boolean){
+  if(this.resolving.has(batch))return;
   const decisions=this.decisions.get(batch);
   if(!decisions||!decisions[hunkIndex])return;
   decisions[hunkIndex][lineIndex]=accepted;
   await this.checkResolved(batch,decisions);
  }
  private async checkResolved(batch:EditBatch,decisions:(boolean|null)[][]){
-  if(decisions.every(hunk=>Array.isArray(hunk)&&hunk.length>0&&hunk.every(item=>item!==null))){
+  if(decisions.every(hunk=>Array.isArray(hunk)&&(hunk.length===0||hunk.every(item=>item!==null)))){
+   if(this.resolving.has(batch))return;
+   this.resolving.add(batch);
    try {
     const keepDecisions=decisions.map(hunk=>hunk.map(item=>item===true));
     const keep=await this.butler.preparePartialEdit(batch,keepDecisions);
@@ -783,6 +788,8 @@ class SplitDiffView extends ItemView {
     this.butler.syncSplitDiff();
    } catch(error){
     new Notice(friendlyError(error));
+   } finally {
+    this.resolving.delete(batch);
    }
   } else {
    this.render();
