@@ -163,7 +163,7 @@ Evidence is in work/attachments-live-result.txt, work/attachments-model-result.t
 
 Removed the added/removed emoji widgets. Additions and removals now use 12% theme-green/theme-red backgrounds. Removed text uses the normal text color. Typecheck, lint, build and release checks passed. A live test-vaultain disposable-note check confirmed no diff emojis, both translucent colors, normal text color and preservation of the existing chat. The installed files and running stylesheet were updated without restarting the chat. Evidence is in work/muted-diff-live-result.txt and work/muted-diff-style-result.txt.
 
-### Diff selector and normal workspace split
+### Diff selector, normal workspace split and per-hunk review
 
 The Diff view setting offers Highlights in editor, None and Split diff view. Legacy enabled toggles migrate to highlights, disabled toggles to none. All 66 automated tests, typecheck, lint, build and release checks passed. Eight live test-vault assertions verified one normal workspace leaf to the right of the note, source Markdown rendering, exact match to the modal diff, mutually exclusive editor highlights, switching modes and Accept in chat closing the resolved pane. The initial acceptance check ran before the asynchronous UI update finished. Waiting for the composer to unlock verified the completed behavior. No Obsidian errors were captured. Evidence is in work/split-diff-qa-result.txt and work/split-diff-unit.log.
 

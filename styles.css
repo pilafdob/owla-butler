@@ -320,3 +320,10 @@ button.owla-source-link:hover,
   margin-top: var(--size-4-4);
   padding-top: var(--size-4-4);
 }
+
+.owla-diff-hunk { position: relative; border: 1px solid var(--background-modifier-border); border-radius: 6px; margin: 6px 0; padding: 4px 4px 4px 0; }
+.owla-diff-hunk.owla-hunk-accepted { opacity: .85; }
+.owla-diff-hunk.owla-hunk-declined { opacity: .7; }
+.owla-hunk-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; z-index: 1; }
+.owla-hunk-button { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 2px 4px; color: var(--text-muted); cursor: pointer; line-height: 1; }
+.owla-hunk-button:hover { color: var(--text-normal); background: var(--background-modifier-hover); }

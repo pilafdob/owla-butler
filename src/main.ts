@@ -1,7 +1,7 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath} from './core';
+import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,applyHunkDecisions} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
@@ -600,6 +600,30 @@ export default class Butler extends Plugin {
    this.resolvingEdits.delete(batch);
   }
  }
+
+ async preparePartialEdit(batch: EditBatch, decisions: boolean[]): Promise<boolean> {
+  const merged = applyHunkDecisions(batch.edit.before, batch.edit.after, decisions);
+  if (merged === batch.edit.before) return false;
+  if (merged === batch.edit.after) return true;
+  const originalAfter = batch.edit.after;
+  batch.edit.after = merged;
+  if (!batch.edit.create && !batch.deferred) {
+   try {
+    const current = await this.currentText(batch.edit.path);
+    if (current === originalAfter) {
+     if (merged !== originalAfter) {
+      await this.apply({path: batch.edit.path, before: originalAfter, after: merged, reason: batch.edit.reason}, undefined);
+     }
+    } else if (current !== merged) {
+     throw Error('The note changed since this proposal. Ask for a fresh edit; your newer text was preserved.');
+    }
+   } catch (error) {
+    batch.edit.after = originalAfter;
+    throw error;
+   }
+  }
+  return true;
+ }
 }
 function commonChange(before:string,after:string){let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;let end=before.length,newEnd=after.length;while(end>start&&newEnd>start&&before[end-1]===after[newEnd-1]){end--;newEnd--;}return {start,end,text:after.slice(start,newEnd)};}
 class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
@@ -664,6 +688,7 @@ function renderSourceDiff(container:HTMLElement,batch:EditBatch) {
 }
 class SplitDiffView extends ItemView {
  private path='';
+ private decisions = new Map<EditBatch, (boolean | null)[]>();
  constructor(leaf:WorkspaceLeaf,private butler:Butler){super(leaf);}
  getViewType(){return DIFF_VIEW;}
  getDisplayText(){return 'OWLA diff';}
@@ -680,8 +705,61 @@ class SplitDiffView extends ItemView {
    for(const item of pending)select.createEl('option',{text:item.edit.path,value:item.edit.path});
    select.value=this.path;select.onchange=()=>{this.path=select.value;this.render();};
   }
-  this.contentEl.createEl('p',{text:'Accept or decline these changes in OWLA chat.',cls:'setting-item-description'});
-  renderSourceDiff(this.contentEl.createDiv('owla-split-diff-content'),batch);
+  this.contentEl.createEl('p',{text:'Accept or decline each change with the icons below, or use the chat buttons for the whole batch.',cls:'setting-item-description'});
+  const reasonsList=this.contentEl.createEl('ul');
+  for(const reason of batch.reasons)reasonsList.createEl('li',{text:reason});
+  for(const warning of editWarnings(batch.edit.before,batch.edit.after))this.contentEl.createEl('p',{text:warning,cls:'owla-review-warning'});
+  const diff=this.contentEl.createDiv('owla-diff owla-split-diff-content');
+  this.renderDiff(diff,batch);
+ }
+ private renderDiff(container:HTMLElement,batch:EditBatch){
+  const decisions=this.decisions.get(batch) ?? [];
+  const parts=diffLines(batch.edit.before,batch.edit.after);
+  let hunkIndex=-1;
+  let inChanged=false;
+  for(const part of parts){
+   if(part.added || part.removed){
+    if(!inChanged){
+     inChanged=true;
+     hunkIndex+=1;
+     if(decisions[hunkIndex]===undefined)decisions[hunkIndex]=null;
+     const hunk=container.createDiv('owla-diff-hunk');
+     const actions=hunk.createDiv('owla-hunk-actions');
+     const acceptButton=actions.createEl('button',{cls:'owla-hunk-button',attr:{'aria-label':'Accept this change','title':'Accept this change'}});
+     setIcon(acceptButton,'check');
+     const declineButton=actions.createEl('button',{cls:'owla-hunk-button',attr:{'aria-label':'Decline this change','title':'Decline this change'}});
+     setIcon(declineButton,'x');
+     const decision=decisions[hunkIndex];
+     if(decision===true)hunk.addClass('owla-hunk-accepted');
+     if(decision===false)hunk.addClass('owla-hunk-declined');
+     acceptButton.onclick=()=>void this.decideHunk(batch,hunkIndex,true);
+     declineButton.onclick=()=>void this.decideHunk(batch,hunkIndex,false);
+    }
+    const hunk=container.lastElementChild as HTMLElement;
+    hunk.createEl('pre',{text:part.value,cls:part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged'});
+   } else {
+    inChanged=false;
+    container.createEl('pre',{text:part.value,cls:'owla-unchanged'});
+   }
+  }
+  this.decisions.set(batch,decisions);
+ }
+ private async decideHunk(batch:EditBatch,hunkIndex:number,accepted:boolean){
+  const decisions=this.decisions.get(batch);
+  if(!decisions)return;
+  decisions[hunkIndex]=accepted;
+  if(decisions.every(item=>item!==null)){
+   try {
+    const keep=await this.butler.preparePartialEdit(batch,decisions.map(item=>item===true));
+    await this.butler.view?.decideEdit(batch,keep);
+    this.decisions.delete(batch);
+    this.butler.syncSplitDiff();
+   } catch(error){
+    new Notice(friendlyError(error));
+   }
+  } else {
+   this.render();
+  }
  }
 }
 class EditDiff extends Modal {
@@ -1568,6 +1646,33 @@ export class ButlerView extends ItemView {
   this.status.setText(message);
  }
 
+ async decideEdit(batch: EditBatch, keep: boolean) {
+  const edit = batch.edit;
+  try {
+   if (!await this.butler.resolveEdit(batch, keep)) return;
+   this.relatedReview?.decisions.set(edit.path, keep ? 'accepted' : 'declined');
+   const changeCard = this.editCards.get(batch);
+   const open = () => void this.openChangedPath(edit.path);
+   changeCard?.(keep ? (edit.create ? 'Created' : 'Edited') : edit.create ? 'Draft declined' : 'Edit declined', !keep && edit.create ? null : open);
+   if (keep && edit.create) this.latestUndo = null;
+   if (keep && !edit.create) this.latestUndo = async () => {
+    try {
+     await this.butler.restoreEdit(edit);
+     this.latestUndo = null;
+     changeCard?.('Edit undone', open);
+     new Notice('Accepted edit undone.');
+    } catch (e) {
+     new Notice(friendlyError(e));
+    }
+   };
+   new Notice(keep ? (edit.create ? 'Created ' + edit.path : 'Changes accepted.') : 'Changes declined.');
+   this.renderPendingEdits();
+   if (!this.awaitingReview) this.status.setText('Ready for your next message');
+  } catch (e) {
+   new Notice(friendlyError(e));
+  }
+ }
+
  renderPendingEdits() {
   refreshEditorDiff();
   if (this.butler.prefs.diffView === 'split') this.butler.syncSplitDiff();
@@ -1620,30 +1725,7 @@ export class ButlerView extends ItemView {
    row.createEl('button',{text:'View diff'}).onclick = () => new EditDiff(this.app,this.butler,batch).open();
    const decide = async (keep:boolean) => {
     accept.disabled = decline.disabled = true;
-    try {
-     if (!await this.butler.resolveEdit(batch,keep)) return;
-     this.relatedReview?.decisions.set(edit.path,keep?'accepted':'declined');
-     const changeCard=this.editCards.get(batch);
-     const open=()=>void this.openChangedPath(edit.path);
-     changeCard?.(keep?(edit.create?'Created':'Edited'):edit.create?'Draft declined':'Edit declined',!keep&&edit.create?null:open);
-     if(keep&&edit.create)this.latestUndo=null;
-     if (keep&&!edit.create) this.latestUndo = async () => {
-      try {
-       await this.butler.restoreEdit(edit);
-       this.latestUndo = null;
-       changeCard?.('Edit undone',open);
-       new Notice('Accepted edit undone.');
-      } catch (e) {
-       new Notice(friendlyError(e));
-      }
-     };
-     new Notice(keep ? (edit.create?'Created '+edit.path:'Changes accepted.') : 'Changes declined.');
-     this.butler.view?.renderPendingEdits();
-     if (!this.awaitingReview) this.butler.view?.status.setText('Ready for your next message');
-    } catch (e) {
-     accept.disabled = decline.disabled = false;
-     new Notice(friendlyError(e));
-    }
+    await this.decideEdit(batch, keep);
    };
    accept.onclick = () => void decide(true);
    decline.onclick = () => void decide(false);
