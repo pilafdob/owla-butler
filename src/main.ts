@@ -841,6 +841,10 @@ class ButlerView extends ItemView {
  private lastAutomaticTaskKind?:TaskKind;
  private readonly degradationNotifier=new DegradationNotifier();
  private offeredToolNames:Set<string>|null=null;
+ private providerIndicator:HTMLElement|null=null;
+ private webSearchChatConsent:boolean|null=null;
+ private webSearchTurnConsent=false;
+ private webSearchConsentBar:HTMLElement|null=null;
  private selectingRoute=false;
  private readonly sourceLinks=new Map<string,{path:string;fragment:string}>();
  private readonly editCards=new WeakMap<EditBatch,ChangeCardUpdate>();
@@ -924,9 +928,18 @@ class ButlerView extends ItemView {
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
   const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:t('button.attach'),cls:'owla-small-button'});setTooltip(attach,t('tooltip.attachFiles'));attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:t('button.addNote'),cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:t('button.chooseModel'),cls:'owla-model',attr:{'aria-label':t('button.chooseModel')}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:t('button.send'),cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
+  this.providerIndicator=toolbar.createSpan({text:t('label.automaticSelection'),cls:'owla-provider-indicator'});
   this.automaticLabel=toolbar.createEl('button',{text:t('label.automaticSelection'),cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
   setTooltip(this.automaticLabel,t('tooltip.overrideModelEffort'));
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
+  this.webSearchConsentBar=composerWrap.createDiv('owla-web-search-consent owla-hidden');
+  this.webSearchConsentBar.createDiv({text:t('notice.webSearchConsent'),cls:'owla-web-search-consent-text'});
+  const allowOnce=this.webSearchConsentBar.createEl('button',{text:t('button.allowOnce'),cls:'owla-small-button'});
+  allowOnce.onclick=()=>{this.webSearchTurnConsent=true;this.renderWebSearchConsent();};
+  const allowChat=this.webSearchConsentBar.createEl('button',{text:t('button.allowForChat'),cls:'owla-small-button'});
+  allowChat.onclick=()=>{this.webSearchChatConsent=true;this.webSearchTurnConsent=false;this.renderWebSearchConsent();};
+  const deny=this.webSearchConsentBar.createEl('button',{text:t('button.dontSearch'),cls:'owla-small-button'});
+  deny.onclick=()=>{this.webSearchChatConsent=false;this.webSearchTurnConsent=false;this.renderWebSearchConsent();};
   this.status=this.contentEl.createDiv({text:'Codex',cls:'owla-status'});this.refreshModel();this.renderConnection();this.renderPendingEdits();
  }
  async chooseModel(){
@@ -1221,6 +1234,12 @@ class ButlerView extends ItemView {
   this.automaticLabel?.toggleClass('owla-hidden',!automaticModels);
   if(this.automaticLabel)this.automaticLabel.disabled=this.isBusy();
   if(!automaticModels)this.nextRoute=undefined;const modelPrefs=this.butler.modelPrefs;const modelLabel='Choose '+this.butler.providerName(this.butler.activeProvider)+' model';this.modelLabel?.setText(modelPrefs.model||modelLabel);if(this.modelLabel)setTooltip(this.modelLabel,modelPrefs.model?modelLabel+' · '+modelPrefs.model:modelLabel);if(this.effortSelect){this.effortSelect.empty();const model=this.butler.bridge.resolveModel(modelPrefs.model);for(const e of model?.supportedReasoningEfforts??[])this.effortSelect.createEl('option',{value:e.reasoningEffort,text:e.reasoningEffort});if(!model)this.effortSelect.createEl('option',{value:modelPrefs.reasoning,text:modelPrefs.reasoning||'Reasoning'});this.effortSelect.value=modelPrefs.reasoning;this.effortSelect.disabled=this.isBusy();}}
+ renderWebSearchConsent(){
+  if(!this.webSearchConsentBar)return;
+  const needs=this.butler.prefs.webSearch&&(this.notes.size||this.folders.size||this.pdfs.length||this.selections.length||this.images.length);
+  const resolved=this.webSearchChatConsent!==null||this.webSearchTurnConsent;
+  this.webSearchConsentBar.toggleClass('owla-hidden',!(needs&&!resolved));
+ }
  isBusy(){return !!this.controller;}
  pickImage(){this.imageInput.click();}
  private vaultDropEntries(uris:string):TAbstractFile[] {
@@ -1348,6 +1367,7 @@ class ButlerView extends ItemView {
   for(const path of this.folders)chip(path,()=>this.folders.delete(path),'folder');
   this.pdfs.forEach((file,i)=>chip(file.source,()=>this.pdfs.splice(i,1),'file-text'));
   this.images.forEach((im,i)=>chip(im.name,()=>this.images.splice(i,1),'image',im.url));
+  this.renderWebSearchConsent();
  }
  stop(){
   this.controller?.abort();
@@ -1919,7 +1939,7 @@ class ButlerView extends ItemView {
  }
  let provider=this.butler.activeProvider;
  let bridge=this.butler.bridge;
- const web=this.butler.prefs.webSearch,automatic=this.butler.automaticModels;
+ const automatic=this.butler.automaticModels;
  const override=automatic?this.nextRoute:undefined;
  // The Automatic provider connects every candidate itself, unless a one-message override names the model.
  const choosesProvider=autoProvider&&!override;
@@ -1928,6 +1948,13 @@ class ButlerView extends ItemView {
  const organization:OrganizationDraft={};
  let toolQueue:Promise<unknown>=Promise.resolve();
  const captured=this.butler.capture(),pdfs=[...this.pdfs],images=[...this.images],selected=[...this.selections],notes=[...this.notes],folders=[...this.folders],epoch=this.attachmentEpoch;
+ const hasNoteContent=!!(captured||notes.length||folders.length||pdfs.length||selected.length||images.length);
+ const baseWeb=this.butler.prefs.webSearch;
+ let web=baseWeb;
+ if(baseWeb&&hasNoteContent){
+  if(this.webSearchChatConsent===false)web=false;
+  else if(this.webSearchChatConsent!==true&&!this.webSearchTurnConsent)web=false;
+ }
  const sourcePath=captured?.path??this.app.workspace.getActiveFile()?.path??'';
  const draft:Draft={text:draftText,images,pdfs,selections:selected,notes,folders};
  const previousPdfs=new Map(this.pdfAttachments),previousText=new Map(this.textAttachments);
@@ -2121,7 +2148,7 @@ class ButlerView extends ItemView {
   this.status.setText(this.butler.providerName(provider)+' is responding…');
   turnStartMs=Date.now();
   try{
-   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route!.model,effort:route!.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
+   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route!.model,effort:route!.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>{activity.createDiv({text:message,cls:'owla-activity'});this.status.setText(message);},tool:(name,args)=>{
     toolsUsed=true;
     const operation=toolQueue.then(()=>{
      if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
@@ -2354,7 +2381,7 @@ class ButlerView extends ItemView {
  content.createDiv({text:message,cls:'owla-error'});
  if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText('Draft restored · '+message);}
  else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:t('chat.restoreDraft')});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice(t('notice.clearDraftBeforeRestore'));return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
- finally{heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.offeredToolNames=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
+ finally{heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.offeredToolNames=null;this.webSearchTurnConsent=false;this.renderWebSearchConsent();this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
  }
  private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
   const {provider,choosesProvider,task,home,needsImage,failed}=opts;
