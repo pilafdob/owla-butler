@@ -94,3 +94,20 @@ test('a spent console budget does not rule out Go’s paid models in automatic s
  const paid=scored.find(item=>item.entry.key===goPaid.id);
  assert.ok(paid?.eligible,'the Go paid model stays eligible when only a console budget is low');
 });
+
+test('SessionModelAvailability recognizes provider-specific refusals', async () => {
+ const {SessionModelAvailability} = await import('../src/opencode-availability');
+ const gate = new SessionModelAvailability();
+ assert.equal(gate.recordFailure('codex', 'gpt-6-astra', 'Model not found: gpt-6-astra').refused, true);
+ assert.equal(gate.available('codex', 'gpt-6-astra'), false);
+ assert.equal(gate.recordFailure('claude', 'opus', 'permission denied for model opus').refused, true);
+ assert.equal(gate.available('claude', 'opus'), false);
+});
+
+test('SessionModelAvailability.clear lifts all session refusals', async () => {
+ const {SessionModelAvailability} = await import('../src/opencode-availability');
+ const gate = new SessionModelAvailability();
+ gate.recordFailure('codex', 'gpt-6-astra', 'Model hosted outside your workspace privacy regions.');
+ gate.clear();
+ assert.equal(gate.available('codex', 'gpt-6-astra'), true);
+});

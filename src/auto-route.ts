@@ -298,7 +298,7 @@ export function calibrateTask(task:TaskClass,prompt:string,context?:RoutingConte
  const difficulty=Math.min(kind===task.kind?task.difficulty:Math.max(task.difficulty,KIND_FLOOR[kind]),KIND_CEILING[kind]);
  const capForLevel=difficulty<=1?cal.effortCaps[1]:difficulty===2?cal.effortCaps[2]:difficulty===3?cal.effortCaps[3]:difficulty===4||!cal.effortCaps.maxKinds.includes(kind)?cal.effortCaps[4]:cal.effortCaps[5];
  const effort=EFFORT_SCALE.indexOf(task.effort)>EFFORT_SCALE.indexOf(capForLevel)?capForLevel:task.effort;
- const forced=editWordsRegex.test(prompt)||!!context?.attachments.some(item=>item.kind!=='image');
+ const forced=editWordsRegex.test(prompt)||!!context?.attachments?.some(item=>item.kind!=='image');
  // Apple's model answers tools:true for nearly every request (measured live: 29 of 30
  // evaluation prompts). Keep its yes only when the request points into the vault.
  const tools=forced||kind==='edit'||kind==='organisation'||task.tools&&(options?.trustTools===true||VAULT_REFERENCE.test(prompt));
@@ -320,7 +320,7 @@ const KIND_FLOOR:Record<TaskKind,number>={lookup:1,edit:1,transcription:1,vision
  * web verification labelled lookup, and image transcription labelled writing.
  */
 function correctKind(task:TaskClass,prompt:string,context?:RoutingContext):TaskKind{
- const images=(context?.attachments.filter(item=>item.kind==='image').length??0)+(context?.attachedImages??0);
+ const images=(context?.attachments?.filter(item=>item.kind==='image').length??0)+(context?.attachedImages??0);
  if(PROOF_WORDS.test(prompt)&&!WEB_WORDS.test(prompt)&&['research','lookup','writing','synthesis'].includes(task.kind))return 'reasoning';
  if(WEB_WORDS.test(prompt)&&(task.kind==='lookup'||task.kind==='writing'))return 'research';
  if(images>0&&TRANSCRIBE_WORDS.test(prompt)&&task.kind!=='transcription')return 'transcription';

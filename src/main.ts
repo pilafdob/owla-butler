@@ -422,9 +422,15 @@ export default class Butler extends Plugin {
  async disconnectProvider(provider:ProviderId=this.activeProvider){
   if(this.view?.isBusy())throw Error('Stop the current reply first.');
   this.prefs[`${provider}Connected`]=false;
+  this.sessionAvailability.clear();
   this.view?.clearWarmup();
   this.bridgeFor(provider).accountType=undefined;
   this.bridgeFor(provider).disconnect();
+  if(this.activeProvider===provider){
+   const next=PROVIDER_IDS.find(id=>id!==provider&&this.prefs[`${id}Connected`]);
+   if(next)this.prefs.provider=next;
+   this.fallbackProvider=null;
+  }
   this.refreshConnection();
   await this.save();
  }
@@ -1995,7 +2001,7 @@ export class ButlerView extends ItemView {
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
   const needsImg=!!(inputImages.length||this.pdfAttachments.size);
   let entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
-  if(!entries.length)entries=autoEntries(offers,needsImg);
+  if(!entries.length)entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
   const home=this.butler.prefs.provider;
   autoOffers=offers;autoHome=home;
   if(!hasFoundationModelsCLI()){
@@ -2047,7 +2053,7 @@ export class ButlerView extends ItemView {
    // Clear-cut requests are settled locally in milliseconds; Apple's model decides the rest.
    const quick=quickPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory);
    if(quick){route={model:quick.model,effort:quick.effort};autoTask=quick.task;}
-   else route=await routeWithFoundationModels(prompt,candidates,signal,routingContext,provider);
+   else {autoTask=heuristicTaskClass(prompt,routingContext,true)!;route=await routeWithFoundationModels(prompt,candidates,signal,routingContext,provider);}
    activity.createDiv({text:'Automatic selection · '+route.model+' · '+route.effort+(quick?' · local':''),cls:'owla-activity'});
    this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
   }catch(error){
@@ -2111,7 +2117,7 @@ export class ButlerView extends ItemView {
       mode:this.butler.prefs.routingMode,
       history:this.butler.routingHistory,
      })
-     :await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,failed:failedRoutes,specs,signal});
+     :await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
     if(escalated){
      qualityEscalations++;
      if(escalated.provider!==provider){
@@ -2162,7 +2168,7 @@ export class ButlerView extends ItemView {
    const failedModel=route!.model,failureReason=provider==='opencode'&&this.butler.opencodeFailure?.reason?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
    let next:AutoRoute|null=null;
    if(retryable){
-    next=await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),failed:failedRoutes,specs,signal});
+    next=await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
    }
    if(!next)throw error;
    autoAttempts++;
@@ -2316,7 +2322,7 @@ export class ButlerView extends ItemView {
  else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:'Restore draft'});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice('Send or clear the current draft before restoring this one.');return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
  finally{heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
  }
- private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
+ private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
   const {provider,choosesProvider,task,home,needsImage,failed}=opts;
   const failedKey=(p:ProviderId,m:string)=>failed.some(item=>item.provider===p&&item.model===m);
   // The bridges know what was refused since the offers were collected: a
@@ -2326,7 +2332,7 @@ export class ButlerView extends ItemView {
    return {...offer,models:baseModels.filter(m=>this.butler.sessionAvailability.available(offer.provider,modelKey(offer.provider,m)))};
   });
   if(choosesProvider){
-   const entries=autoEntries(offers,needsImage).filter(entry=>!failedKey(entry.provider,entry.key)&&!this.butler.recordExhaustion(entry.provider).exhausted);
+   const entries=autoEntries(offers,needsImage,opts.estimatedTokens).filter(entry=>!failedKey(entry.provider,entry.key)&&!this.butler.recordExhaustion(entry.provider).exhausted);
    if(!entries.length)return null;
    try{
     if(task)return pickRoute(entries,offers,task,home,Date.now()/1000,undefined,this.butler.prefs.routingMode,this.butler.routingHistory);
@@ -2338,7 +2344,7 @@ export class ButlerView extends ItemView {
    // The full selectable list, not only the curated six, so a run of refusals
    // can still reach a model that works.
    const current=this.butler.bridgeFor(provider).selectableModels.filter(m=>this.butler.sessionAvailability.available(provider,modelKey(provider,m)));
-   const pool=[...routingModels(currentModels(provider,current),needsImage),...routingModels(current,needsImage)];
+   const pool=routingModels(current,needsImage,opts.estimatedTokens);
    const filtered=pool.filter((model,index)=>!failedKey(provider,modelKey(provider,model))&&pool.findIndex(other=>other.id===model.id)===index);
    if(!filtered.length)return null;
    let picked:CodexRoute;
@@ -2357,7 +2363,7 @@ export class ButlerView extends ItemView {
    opts.signal.throwIfAborted();
   }
   if(!bridge.selectableModels.length)return null;
-  const nextCandidates=routingModels(currentModels(nextProvider,bridge.selectableModels),needsImage).filter(model=>!failedKey(nextProvider,modelKey(nextProvider,model)));
+  const nextCandidates=routingModels(currentModels(nextProvider,bridge.selectableModels,undefined,opts.estimatedTokens),needsImage,opts.estimatedTokens).filter(model=>!failedKey(nextProvider,modelKey(nextProvider,model)));
   if(!nextCandidates.length)return null;
   let picked:CodexRoute;
   try{picked=fallbackRoute(nextCandidates,{model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning},nextProvider);}catch{return null;}

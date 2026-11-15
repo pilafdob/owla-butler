@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {autoEntries,autoFallbackRoute,classifyInstructions,decodeTaskClass,nearestEffort,offeredEntries,pickRoute,remainingUsage,scoreEntries,type ProviderOffer,type TaskClass} from '../src/auto-route';
+import {autoEntries,autoFallbackRoute,calibrateTask,classifyInstructions,decodeTaskClass,nearestEffort,offeredEntries,pickRoute,remainingUsage,scoreEntries,type ProviderOffer,type TaskClass} from '../src/auto-route';
 import {currentModels,modelProfile} from '../src/model-profiles';
 import {migrateSettings} from '../src/core';
 import type {ProviderModel} from '../src/provider';
@@ -608,4 +608,18 @@ test('the on-device warm-up runs at most once per warm window',async()=>{
   setFoundationModelsCLIOverrideForTests(null);
   resetFoundationModelsWarmthForTests();
  }
+});
+
+test('calibrateTask handles a context with no attachments array', () => {
+ const task = decodeTaskClass('{"difficulty":2,"kind":"lookup","tools":false,"effort":"low"}');
+ const result = calibrateTask(task, 'what is 2+2?', {activeNote: false, selections: 0, recentMessages: 0, previousImages: 0, previousPdfs: 0, webSearch: true} as never);
+ assert.equal(result.tools, false);
+});
+
+test('autoEntries keeps context-window filtering when called as a fallback', () => {
+ const wide = model('wide-model', 'Wide', 'low/high', {context: 1000000});
+ const narrow = model('narrow-model', 'Narrow', 'low/high', {context: 1000});
+ const offer: ProviderOffer = {provider: 'codex', models: [wide, narrow]};
+ assert.equal(autoEntries([offer], false, 500000).some(entry => entry.key === 'narrow-model'), false);
+ assert.equal(autoEntries([offer], false, 500000).some(entry => entry.key === 'wide-model'), true);
 });
