@@ -9,6 +9,14 @@ test('an excluded folder cannot be reached through a different case or Unicode s
  // A folder that only shares a prefix stays reachable.
  assert.equal(allowedPath('Privateer/Note.md','Private'),true);
 });
+test('Unicode case folds do not bypass an excluded folder',()=>{
+ assert.equal(allowedPath('\u017fecret/x.md','Secret'),false);
+ assert.equal(allowedPath('\u03c2\u03bf\u03c6\u03af\u03b1/x.md','\u03a3\u03bf\u03c6\u03af\u03b1'),false);
+});
+test('invalid path segments are rejected',()=>{
+ for(const p of ['a\u0000b.md','a:b.md','a\u0001b.md','Foo./x.md','Foo /x.md','~/x.md'])assert.equal(allowedPath(p),false,p);
+ assert.equal(allowedPath('Notes/x.md'),true);
+});
 test('vault containment follows Windows case-insensitive path semantics',()=>{assert.equal(isPathInside('C:\\Vault','c:\\vault\\Notes\\A.md','win32'),true);assert.equal(isPathInside('C:\\Vault','C:\\Vault\\..\\Outside.md','win32'),false);assert.equal(isPathInside('C:\\Vault','C:\\Vault','win32'),false);});
 test('Apple-only automatic selection settings are cleared on other platforms',()=>{const settings={...DEFAULTS,automaticProvider:true,automaticRouting:true};assert.deepEqual(disableAutomaticSelectionOutsideMac(settings,'win32'),{...settings,automaticProvider:false,automaticRouting:false});assert.equal(disableAutomaticSelectionOutsideMac(settings,'darwin'),settings);});
 test('small replacement preserves academic metadata and untouched content',()=>{const s='---\ncitekey: smith2024\n---\n[[Related]]\nThe result is 4.\n![[image.png]]\n';const p=proposal('A.md',s,'The result is 4.','The result is $x=4$.','Format math');assert.equal(p.after,s.replace('The result is 4.','The result is $x=4$.'));});
@@ -22,6 +30,15 @@ test('stream formats',()=>{assert.deepEqual(parseJsonLine('data: {"a":1}'),{a:1}
 test('simple transcribed equations become display math without changing symbols',()=>{assert.equal(formatTranscription(' Solve: 2x + 3 = 11'),'Solve:\n\n$$\n2x + 3 = 11\n$$');assert.equal(formatTranscription('This is a paragraph.'),'This is a paragraph.');});
 test('Markdown insertion cannot corrupt YAML and separates multiline blocks',()=>{assert.throws(()=>insertion('A.md','---\ntitle: Test\n---\nBody','$$\nx=4\n$$',5),/Properties/);assert.equal(insertion('A.md','text here','$$\nx=4\n$$',4).after,'text\n\n$$\nx=4\n$$\n\n here');});
 test('rendered model content cannot automatically embed remote images',()=>{assert.equal(displayMarkdown('![private](https://example.com/a.png)'),'[private](https://example.com/a.png)');assert.equal(displayMarkdown('<img src="https://example.com/a">'),'');});
+test('rendered replies sanitize dangerous markup and links',()=>{
+ const payloads=['<script>alert(1)</script>','<svg onload="alert(1)"></svg>','<input type="image" src="https://example.com/a">','<p style="background:url(https://example.com/a)">x</p>','<table background="https://example.com/a"><tr><td>x</td></tr></table>','<a href="javascript:alert(1)">x</a>','<a href="data:text/html;base64,AAAA">x</a>','<img src="x" srcset="https://example.com/a 2x">'];
+ for(const payload of payloads){
+  const out=displayMarkdown(payload);
+  assert.doesNotMatch(out,/script|onload|javascript:|data:|srcset|background=|<input|<svg/i,payload);
+ }
+ assert.equal(displayMarkdown('<a href="https://example.com/a">x</a>'),'<a href="https://example.com/a">x</a>');
+ assert.equal(displayMarkdown('<a href="obsidian://open">x</a>'),'<a href="obsidian://open">x</a>');
+});
 
 
 test('vault recovery and chat namespaces are stable and separated',async()=>{const {vaultStorageKey}=await import('../src/core');assert.equal(vaultStorageKey('/vault/A'),vaultStorageKey('/vault/A'));assert.notEqual(vaultStorageKey('/vault/A'),vaultStorageKey('/vault/B'));assert.match(vaultStorageKey('/vault/A'),/^[a-f0-9]{20}$/);});

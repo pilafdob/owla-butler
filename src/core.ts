@@ -123,11 +123,11 @@ export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platf
  * an exclusion the user set. Unicode is compared in the normalized form that
  * APFS stores, so `café` and `café` are one folder.
  */
-const foldPath=(value:string)=>value.normalize('NFC').toLowerCase();
+const foldPath=(value:string)=>value.normalize('NFC').toUpperCase().toLowerCase();
 export {foldPath};
 const excludedCache=new Map<string,string[]>();
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
- if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
+ if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')||p.endsWith('.')||p.endsWith(' ')||p==='~'||p.includes('\u0000')||p.includes(':')||/[\p{Cc}]/u.test(p)))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
  const cacheKey=excluded;
@@ -211,7 +211,35 @@ export function formatTranscription(text:string):string {
   return (m[1]?m[1]+'\n\n':'')+'$$\n'+equation+'\n$$';
  }).join('\n');
 }
-export function displayMarkdown(text:string):string {return text.replace(/!\[/g,'[').replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');}
+export function displayMarkdown(text:string):string {
+ let out=text.replace(/!\[/g,'[');
+ // Remove executable/foreign-content tags entirely.
+ out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,'');
+ out=out.replace(/<(?:script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');
+ // Remove media/embed tags.
+ out=out.replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');
+ // Sanitize attributes on remaining tags.
+ out=out.replace(/<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g,(_m:string,tag:string,attrs:string)=>{
+  const name=tag.toLowerCase();
+  let a=attrs;
+  a=a.replace(/\s+style\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'');
+  a=a.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'');
+  const forbidden=name==='a'?['src','srcset','poster','background']:['src','href','srcset','poster','background'];
+  for(const attr of forbidden){
+   const re=new RegExp('\\s+'+attr+'\\s*=\\s*("[^"]*"|\'[^\']*\'|[^\\s>]+)','gi');
+   a=a.replace(re,'');
+  }
+  if(name==='a'){
+   a=a.replace(/\shref\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,(mm:string)=>{
+    const value=mm.match(/=(.*)/)?.[1]?.replace(/^['"]|['"]$/g,'').trim()??'';
+    if(/^https?:/i.test(value)||/^obsidian:/i.test(value))return mm;
+    return '';
+   });
+  }
+  return '<'+tag+a+'>';
+ });
+ return out;
+}
 export function insertion(path:string,before:string,content:string,start:number,end=start):Proposal {
  if(start<0||end<start||end>before.length)throw Error('The insertion position is no longer valid.');
  const frontmatter=before.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);if(frontmatter&&start<frontmatter[0].length)throw Error('Place the cursor in the note body, outside Properties, before inserting Markdown.');
