@@ -15,8 +15,8 @@ export function markdownSource(value:string):string{return value.replace(/([\\`*
 
 // Obsidian exposes PDF.js as an untyped host module. These are the API parts
 // used by the attachment reader; no second PDF.js bundle is needed.
-interface PdfViewport{width:number;height:number;}
-interface PdfRenderTask{promise:Promise<void>;cancel():void;}
+export interface PdfViewport{width:number;height:number;}
+export interface PdfRenderTask{promise:Promise<void>;cancel():void;}
 export interface PdfPage{
  getViewport(options:{scale:number}):PdfViewport;
  getTextContent():Promise<{items:unknown[]}>;
@@ -24,7 +24,7 @@ export interface PdfPage{
  cleanup():void;
 }
 export interface PdfDocument{numPages:number;getPage(page:number):Promise<PdfPage>;destroy():Promise<void>;}
-interface PdfLoadingTask{promise:Promise<PdfDocument>;onPassword?:()=>void;destroy():Promise<void>;}
+export interface PdfLoadingTask{promise:Promise<PdfDocument>;onPassword?:()=>void;destroy():Promise<void>;}
 export interface PdfJs{getDocument(options:{data:Uint8Array;isEvalSupported:boolean;useSystemFonts:boolean}):PdfLoadingTask;}
 
 interface PdfRange {page?:number;endPage?:number;offset?:number;}

@@ -1,7 +1,7 @@
 import {mkdirSync,readFileSync,writeFileSync,readdirSync,statSync,unlinkSync,existsSync,renameSync} from 'node:fs';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {EditBatch,Proposal,allowedPath} from './core';
+import {EditBatch,Proposal} from './core';
 import {record} from './validation';
 export function backupEdit(root:string,edit:Proposal):void{
  const dir=join(root,'edit-backups');mkdirSync(dir,{recursive:true,mode:0o700});
@@ -15,7 +15,7 @@ export function rotateLog(path:string):void{if(existsSync(path)&&statSync(path).
 
 const MAX_PENDING_BYTES = 10_000_000;
 
-export function loadPendingEdits(root:string,excluded:string=''):EditBatch[] {
+export function loadPendingEdits(root:string):EditBatch[] {
  const file = join(root, 'pending-edits.json');
  if (!existsSync(file)) return [];
  if (statSync(file).size > MAX_PENDING_BYTES) throw Error('The pending edit record is too large.');
@@ -33,7 +33,6 @@ export function loadPendingEdits(root:string,excluded:string=''):EditBatch[] {
       paths.has(path) || (entry.deferred!==undefined&&entry.deferred!==true) || (create!==undefined&&(create!==true||before!==''))) {
    throw Error('The pending edit record is invalid.');
   }
-  if(!allowedPath(path,excluded)) throw Error('A pending edit path is no longer allowed: '+path);
   paths.add(path);
   edits.push({edit:{path,before,after,reason,...(create===true?{create:true as const}:{})},reasons,...(entry.deferred===true?{deferred:true as const}:{})});
  }

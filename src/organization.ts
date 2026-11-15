@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {allowedPath,foldPath} from './core';
 import {record} from './validation';
 
-type PathMove={from:string;to:string};
+export type PathMove={from:string;to:string};
 export type OrganizationReview={
  moves:PathMove[];
  reason:string;
@@ -145,12 +145,7 @@ export class Organization {
  }
  private safeSource(path:string){
   if(!this.allowed(path))return false;
-  if(this.ancestorSymlink(path))return false;
-  const stat=this.stat(path);
-  const targetStat=statSync(join(this.base()||'',path),{throwIfNoEntry:false});
-  if(targetStat?.isFile()&&targetStat.nlink>1)return false;
-  if(stat?.isFile()&&stat.nlink>1)return false;
-  return true;
+  return !this.ancestorSymlink(path);
  }
 
  private tree(path:string):string[][]{
@@ -159,9 +154,8 @@ export class Organization {
   if(!base)throw Error('Organization requires a desktop vault.');
   const visit=(current:string)=>{
    const stat=this.stat(current);
-   const targetStat=statSync(join(base,current),{throwIfNoEntry:false});
    if(result.length>=5000)throw Error('This folder has too many entries for one review.');
-   if(!stat||stat.isSymbolicLink()||!this.allowed(current)||(targetStat?.isFile()&&targetStat.nlink>1))throw Error('A source contains an excluded, missing, hard-linked or symbolic-link entry.');
+   if(!stat||stat.isSymbolicLink()||!this.allowed(current))throw Error('A source contains an excluded, missing or symbolic-link entry.');
    result.push([current,String(stat.dev),String(stat.ino),stat.isDirectory()?'folder':String(stat.size),stat.isDirectory()?'':String(stat.mtimeMs)]);
    if(stat.isDirectory())for(const child of readdirSync(join(base,current)).sort())visit(current+'/'+child);
   };
@@ -174,7 +168,6 @@ export class Organization {
   for(let folder=parent(path);folder;folder=parent(folder)){
    const stat=this.stat(folder);
    if(stat&&(!stat.isDirectory()||stat.isSymbolicLink()||!this.allowed(folder)))throw Error('A destination folder is blocked or unsafe.');
-   if(stat&&this.app.vault.getFolderByPath(folder)?.path!==folder)throw Error('A destination folder is not indexed under its exact spelling.');
   }
  }
 

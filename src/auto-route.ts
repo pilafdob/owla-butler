@@ -57,12 +57,12 @@ export type ProviderOffer={
  preferred?:{model:string;effort:string};
 };
 
-type AutoEntry={provider:ProviderId;model:ProviderModel;key:string};
+export type AutoEntry={provider:ProviderId;model:ProviderModel;key:string};
 /** `writes`: the request changes the vault (edits, new notes, moves), set by calibrateTask. */
 export type TaskClass={difficulty:number;kind:TaskKind;tools:boolean;effort:string;writes?:boolean};
 
 const EFFORT_SCALE=['none','minimal','low','medium','high','xhigh','max'];
-const AUTO_FIELDS:RouteSchemaFields={
+export const AUTO_FIELDS:RouteSchemaFields={
  difficulty:{type:'integer',enum:[1,2,3,4,5]},
  kind:{type:'string'},
  tools:{type:'boolean'},
@@ -88,7 +88,7 @@ const KIND_SYNONYMS:[RegExp,TaskKind][]=[
 ];
 
 /** Calibration data structure (C3). */
-type RoutingCalibration={
+export type RoutingCalibration={
  kindCeiling:Record<TaskKind,number>;
  editVerbs:string[];
  editTargets:string[];
@@ -554,7 +554,7 @@ export function scoreEntries(
 }
 
 /** In-memory audit log of the last 50 routing decisions (B11). */
-type RoutingDecisionRecord={
+export type RoutingDecisionRecord={
  timestamp:number;
  kind:TaskKind;
  difficulty:number;
@@ -567,7 +567,7 @@ type RoutingDecisionRecord={
 const MAX_ROUTING_DECISIONS=50;
 const routingDecisions:RoutingDecisionRecord[]=[];
 
-function recordRoutingDecision(decision:RoutingDecisionRecord):void{
+export function recordRoutingDecision(decision:RoutingDecisionRecord):void{
  routingDecisions.push(decision);
  if(routingDecisions.length>MAX_ROUTING_DECISIONS){
   routingDecisions.splice(0,routingDecisions.length-MAX_ROUTING_DECISIONS);
@@ -582,7 +582,7 @@ export function clearRoutingDecisions():void{
  routingDecisions.length=0;
 }
 
-type DetailsContainer={
+export type DetailsContainer={
  createEl:<K extends keyof HTMLElementTagNameMap>(tag:K,opts?:{text?:string;cls?:string})=>HTMLElementTagNameMap[K]&DetailsContainer;
  createDiv:(opts?:string|{text?:string;cls?:string})=>HTMLElement&DetailsContainer;
 };
@@ -763,20 +763,12 @@ export function pickEscalationRoute(opts:{
 
 /** In-memory routing decision cache with 5-minute TTL and >5% usage change invalidation (C1). */
 const CACHE_TTL_MS=5*60_000;
-const ROUTE_CACHE_MAX_ENTRIES=128;
 type CachedRouteEntry={
  result:AutoRoute&{task:TaskClass;classifier:'heuristic'|'fm'};
  createdAt:number;
  usageSnapshot:Map<ProviderId,number|null>;
 };
 const routeCache=new Map<string,CachedRouteEntry>();
-function setRouteCache(key:string,entry:CachedRouteEntry):void{
- if(routeCache.size>=ROUTE_CACHE_MAX_ENTRIES&&!routeCache.has(key)){
-  const oldest=routeCache.keys().next().value;
-  if(oldest!==undefined)routeCache.delete(oldest);
- }
- routeCache.set(key,entry);
-}
 
 export function clearRoutingCache():void{
  routeCache.clear();
@@ -853,7 +845,7 @@ export async function routeAcrossProviders(
   if(heuristic){
    const route=pickRoute(entries,offers,heuristic,home,nowSec,context,mode,history);
    const result={...route,task:heuristic,classifier:'heuristic' as const};
-   setRouteCache(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
+   routeCache.set(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
    return result;
   }
  }
@@ -863,7 +855,7 @@ export async function routeAcrossProviders(
   const fallbackTask=heuristicTaskClass(prompt,context,true)!;
   const route=pickRoute(entries,offers,fallbackTask,home,nowSec,context,mode,history);
   const result={...route,task:fallbackTask,classifier:'heuristic' as const};
-  setRouteCache(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
+  routeCache.set(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
   return result;
  }
 
@@ -881,6 +873,6 @@ export async function routeAcrossProviders(
  const task=calibrateTask(raw,prompt,context);
  const route=pickRoute(entries,offers,task,home,nowSec,context,mode,history);
  const result={...route,task,classifier:'fm' as const};
- setRouteCache(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
+ routeCache.set(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
  return result;
 }

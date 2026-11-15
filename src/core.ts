@@ -102,7 +102,7 @@ export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,plat
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
@@ -123,11 +123,11 @@ export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platf
  * an exclusion the user set. Unicode is compared in the normalized form that
  * APFS stores, so `café` and `café` are one folder.
  */
-const foldPath=(value:string)=>value.normalize('NFC').toUpperCase().toLowerCase();
+const foldPath=(value:string)=>value.normalize('NFC').toLowerCase();
 export {foldPath};
 const excludedCache=new Map<string,string[]>();
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
- if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')||(process.platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')))||p==='~'||p.includes(':')||/[\p{Cc}]/u.test(p)))return false;
+ if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
  const cacheKey=excluded;
@@ -211,111 +211,7 @@ export function formatTranscription(text:string):string {
   return (m[1]?m[1]+'\n\n':'')+'$$\n'+equation+'\n$$';
  }).join('\n');
 }
-export function displayMarkdown(text:string):string {
- const nonce=Math.random().toString(36).slice(2);
- let out=text.replace(/!\[/g,'[');
- // Prevent backticks inside real HTML tags from shielding attributes. A lone '<'
- // in prose is not a tag and must not corrupt following code samples (N2).
- const neutralizeTags=(input:string)=>{
-  let result='',i=0;
-  while(i<input.length){
-   if(input[i]==='<'){
-    let j=i+1;
-    // A tag name must start with a letter.
-    if(j<input.length&&/[A-Za-z]/.test(input[j])){
-     j++;
-     while(j<input.length&&/[\w-]/.test(input[j]))j++;
-     // Consume attributes, honouring single and double quotes.
-     let inQuote: string | null=null;
-     while(j<input.length){
-      const ch=input[j];
-      if(inQuote){if(ch===inQuote)inQuote=null;}
-      else if(ch==='"'||ch==="'")inQuote=ch;
-      else if(ch==='>')break;
-      else if(ch==='<' )break;
-      j++;
-     }
-     if(j<input.length&&input[j]==='>'){
-      const tag=input.slice(i,j+1).replace(/`/g,String.fromCharCode(1));
-      result+=tag;i=j+1;continue;
-     }
-    }
-   }
-   result+=input[i++];
-  }
-  return result;
- };
- out=neutralizeTags(out);
- // Preserve code samples: sanitize only outside fenced and inline code.
- const fences:string[]=[];
- out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m.replace(new RegExp(String.fromCharCode(1),'g'),'`'));return '@@FENCE'+nonce+(fences.length-1)+'@@';});
- const inlines:string[]=[];
- out=out.replace(/`[^`\n]*`/g,m=>{inlines.push(m.replace(new RegExp(String.fromCharCode(1),'g'),'`'));return '@@INLINE'+nonce+(inlines.length-1)+'@@';});
- out=out.replace(new RegExp(String.fromCharCode(1),'g'),'`');
- out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,'');
- out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');
- out=out.replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');
- const sanitizeTag=(tag:string)=>{
-  const nameMatch=tag.match(/^<\s*([A-Za-z][\w-]*)/);
-  if(!nameMatch)return tag;
-  const name=nameMatch[1];
-  const lower=name.toLowerCase();
-  let attrs=tag.slice(nameMatch[0].length,tag.endsWith('/>')?tag.length-2:tag.length-1);
-  const trailingSlash=/\/\s*$/.test(attrs)?'/':'';
-  attrs=attrs.replace(/\/\s*$/,'');
-  const removeAttr=(attr:string)=>{
-   const re=new RegExp('(?<=[\\s/"\x27])'+attr+'\\s*=\\s*("[^"]*"|\x27[^\x27]*\x27|[^\\s>]+)','gi');
-   attrs=attrs.replace(re,'');
-  };
-  removeAttr('style');
-  attrs=attrs.replace(/(?<=[\s/"\x27])on[a-zA-Z]+\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,'');
-  const forbidden=lower==='a'
-   ?['src','srcset','poster','background','ping','action','formaction']
-   :['src','href','srcset','poster','background','ping','action','formaction'];
-  for(const attr of forbidden) removeAttr(attr);
-  if(lower==='a'){
-   attrs=attrs.replace(/(?<=[\s/"\x27])href\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,(mm:string)=>{
-    const value=mm.match(/=(.*)/)?.[1]?.replace(/^['"]|['"]$/g,'').trim()??'';
-    const internal=(tag.includes('class="internal-link"')||tag.includes("class='internal-link'")||tag.includes('data-href'));
-    if(internal&&!/^[a-z][a-z0-9+.-]*:/i.test(value))return mm;
-    if(!internal&&(/^https?:/i.test(value)||/^obsidian:/i.test(value)||/^mailto:/i.test(value)||/^#/i.test(value)))return mm;
-    return '';
-   });
-  }
-  return '<'+name+attrs+(trailingSlash?' /':'')+'>';
- };
- const sanitizeTags=(input:string)=>{
-  let result='',i=0;
-  while(i<input.length){
-   if(input[i]==='<'){
-    let j=i+1;
-    if(j<input.length&&/[A-Za-z]/.test(input[j])){
-     j++;
-     while(j<input.length&&/[\w-]/.test(input[j]))j++;
-     let inQuote:string|null=null;
-     while(j<input.length){
-      const ch=input[j];
-      if(inQuote){if(ch===inQuote)inQuote=null;}
-      else if(ch==='"'||ch==="'")inQuote=ch;
-      else if(ch==='>'||ch==='<')break;
-      j++;
-     }
-     if(j<input.length&&input[j]==='>'){
-      result+=sanitizeTag(input.slice(i,j+1));
-      i=j+1;continue;
-     }
-    }
-   }
-   result+=input[i++];
-  }
-  return result;
- };
- out=sanitizeTags(out);
- out=out.replace(new RegExp('@@FENCE'+nonce+'(\\d+)@@','g'),(_m:string,i:string)=>fences[Number(i)]);
- out=out.replace(new RegExp('@@INLINE'+nonce+'(\\d+)@@','g'),(_m:string,i:string)=>inlines[Number(i)]);
- return out;
-}
-
+export function displayMarkdown(text:string):string {return text.replace(/!\[/g,'[').replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');}
 export function insertion(path:string,before:string,content:string,start:number,end=start):Proposal {
  if(start<0||end<start||end>before.length)throw Error('The insertion position is no longer valid.');
  const frontmatter=before.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);if(frontmatter&&start<frontmatter[0].length)throw Error('Place the cursor in the note body, outside Properties, before inserting Markdown.');
@@ -332,46 +228,31 @@ export function editWarnings(before:string,after:string):string[]{
  const links=[...before.matchAll(/!?\[\[[^\]]+\]\]/g)].map(m=>m[0]);if(links.some(link=>!after.includes(link)))warnings.push('One or more wikilinks or embeds are removed or changed.');return warnings;
 }
 
-interface DiffHunk { before: string; after: string; }
+/** An explicitly quoted replacement can be prepared without trusting model tool use. */
+export function requestedReplacement(request:string):{oldText:string;newText:string}|null{const m=request.match(/replace exactly ["“]([^"”]+)["”] with ["“]([^"”]*)["”]/i);return m?{oldText:m[1],newText:m[2]}:null;}
 
-export interface DiffBlock {
- changed: boolean;
- parts: { value: string; added?: boolean; removed?: boolean }[];
-}
-
-/** Shared grouping of `diff`'s line parts into contiguous changed/unchanged blocks. */
-export function groupDiffLines(before: string, after: string): DiffBlock[] {
- const blocks: DiffBlock[] = [];
- let current: DiffBlock | null = null;
- for (const part of diffLines(before, after)) {
-  const changed = Boolean(part.added || part.removed);
-  if (!current || current.changed !== changed) {
-   current = { changed, parts: [] };
-   blocks.push(current);
-  }
-  current.parts.push(part);
- }
- if (!blocks.length) blocks.push({ changed: false, parts: [{ value: '' }] });
- return blocks;
-}
-
-export const groupDiffBlocks = groupDiffLines;
-export const diffBlocks = groupDiffLines;
-export const groupDiffParts = groupDiffLines;
-export const groupDiff = groupDiffLines;
+export interface DiffHunk { before: string; after: string; }
 
 export function diffHunks(before: string, after: string): DiffHunk[] {
  const hunks: DiffHunk[] = [];
- for (const block of groupDiffLines(before, after)) {
-  if (!block.changed) continue;
-  let currentBefore = '';
-  let currentAfter = '';
-  for (const part of block.parts) {
+ let currentBefore = '';
+ let currentAfter = '';
+ let inHunk = false;
+ for (const part of diffLines(before, after)) {
+  if (part.added || part.removed) {
+   inHunk = true;
    if (part.removed) currentBefore += part.value;
    if (part.added) currentAfter += part.value;
+  } else {
+   if (inHunk) {
+    hunks.push({before: currentBefore, after: currentAfter});
+    currentBefore = '';
+    currentAfter = '';
+    inHunk = false;
+   }
   }
-  hunks.push({ before: currentBefore, after: currentAfter });
  }
+ if (inHunk) hunks.push({before: currentBefore, after: currentAfter});
  return hunks;
 }
 
@@ -392,18 +273,21 @@ function parseHunkDecision(value: unknown): boolean {
 }
 
 export function applyHunkDecisions(before: string, after: string, decisions: unknown): string {
- const blocks = groupDiffLines(before, after);
+ const parts = diffLines(before, after);
  // Count hunks and changed lines per hunk first, so flat global decision arrays
  // can be distributed deterministically.
  const hunkLineCounts: number[] = [];
- for (const block of blocks) {
-  if (!block.changed) continue;
-  let countingCount = 0;
-  for (const part of block.parts) {
-   if (part.added || part.removed) countingCount += splitChangedLines(part.value).length;
+ let countingChanged = false;
+ let countingCount = 0;
+ for (const part of parts) {
+  if (part.added || part.removed) {
+   if (!countingChanged) { countingChanged = true; countingCount = 0; }
+   countingCount += splitChangedLines(part.value).length;
+  } else {
+   if (countingChanged) { hunkLineCounts.push(countingCount); countingChanged = false; }
   }
-  hunkLineCounts.push(countingCount);
  }
+ if (countingChanged) hunkLineCounts.push(countingCount);
 
  let perHunk: unknown[];
  if (Array.isArray(decisions)) perHunk = [...(decisions as unknown[])];
@@ -439,30 +323,27 @@ export function applyHunkDecisions(before: string, after: string, decisions: unk
  let inChanged = false;
  let currentSpec: boolean | boolean[] | null = null;
  let lineIndex = 0;
- for (const block of blocks) {
-  if (block.changed) {
+ for (const part of parts) {
+  if (part.added || part.removed) {
    if (!inChanged) {
     hunkIndex += 1;
     inChanged = true;
     lineIndex = 0;
     currentSpec = normalizeSpec(perHunk[hunkIndex]);
    }
-   for (const part of block.parts) {
-    if (!(part.added || part.removed)) continue;
-    for (const line of splitChangedLines(part.value)) {
-     const accepted = lineDecision(currentSpec, lineIndex);
-     lineIndex += 1;
-     if (part.added) {
-      if (accepted) result += line;
-     } else if (part.removed) {
-      if (!accepted) result += line;
-     }
+   for (const line of splitChangedLines(part.value)) {
+    const accepted = lineDecision(currentSpec, lineIndex);
+    lineIndex += 1;
+    if (part.added) {
+     if (accepted) result += line;
+    } else if (part.removed) {
+     if (!accepted) result += line;
     }
    }
   } else {
    inChanged = false;
    currentSpec = null;
-   for (const part of block.parts) result += part.value;
+   result += part.value;
   }
  }
  return result;
@@ -472,3 +353,12 @@ function splitChangedLines(value: string): string[] {
  return value.match(/[^\n]*\n|[^\n]+/g) ?? [];
 }
 
+export const applyDiffDecisions = applyHunkDecisions;
+export const applyHunkDecision = applyHunkDecisions;
+export const applyDecisions = applyHunkDecisions;
+export const mergeHunkDecisions = applyHunkDecisions;
+export const mergeDiffDecisions = applyHunkDecisions;
+export const mergeDecisions = applyHunkDecisions;
+export const resolveHunks = applyHunkDecisions;
+export const applyLineDecisions = applyHunkDecisions;
+export const computeMergedText = applyHunkDecisions;

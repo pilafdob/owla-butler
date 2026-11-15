@@ -1,7 +1,7 @@
 import {record,list} from './validation';
 
-interface LimitWindow{usedPercent:number;windowDurationMins?:number|null;resetsAt?:number|null;label?:string;}
-interface LimitBucket{limitId?:string|null;limitName?:string|null;normalModelSlug?:string|null;planType?:string|null;primary?:LimitWindow|null;secondary?:LimitWindow|null;credits?:{hasCredits:boolean;unlimited:boolean;balance?:string|null}|null;rateLimitReachedType?:string|null;}
+export interface LimitWindow{usedPercent:number;windowDurationMins?:number|null;resetsAt?:number|null;label?:string;}
+export interface LimitBucket{limitId?:string|null;limitName?:string|null;normalModelSlug?:string|null;planType?:string|null;primary?:LimitWindow|null;secondary?:LimitWindow|null;credits?:{hasCredits:boolean;unlimited:boolean;balance?:string|null}|null;rateLimitReachedType?:string|null;}
 export interface UsageSnapshot{rateLimits?:LimitBucket|null;rateLimitsByLimitId?:Record<string,LimitBucket>|null;rateLimitResetCredits?:{availableCount:number}|null;}
 export function updateUsage(previous:UsageSnapshot|null,incoming:UsageSnapshot,replace=false):UsageSnapshot{
  if(replace)previous=null;

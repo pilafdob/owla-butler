@@ -20,14 +20,13 @@
 
 import type {ProviderId,ProviderModel} from './provider';
 import type {UsageSnapshot} from './usage';
-import {t} from './i18n';
 
 /** How far a failure reaches. */
-type OpencodeBlockScope='model'|'pool'|'account'|'none';
+export type OpencodeBlockScope='model'|'pool'|'account'|'none';
 export type OpencodeFailure={scope:OpencodeBlockScope;reason:string;kind:'unavailable'|'balance'|'free-limit'|'usage-limit'|'auth'|'region'|'other'};
 
 /** A block without a reported reset is retried after this long. */
-const OPENCODE_RETRY_AFTER_SECONDS=30*60;
+export const OPENCODE_RETRY_AFTER_SECONDS=30*60;
 
 const FREE_NAME=/(^|[-_\s/(])free([-_\s)]|$)/i;
 /**
@@ -40,7 +39,7 @@ export function isOpencodeFreeModel(model:ProviderModel):boolean{
 }
 
 /** The OpenCode provider a model comes from: `opencode`, `opencode-go`, `github-copilot`… */
-function opencodeSource(model:ProviderModel):string{
+export function opencodeSource(model:ProviderModel):string{
  return model.providerID||model.id.split('/')[0]||'opencode';
 }
 
@@ -51,18 +50,18 @@ export function opencodePool(model:ProviderModel):string{
 
 /** Reads an OpenCode failure message and decides how far it reaches. */
 export function classifyOpencodeFailure(message:string):OpencodeFailure{
- if(/hosted outside|outside (?:your |the )?(?:region|location|country)|not available in your (?:region|location|country)|\bregion\b.*(?:not allowed|restricted)/i.test(message))return {scope:'model',kind:'region',reason:t('availability.region')};
- if(/free-limit|free usage limit/i.test(message))return {scope:'pool',kind:'free-limit',reason:t('availability.freeLimit')};
+ if(/hosted outside|outside (?:your |the )?(?:region|location|country)|not available in your (?:region|location|country)|\bregion\b.*(?:not allowed|restricted)/i.test(message))return {scope:'model',kind:'region',reason:'not allowed in your workspace’s privacy regions'};
+ if(/free-limit|free usage limit/i.test(message))return {scope:'pool',kind:'free-limit',reason:'free models’ shared limit reached'};
  if(/insufficient (balance|credit|fund)|top up|out of credits|no credits|payment required|\b402\b|billing/i.test(message))
-  return {scope:'pool',kind:'balance',reason:t('availability.noCredit')};
+  return {scope:'pool',kind:'balance',reason:'no credit balance'};
  if(/model[^.]{0,40}(unavailable|not (available|supported|found|enabled|allowed|included))|unsupported model|model_not_supported|not (included|available) (in|on|with) your (plan|subscription)|does not have access|no access to|not entitled|not found|unknown model|does not exist|permission denied|access denied|\b403\b|\b404\b|forbidden/i.test(message))
-  return {scope:'model',kind:'unavailable',reason:t('availability.unavailable')};
- if(/usage limit|rate.?limit|quota|\b429\b|too many requests/i.test(message))return {scope:'pool',kind:'usage-limit',reason:t('availability.usageLimit')};
- if(/\b401\b|unauthori[sz]ed|authentication|credential|sign in/i.test(message))return {scope:'account',kind:'auth',reason:t('availability.auth')};
+  return {scope:'model',kind:'unavailable',reason:'not available on your plan'};
+ if(/usage limit|rate.?limit|quota|\b429\b|too many requests/i.test(message))return {scope:'pool',kind:'usage-limit',reason:'usage limit reached'};
+ if(/\b401\b|unauthori[sz]ed|authentication|credential|sign in/i.test(message))return {scope:'account',kind:'auth',reason:'sign-in refused'};
  return {scope:'none',kind:'other',reason:''};
 }
 
-type Block={until:number;reason:string;kind:OpencodeFailure['kind'];goMeter?:boolean};
+type Block={until:number;reason:string;kind:OpencodeFailure['kind']};
 
 export class OpencodeAvailability{
  private models=new Map<string,Block>();
@@ -122,9 +121,9 @@ export class OpencodeAvailability{
    if(full===null||until>full)full=until;
   }
   const current=this.pools.get('paid:opencode-go');
-  if(any&&full!==null)this.pools.set('paid:opencode-go',{until:full,reason:t('availability.goUsage'),kind:'usage-limit',goMeter:true});
+  if(any&&full!==null)this.pools.set('paid:opencode-go',{until:full,reason:'OpenCode Go usage limit reached',kind:'usage-limit'});
   // A meter that is no longer full lifts a block that came from the meters.
-  else if(current?.goMeter)this.pools.delete('paid:opencode-go');
+  else if(current?.reason==='OpenCode Go usage limit reached')this.pools.delete('paid:opencode-go');
  }
 
  /** The shared free-tier limit of OpenCode Zen, for the usage panel. */

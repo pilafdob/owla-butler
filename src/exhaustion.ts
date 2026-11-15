@@ -1,6 +1,5 @@
 import {PROVIDER_NAMES,type ProviderId} from './provider';
 import {UsageSnapshot} from './usage';
-import {t,getObsidianLanguageRaw} from './i18n';
 
 export interface ProviderExhaustion {
   provider: ProviderId;
@@ -31,7 +30,7 @@ export function codexExhaustion(usage: UsageSnapshot | null): ProviderExhaustion
           provider: 'codex',
           exhausted: true,
           resetsAt: typeof window.resetsAt === 'number' ? window.resetsAt : null,
-          reason: t('exhaustion.codex'),
+          reason: 'Codex usage limit reached.',
           scope: 'provider',
         };
       }
@@ -52,7 +51,7 @@ export function opencodeExhaustion(error: unknown, resetsAt: number | null): Pro
     provider: 'opencode',
     exhausted: true,
     resetsAt,
-    reason: free ? t('exhaustion.opencode.free') : t('exhaustion.opencode'),
+    reason: free ? 'The OpenCode free models’ shared limit is reached.' : 'OpenCode usage limit reached.',
     scope: free ? 'free models' : 'provider',
   };
 }
@@ -76,13 +75,13 @@ export function claudeExhaustion(usage: UsageSnapshot | null, error?: string, no
   }
   if (!exhausted && error && /rate.?limit|usage limit|limit reached|429|quota/i.test(error)) exhausted = true;
   return exhausted
-    ? { provider: 'claude', exhausted: true, resetsAt, reason: t('exhaustion.claude'), scope: 'provider' }
+    ? { provider: 'claude', exhausted: true, resetsAt, reason: 'Claude usage limit reached.', scope: 'provider' }
     : OK('claude');
 }
 
 export function exhaustionLabel(state: ProviderExhaustion): string {
   if (!state.exhausted) return '';
-  const reset = state.resetsAt ? t('exhaustion.reset', { date: new Date(state.resetsAt * 1000).toLocaleString(getObsidianLanguageRaw()) }) : '';
+  const reset = state.resetsAt ? ' It resets ' + new Date(state.resetsAt * 1000).toLocaleString() + '.' : '';
   return state.reason + reset;
 }
 
@@ -91,7 +90,7 @@ export function describeProviders(states: ProviderExhaustion[]): string {
   return states
     .map(state => {
       const name = PROVIDER_NAMES[state.provider];
-      const reset = state.resetsAt ? t('exhaustion.resets', { date: new Date(state.resetsAt * 1000).toLocaleString(getObsidianLanguageRaw()) }) : '';
+      const reset = state.resetsAt ? ' Resets ' + new Date(state.resetsAt * 1000).toLocaleString() + '.' : '';
       return name + ' — usage exhausted.' + reset;
     })
     .join('\n');

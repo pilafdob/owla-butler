@@ -7,7 +7,7 @@ export function readReference(name:string,offset=0):string{
  return `REFERENCE ${name} (${offset}–${end} of ${value.length} characters)\n${value.slice(offset,end)}`+(end<value.length?`\nRead the next passage at offset ${end}.`:'');
 }
 
-interface SkillDefinition {id:string;name:string;description:string;content:string;}
+export interface SkillDefinition {id:string;name:string;description:string;content:string;}
 
 // The bundled Obsidian skills and the OWLA guides. Codex reads them through
 // read_reference; OpenCode registers them as native skills with the same IDs.

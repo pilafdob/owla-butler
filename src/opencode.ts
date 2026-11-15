@@ -8,7 +8,6 @@ import {join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {prefixToolNames,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import {ProviderExhaustion} from './exhaustion';
-import {t,getObsidianLanguageRaw} from './i18n';
 import {OpencodeAvailability,type OpencodeFailure} from './opencode-availability';
 import {UsageSnapshot,decodeOpencodeUsage} from './usage';
 import {list,record} from './validation';
@@ -59,7 +58,7 @@ export function opencodeConfigPath(directory:string):string{
 }
 
 /** The bundled skills are registered under these IDs with OpenCode. */
-const OPENCODE_SKILL_IDS=skillDefinitions().map(skill=>skill.id);
+export const OPENCODE_SKILL_IDS=skillDefinitions().map(skill=>skill.id);
 
 // `~/.cache/opencode/bin` is the Linux installer's location; on Windows the
 // per-user install folders in defaultCliDirectories cover it.
@@ -217,9 +216,9 @@ function freePort():Promise<number>{
  * reaches it, so "no limits" is stated plainly instead of as an error.
  */
 export function opencodeNoLimitsMessage(exhaustion:ProviderExhaustion|null,now=Date.now()/1000):string{
- if(exhaustion?.exhausted&&exhaustion.resetsAt&&exhaustion.resetsAt>now)return t('exhaustion.opencode.free')+t('exhaustion.reset',{date:new Date(exhaustion.resetsAt*1000).toLocaleString(getObsidianLanguageRaw())});
- if(exhaustion?.exhausted)return t('exhaustion.opencode.noReset');
- return t('exhaustion.opencode.noLimits');
+ if(exhaustion?.exhausted&&exhaustion.resetsAt&&exhaustion.resetsAt>now)return 'The free models’ shared limit is reached. It resets '+new Date(exhaustion.resetsAt*1000).toLocaleString()+'.';
+ if(exhaustion?.exhausted)return 'The free models’ shared limit is reached. OpenCode did not say when it resets.';
+ return 'OpenCode reports no plan limits for your connected providers. Free models share one limit that OpenCode reports only when it is reached; it will appear here then.';
 }
 
 export class OpencodeBridge implements ProviderBridge{
@@ -602,12 +601,9 @@ export class OpencodeBridge implements ProviderBridge{
   this.lastFailure=null;
   this.availability.recordSuccess(model);
   if(options.requireWeb&&!usedWeb)throw Error('OpenCode did not run live web search. No online answer was verified.');
-  const seenSources=new Set(sources.map(source=>source.url));
   for(const match of text.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)){
    if(sources.length>=20)break;
-   if(seenSources.has(match[2]))continue;
-   seenSources.add(match[2]);
-   sources.push({url:match[2],title:match[1]});
+   if(!sources.some(source=>source.url===match[2]))sources.push({url:match[2],title:match[1]});
   }
   return {text,sources};
  }

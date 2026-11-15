@@ -30,7 +30,7 @@ import {list,record} from './validation';
 import {RecordSplitter} from './stream';
 import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 
-const CLAUDE_MCP_SERVER='owla';
+export const CLAUDE_MCP_SERVER='owla';
 export const CLAUDE_TOOL_PREFIX='mcp__'+CLAUDE_MCP_SERVER+'__';
 /** Models without an effort parameter carry this placeholder effort. */
 export const CLAUDE_NO_EFFORT='default';
@@ -281,8 +281,7 @@ export class ClaudeBridge implements ProviderBridge{
       else if(method==='tools/list')result={tools:options.tools.map(tool=>({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}))};
       else if(method==='tools/call'){
        const name=typeof params.name==='string'?params.name:'';
-       if(!options.tools.some(tool=>tool.name===name)){result={content:[{type:'text',text:'This tool is not available in this mode.'}],isError:true};}
-       else try{result={content:toolContent(await options.tool(name,params.arguments??{}))};}
+       try{result={content:toolContent(await options.tool(name,params.arguments??{}))};}
        catch(error){result={content:[{type:'text',text:error instanceof Error?error.message:String(error)}],isError:true};}
       }
      }finally{

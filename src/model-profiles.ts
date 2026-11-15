@@ -17,7 +17,7 @@ import {isOpencodeFreeModel} from './opencode-availability';
 export const TASK_KINDS=['lookup','edit','writing','transcription','vision','synthesis','organisation','reasoning','research','coding'] as const;
 export type TaskKind=typeof TASK_KINDS[number];
 
-type ModelProfile={cost:number;capability:number;strong:TaskKind[];weak:TaskKind[]};
+export type ModelProfile={cost:number;capability:number;strong:TaskKind[];weak:TaskKind[]};
 
 type Rule={match:RegExp;profile:ModelProfile};
 
@@ -49,7 +49,7 @@ const CLAUDE:Rule[]=[
 // prices, modalities, context windows and efforts exist, and a family
 // this list does not know yet falls back to the inferred profile below,
 // so new arrivals keep routing sensibly until someone curates them.
-const OPEN_FAMILIES:[RegExp,TaskKind[]][]=[
+export const OPEN_FAMILIES:[RegExp,TaskKind[]][]=[
  [/deepseek/i,['reasoning','coding']],
  [/glm/i,['coding','organisation']],
  [/minimax/i,['synthesis','coding']],

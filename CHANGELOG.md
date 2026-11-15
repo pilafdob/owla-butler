@@ -1,48 +1,5 @@
 # Changelog
 
-## 3.3.1
-
-### Fixed
-
-- Codex refused to connect with "Codex could not isolate OWLA tools: feature … is enabled" on standard Codex setups (Codex 0.169.0). OWLA now turns off extra Codex features for its own session only, restarting Codex once when your configuration enables one; your Codex configuration is unchanged. If a setting enforced by managed Codex settings can't be turned off, OWLA still refuses and names it.
-- Codex refused to connect on a stock Codex 0.169.0 install when `hooks.json` was non-empty or `hooks.state` trust records existed. The top-level hook-shape gate is gone: when hooks are disabled for OWLA's session, OWLA verifies through Codex's runtime hook inventory that no hook is active before connecting and again before every turn. An unavailable, malformed or non-empty inventory still fails closed, and trust records alone no longer block the connection.
-- Isolation errors are shown verbatim and localized, so a feature key that resembles a quota or sign-in message is not rewritten.
-
-### Known issues (planned for 3.3.2)
-
-- In Automatic provider mode, the pre-send provider indicator can show the previous turn's route instead of the route that will actually be used, because routing happens at send time.
-- A few interface strings are still English-only: the new-chat confirmation prompt and its buttons, some settings section names and descriptions, model and effort labels, the connecting status text, activity and change-card strings, and Codex activity strings. German covers the rest of the interface.
-- Task checkboxes in rendered replies are only preserved when they carry a disabled attribute; if Obsidian's renderer omits it, the checkbox is removed. Mermaid, MathJax and Markdown-link handling in the rendered reply are verified only against a minimal DOM, not the live Obsidian renderer.
-- If restoring fails while clearing a pending edit record, deferred and new-note entries are dropped from the kept record; on success, entries for excluded paths are removed without a notice.
-- Automatic provider selection can trigger one extra provider reconnect because three non-turn connections read the web-search setting directly instead of the effective flag. This is not a consent leak.
-- Unverified without an in-app Obsidian run: the in-app language switch, companion-plugin API shape, Obsidian renderer output against the sanitizer, and AGENTS.md disabling at runtime.
-
-## 3.3.0
-
-- Language support: the plugin now follows the language configured in Obsidian. The full interface (settings, command palette, chat view, split-diff controls, notices, dialogs) ships in English and German; other languages fall back to English. AI replies default to Obsidian's language unless you write in or ask for another. Dates use Obsidian's language. Only brand names (Codex, OWLA) remain untranslated.
-- Performance and cleanup: skip unchanged `renderPendingEdits()` rebuilds and refresh the split-diff view only when open (PF2); cap the route cache at 128 entries (PF3); collect `runCli` output in chunks (PF4); cache the open-note scan used by `currentText()` and `capture()` (PF5); deduplicate OpenCode sources with a Set (PF8); remove unused `applyHunkDecisions` aliases (OC1); share one block-grouping helper across `diffHunks`, `applyHunkDecisions` and the split-diff view (OC5/OC6); unexport internally-only symbols and delete dead helpers (`countFoundationModelTokens`, `requestedReplacement`).
-- Security and vault confinement: Codex isolation now disables notify/hooks, pins sandbox mode and approval policy, pins capability features, and scans inherited AGENTS.md to the filesystem root; Unicode/case-fold path bypasses, hardlinks, symlinked folders and excluded-folder spelling tricks are blocked; pending-edit paths are re-validated on load; temp conversion files use mode 0o600; CI actions are pinned to commit SHAs; companion-plugin identity is checked at discover and apply; web search asks before searching when enabled (Allow once / Allow for this chat / Don't allow, reset on new or restored chat); the chat shows which provider and model will answer before you send.
-- Web search is documented as an outbound channel: queries may include supplied note context; only trusted companion plugins should be enabled.
-
-### Fixed
-
-- Calibrated routing no longer reads an undefined attachments list as a crash.
-- Excluded folders can no longer be bypassed through Unicode case folding or look-alike spellings.
-- Codex no longer runs inherited notify programs, hooks, or capability features outside the vault.
-- Pending review records are validated against the vault before they are restored.
-- Temporary conversion files are created with mode 0o600.
-- The en/de i18n catalogs are kept in parity with any new strings.
-
-### Known issues (planned for 3.3.1)
-
-- In Automatic provider mode, the pre-send provider indicator can show the previous turn's route instead of the route that will actually be used, because routing happens at send time. The untranslated fragment and the lack of gating on the indicator are also deferred.
-- A few interface strings are still English-only: the new-chat confirmation prompt and its buttons, some settings section names and descriptions, model and effort labels, the connecting status text, activity and change-card strings, and Codex activity strings. German covers the rest of the interface.
-- Task checkboxes in rendered replies are only preserved when they carry a disabled attribute; if Obsidian's renderer omits it, the checkbox is removed. Mermaid, MathJax and Markdown-link handling in the rendered reply are verified only against a minimal DOM, not the live Obsidian renderer.
-- If restoring fails while clearing a pending edit record, deferred and new-note entries are dropped from the kept record; on success, entries for excluded paths are removed without a notice.
-- Automatic provider selection can trigger one extra provider reconnect because three non-turn connections read the web-search setting directly instead of the effective flag. This is not a consent leak.
-- Unverified without an in-app Obsidian run: the in-app language switch, companion-plugin API shape, Obsidian renderer output against the sanitizer, Codex default feature flags, and AGENTS.md disabling at runtime.
-- Warning: if your Codex config enables extra feature flags, OWLA refuses to start Codex and names the flag in the error ("Codex could not isolate OWLA tools: feature <name> is enabled. Disable it in Codex settings and retry."). Turn that flag off in your Codex config (for example ~/.codex/config.toml) or use another provider until 3.3.1.
-
 ## 3.2.0
 
 - Split diff view now supports accepting or declining individual changed hunks, and individual lines within a hunk, with floating check and X icons; partial accepts merge into the accepted note text.
