@@ -10,13 +10,14 @@
  * unit-tested in Node without the Obsidian app.
  */
 
-type LanguageCode = 'en' | 'de';
+
+export type LanguageCode = 'en' | 'de';
 export type LocaleCode = string;
 
 const SUPPORTED: LanguageCode[] = ['en', 'de'];
 
 /** Map an Obsidian/ISO language code to a supported language code. */
-function normalizeLanguage(code?: string | null): LanguageCode {
+export function normalizeLanguage(code?: string | null): LanguageCode {
   const raw = typeof code === 'string' ? code.trim() : '';
   if (!raw) return 'en';
   const base = raw.toLowerCase().split(/[-_]/)[0];
@@ -270,7 +271,7 @@ const obsidianReplyLanguage = replyLanguageInstruction;
 const replyLanguage = replyLanguageInstruction;
 const aiLanguageInstruction = replyLanguageInstruction;
 
-function appendReplyLanguage(instructions: string, lang?: string | null): string {
+export function appendReplyLanguage(instructions: string, lang?: string | null): string {
   return instructions + '\n' + replyLanguageInstruction(lang);
 }
 
