@@ -1,5 +1,12 @@
 # OWLA Butler verification
 
+## 3.3.1 Codex hooks isolation — 2026-11-15
+
+- **Result.** Stock Codex 0.169.0 connects with a nonempty `hooks.json` and trusted `hooks.state` records without changing the user's Codex configuration. Runtime sentinel proof used five hook events, including `SubagentStart` and `SubagentStop`: the control and Codex-default runs fired all five; `features.hooks=false` and the production OWLA override list fired none, including when subagents were deliberately enabled. A production-style ephemeral OWLA turn completed with zero hooks and an empty `hooks/list` inventory.
+- **Method.** `node --import tsx tests/fixtures/codex-hooks-runtime.mjs /usr/local/bin/codex`. The fixture creates only disposable `HOME`, `CODEX_HOME` and working directories, uses sentinel files and a loopback-only Responses stub, and never reads the real Codex home. `tests/fixtures/fake-codex.mjs` additionally covers Connect, the one restart when a user feature is on, a managed feature that stays on, per-turn revalidation, unavailable/malformed/nonempty hook inventories, and learned-override reuse.
+- **Gates.** `npm run check`, `npm run lint`, `npm test` (**307 pass**), `npm run guard:test`, `npm run build`, `npm run check:release` and `node scripts/package.mjs` (40-file ZIP, SHA-256 recorded) all passed on macOS.
+- **Limits.** macOS only. The model endpoint is a loopback stub, so this proves hook/isolation runtime behavior, not a real-account turn. No in-app Obsidian run was made for this patch.
+
 ## Windows parity hardening — 2026-11-13
 
 All verification ran on macOS; no Windows machine was available this session and no real Windows CLI was spawned. Nothing touched a vault.
