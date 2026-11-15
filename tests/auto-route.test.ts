@@ -619,7 +619,7 @@ test('calibrateTask handles a context with no attachments array', () => {
 test('autoEntries keeps context-window filtering when called as a fallback', () => {
  const wide = model('wide-model', 'Wide', 'low/high', {context: 1000000});
  const narrow = model('narrow-model', 'Narrow', 'low/high', {context: 1000});
- const offer: ProviderOffer = {provider: 'codex', models: [wide, narrow]};
+ const offer: ProviderOffer = {provider: 'codex', plan: 'plus', usage: null, models: [wide, narrow]};
  assert.equal(autoEntries([offer], false, 500000).some(entry => entry.key === 'narrow-model'), false);
  assert.equal(autoEntries([offer], false, 500000).some(entry => entry.key === 'wide-model'), true);
 });
