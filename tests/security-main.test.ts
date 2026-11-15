@@ -480,3 +480,48 @@ test('R1: excluded and hard-linked notes stay out of search results',async()=>{
  await assert.rejects(search({query:'bravo',folder:'Private'}),/allowed vault folder/);
  await assert.rejects(search({query:'bravo',folder:'Missing'}),/allowed vault folder/);
 });
+
+// ---------------------------------------------------------------- H5: pre-send provider indicator
+
+function indicatorView(prefs:Record<string,unknown>={}){
+ const {view,butler}=domView();
+ Object.assign(butler.prefs,{automaticProvider:false,automaticRouting:false,...prefs});
+ const shown:string[]=[];
+ view.providerIndicator={setText:(text:string)=>{shown.push(text);}};
+ view.renderConnection=()=>{};
+ butler.view=view;
+ Object.assign(butler,{loadData:async()=>({}),saveData:async()=>{}});
+ return {view,butler,shown,text:()=>shown.at(-1)};
+}
+const setAutomatic=(butler:any,value:boolean)=>Object.defineProperty(butler,'automaticModels',{value,configurable:true});
+
+test('H5: in manual mode the indicator names the selected provider before Send',()=>{
+ for(const [provider,name] of [['codex','Codex'],['opencode','OpenCode'],['claude','Claude Code']]){
+  const {view,butler,text}=indicatorView({provider});
+  setAutomatic(butler,false);
+  view.refreshModel();
+  assert.equal(text(),name);
+ }
+});
+
+test('H5: the manual-mode indicator follows a provider change and an active fallback',async()=>{
+ const {butler,text}=indicatorView({provider:'codex'});
+ setAutomatic(butler,false);
+ await butler.useProvider('opencode');
+ assert.equal(text(),'OpenCode');
+ butler.fallbackProvider='claude';
+ butler.view.refreshModel();
+ assert.equal(text(),'Claude Code');
+});
+
+test('H5: in automatic mode the indicator shows a one-message override, or that the route is chosen at send',()=>{
+ const {view,butler,text}=indicatorView({automaticProvider:true});
+ setAutomatic(butler,true);
+ view.refreshModel();
+ assert.equal(text(),'Automatic selection · choosing at send');
+ view.nextRoute={provider:'opencode',model:'opencode/model-x',effort:'low'};
+ view.refreshModel();
+ assert.equal(text(),'OpenCode · opencode/model-x');
+ // Showing lastAutomaticRoute as the upcoming route is a known, deferred Medium follow-up (review-33-fifth.md).
+});
+
