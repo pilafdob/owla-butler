@@ -207,7 +207,7 @@ test('the proactive list turns off the capability features that Codex enables by
 });
 
 // A fake `codex` (tests/fixtures/fake-codex.mjs) that applies -c feature overrides the way Codex 0.169.0 does.
-async function fakeCodex(scenario:{defaults?:Record<string,unknown>;pinned?:Record<string,unknown>}){
+async function fakeCodex(scenario:{defaults?:Record<string,unknown>;pinned?:Record<string,unknown>;hooks?:unknown;hookInventory?:unknown;hookInventoryError?:boolean}){
  const {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync}=await import('node:fs');
  const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');
  const folder=mkdtempSync(join(tmpdir(),'owla-fake-codex-')),fixture=resolve('tests/fixtures/fake-codex.mjs');
@@ -220,7 +220,8 @@ async function fakeCodex(scenario:{defaults?:Record<string,unknown>;pinned?:Reco
  const bridge=new CodexBridge();
  const cwd=join(folder,'session');
  const cleanup=async()=>{bridge.disconnect();await (bridge as any).closing;rmSync(folder,{recursive:true,force:true});};
- return {file,cwd,bridge,set,spawns,cleanup};
+ const requests=()=>existsSync(join(folder,'requests.jsonl'))?readFileSync(join(folder,'requests.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line) as {method:string;params:any}):[];
+ return {file,cwd,bridge,set,spawns,requests,cleanup};
 }
 const disables=(argv:string[],key:string)=>argv.some((arg,i)=>argv[i-1]==='-c'&&arg==='features.'+key+'=false');
 
@@ -324,4 +325,65 @@ test('assertIsolation: a true feature mid-session stops the turn; a null feature
  await new Promise(r=>setImmediate(r));
  assert.equal(started,true);
  controller.abort();await assert.rejects(pending,/Stopped/);
+});
+
+const hookMetadata={
+ ...Object.fromEntries(['PreModelRequest','PostModelRequest','PreToolUse','PermissionRequest','PostToolUse','PreCompact','PostCompact','SessionStart','SessionEnd','UserPromptSubmit','SubagentStart','SubagentStop','Stop','Interrupt'].map(event=>[event,[]])),
+ state:Object.fromEntries(Array.from({length:8},(_,i)=>['/fixture/hooks.json:event:'+i,{trusted_hash:'sha256:'+String(i).repeat(64)}])),
+};
+test('hooks: 14 empty event arrays and eight trusted state entries require an explicitly false feature',()=>{
+ for(const phase of ['start','turn'] as const){
+  assert.deepEqual(isolationReport({...isolatedConfig.config,hooks:hookMetadata},phase),{disableFeatures:[]});
+  for(const hooks of [undefined,null,true])assert.ok(isolationReport({...isolatedConfig.config,hooks:hookMetadata,features:{...isolatedConfig.config.features,hooks}},phase).fatal);
+ }
+});
+test('hooks: active declarations, unknown events and malformed trust state fail closed',()=>{
+ for(const hooks of [[],true,'off',{Stop:[{hooks:[{type:'command',command:'do not run'}]}]},{Stop:null},{FutureEvent:[]},{state:null},{state:[]},{state:{x:[]}}, {state:{x:null}},{state:{x:{enabled:'false'}}},{state:{x:{trusted_hash:{}}}},{state:{x:{command:'do not run'}}}]){
+  for(const phase of ['start','turn'] as const)assert.ok(isolationReport({...isolatedConfig.config,hooks},phase).fatal,JSON.stringify(hooks));
+ }
+ assert.deepEqual(isolationReport({...isolatedConfig.config,hooks:{state:{x:{enabled:true,trusted_hash:'hash',trusted_content_hash:'content'},y:{enabled:null,trusted_hash:null}}}}),{disableFeatures:[]});
+});
+test('hooks: trusted metadata connects only after an empty runtime inventory, and is rechecked before turns',async()=>{
+ const fake=await fakeCodex({hooks:hookMetadata});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  const methods=fake.requests().map(r=>r.method);
+  assert.ok(methods.indexOf('hooks/list')<methods.indexOf('account/read'));
+  assert.ok(disables(fake.spawns()[0],'hooks'));
+  // No commands are returned in config/read, but a now-active hooks.json entry
+  // in runtime discovery must still stop the turn before thread/start.
+  fake.set({hooks:hookMetadata,hookInventory:{data:[{cwd:fake.cwd,hooks:[{eventName:'stop',enabled:true,trustStatus:'trusted'}],errors:[],warnings:[]}]}});
+  await assert.rejects(fake.bridge.run({...options(),executable:fake.file,cwd:fake.cwd,model:'fake'}),/could not verify that hooks are disabled/);
+  assert.equal(fake.bridge.running,false);
+  assert.equal(fake.requests().filter(r=>r.method==='hooks/list').length,2);
+  assert.ok(!fake.requests().some(r=>r.method==='thread/start'));
+ }finally{await fake.cleanup();}
+});
+test('hooks: missing, malformed, mismatched or nonempty runtime inventories cannot connect',async()=>{
+ const bad=[{}, {data:[]},{data:[{}]},{data:[{cwd:'/wrong',hooks:[],errors:[],warnings:[]}]},
+  ...[{hooks:[{enabled:false}]},{hooks:{}},{errors:[{message:'discovery failed'}]},{warnings:['unreadable hooks']},{warnings:null}].map(fields=>({fields}))];
+ for(const value of bad){
+  const fake=await fakeCodex({hooks:hookMetadata});
+  try{
+   const {realpathSync}=await import('node:fs');
+   // connect creates cwd before discovery; use its canonical parent here.
+   const {dirname,basename,join}=await import('node:path');
+   const directory=join(realpathSync(dirname(fake.cwd)),basename(fake.cwd));
+   const hookInventory='fields' in value?{data:[{cwd:directory,hooks:[],errors:[],warnings:[],...value.fields}]}:value;
+   fake.set({hooks:hookMetadata,hookInventory});
+   await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/could not verify that hooks are disabled/);
+   assert.equal(fake.bridge.running,false);
+   assert.ok(!fake.requests().some(r=>r.method==='account/read'||r.method==='thread/start'));
+  }finally{await fake.cleanup();}
+ }
+});
+
+test('hooks: unsupported runtime discovery fails closed without exposing raw server errors',async()=>{
+ const fake=await fakeCodex({hooks:hookMetadata,hookInventoryError:true});
+ try{
+  await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/could not verify that hooks are disabled/);
+  assert.equal(fake.bridge.running,false);
+  assert.ok(!fake.requests().some(r=>r.method==='account/read'||r.method==='thread/start'));
+ }finally{await fake.cleanup();}
 });
