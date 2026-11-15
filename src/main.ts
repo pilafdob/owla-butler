@@ -601,7 +601,7 @@ export default class Butler extends Plugin {
   }
  }
 
- async preparePartialEdit(batch: EditBatch, decisions: boolean[]): Promise<boolean> {
+ async preparePartialEdit(batch: EditBatch, decisions: unknown): Promise<boolean> {
   const merged = applyHunkDecisions(batch.edit.before, batch.edit.after, decisions);
   if (merged === batch.edit.before) return false;
   if (merged === batch.edit.after) return true;
@@ -688,7 +688,7 @@ function renderSourceDiff(container:HTMLElement,batch:EditBatch) {
 }
 class SplitDiffView extends ItemView {
  private path='';
- private decisions = new Map<EditBatch, (boolean | null)[]>();
+ private decisions = new Map<EditBatch, (boolean | null)[][]>();
  constructor(leaf:WorkspaceLeaf,private butler:Butler){super(leaf);}
  getViewType(){return DIFF_VIEW;}
  getDisplayText(){return 'OWLA diff';}
@@ -717,28 +717,45 @@ class SplitDiffView extends ItemView {
   const parts=diffLines(batch.edit.before,batch.edit.after);
   let hunkIndex=-1;
   let inChanged=false;
+  let hunk:HTMLElement|null=null;
+  let lineIndex=0;
   for(const part of parts){
    if(part.added || part.removed){
     if(!inChanged){
      inChanged=true;
      hunkIndex+=1;
-     if(decisions[hunkIndex]===undefined)decisions[hunkIndex]=null;
-     const hunk=container.createDiv('owla-diff-hunk');
+     lineIndex=0;
+     if(!decisions[hunkIndex])decisions[hunkIndex]=[];
+     hunk=container.createDiv('owla-diff-hunk');
      const actions=hunk.createDiv('owla-hunk-actions');
      const acceptButton=actions.createEl('button',{cls:'owla-hunk-button',attr:{'aria-label':'Accept this change','title':'Accept this change'}});
      setIcon(acceptButton,'check');
      const declineButton=actions.createEl('button',{cls:'owla-hunk-button',attr:{'aria-label':'Decline this change','title':'Decline this change'}});
      setIcon(declineButton,'x');
-     const decision=decisions[hunkIndex];
-     if(decision===true)hunk.addClass('owla-hunk-accepted');
-     if(decision===false)hunk.addClass('owla-hunk-declined');
      acceptButton.onclick=()=>void this.decideHunk(batch,hunkIndex,true);
      declineButton.onclick=()=>void this.decideHunk(batch,hunkIndex,false);
     }
-    const hunk=container.lastElementChild as HTMLElement;
-    hunk.createEl('pre',{text:part.value,cls:part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged'});
+    const lines=part.value.match(/[^\n]*\n|[^\n]+/g) ?? [];
+    for(const line of lines){
+     if(!decisions[hunkIndex])decisions[hunkIndex]=[];
+     while(decisions[hunkIndex].length<=lineIndex)decisions[hunkIndex].push(null);
+     const lineDecision=decisions[hunkIndex][lineIndex];
+     const linePre=hunk!.createEl('pre',{text:line,cls:(part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged')+' owla-diff-line'});
+     if(lineDecision===true)linePre.addClass('owla-line-accepted');
+     if(lineDecision===false)linePre.addClass('owla-line-declined');
+     const lineActions=linePre.createDiv('owla-line-actions');
+     const lineAccept=lineActions.createEl('button',{cls:'owla-line-button',attr:{'aria-label':'Accept this line','title':'Accept this line'}});
+     setIcon(lineAccept,'check');
+     const lineDecline=lineActions.createEl('button',{cls:'owla-line-button',attr:{'aria-label':'Decline this line','title':'Decline this line'}});
+     setIcon(lineDecline,'x');
+     const capturedLine=lineIndex;
+     lineAccept.onclick=event=>{event.stopPropagation();void this.decideLine(batch,hunkIndex,capturedLine,true);};
+     lineDecline.onclick=event=>{event.stopPropagation();void this.decideLine(batch,hunkIndex,capturedLine,false);};
+     lineIndex+=1;
+    }
    } else {
     inChanged=false;
+    hunk=null;
     container.createEl('pre',{text:part.value,cls:'owla-unchanged'});
    }
   }
@@ -746,11 +763,21 @@ class SplitDiffView extends ItemView {
  }
  private async decideHunk(batch:EditBatch,hunkIndex:number,accepted:boolean){
   const decisions=this.decisions.get(batch);
-  if(!decisions)return;
-  decisions[hunkIndex]=accepted;
-  if(decisions.every(item=>item!==null)){
+  if(!decisions||!decisions[hunkIndex])return;
+  decisions[hunkIndex]=decisions[hunkIndex].map(()=>accepted);
+  await this.checkResolved(batch,decisions);
+ }
+ private async decideLine(batch:EditBatch,hunkIndex:number,lineIndex:number,accepted:boolean){
+  const decisions=this.decisions.get(batch);
+  if(!decisions||!decisions[hunkIndex])return;
+  decisions[hunkIndex][lineIndex]=accepted;
+  await this.checkResolved(batch,decisions);
+ }
+ private async checkResolved(batch:EditBatch,decisions:(boolean|null)[][]){
+  if(decisions.every(hunk=>Array.isArray(hunk)&&hunk.length>0&&hunk.every(item=>item!==null))){
    try {
-    const keep=await this.butler.preparePartialEdit(batch,decisions.map(item=>item===true));
+    const keepDecisions=decisions.map(hunk=>hunk.map(item=>item===true));
+    const keep=await this.butler.preparePartialEdit(batch,keepDecisions);
     await this.butler.view?.decideEdit(batch,keep);
     this.decisions.delete(batch);
     this.butler.syncSplitDiff();

@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {allowedPath,isPathInside,disableAutomaticSelectionOutsideMac,DEFAULTS,proposal,assertFresh,assertNoteTitle,insertion,stripFence,parseJsonLine,formatTranscription,displayMarkdown} from '../src/core';
+import {allowedPath,isPathInside,disableAutomaticSelectionOutsideMac,DEFAULTS,proposal,assertFresh,assertNoteTitle,insertion,stripFence,parseJsonLine,formatTranscription,displayMarkdown,diffHunks,applyHunkDecisions} from '../src/core';
 test('vault boundary and excluded folders',()=>{assert.ok(allowedPath('Math/Equations.md'));for(const p of ['../Note.md','/tmp/Note.md','.obsidian/config.md','Notes/.env.md','a/../Note.md','a\\note.md','image.png','Private/Note.md'])assert.equal(allowedPath(p,'Private'),false,p);});
 test('an excluded folder cannot be reached through a different case or Unicode spelling',()=>{
  // macOS and Windows resolve these spellings to the same folder.
@@ -192,4 +192,61 @@ test('every provider requires saved explicit consent, isolated by platform',asyn
   prefs[key]=false;
   assert.equal(readSettings(writeSettings(prefs,saved,'mac'),'mac')[key],false);
  }
+});
+
+test('diff hunks and hunk decisions: all accept, all decline, mixed', () => {
+ const before = 'a\nb\nc\nd\ne\n';
+ const after = 'a\nB\nc\nd\nE\nf\n';
+ assert.equal(diffHunks(before, after).length, 2);
+ assert.equal(applyHunkDecisions(before, after, [true, true]), after);
+ assert.equal(applyHunkDecisions(before, after, [false, false]), before);
+ assert.equal(applyHunkDecisions(before, after, [false, true]), 'a\nb\nc\nd\nE\nf\n');
+});
+
+test('diff hunks handle adjacent hunks separately', () => {
+ const before = 'a\nb\nc\nd\ne\nf\n';
+ const after = 'a\nB\nc\nd\nE\nf\n';
+ // b and e are separated by unchanged c,d; two hunks
+ assert.equal(diffHunks(before, after).length, 2);
+ assert.equal(applyHunkDecisions(before, after, [true, false]), 'a\nB\nc\nd\ne\nf\n');
+});
+
+test('diff hunk decisions: insert-only, delete-only, append', () => {
+ assert.equal(applyHunkDecisions('a\n', 'a\nb\n', [true]), 'a\nb\n');
+ assert.equal(applyHunkDecisions('a\n', 'a\nb\n', [false]), 'a\n');
+ assert.equal(applyHunkDecisions('a\nb\n', 'a\n', [false]), 'a\nb\n');
+ assert.equal(applyHunkDecisions('a\nb\n', 'a\n', [true]), 'a\n');
+ assert.equal(applyHunkDecisions('a\nb', 'a\nb\nc', [true]), 'a\nb\nc');
+ assert.equal(applyHunkDecisions('a\nb', 'a\nb\nc', [false]), 'a\nb');
+});
+
+test('diff hunk decisions handle CRLF and trailing newlines', () => {
+ const before = 'a\r\nb\r\n';
+ const after = 'a\r\nB\r\n';
+ assert.equal(applyHunkDecisions(before, after, [true]), after);
+ assert.equal(applyHunkDecisions(before, after, [false]), before);
+ const b2 = 'a\nb';
+ const a2 = 'a\nb\nc';
+ assert.equal(applyHunkDecisions(b2, a2, [true]), a2);
+ assert.equal(applyHunkDecisions(b2, a2, [false]), b2);
+ const b3 = 'a\nb\n';
+ const a3 = 'a\nB\n';
+ assert.equal(applyHunkDecisions(b3, a3, [true]), a3);
+ assert.equal(applyHunkDecisions(b3, a3, [false]), b3);
+});
+
+test('diff hunk decisions support partial line decisions inside one hunk', () => {
+ const before = 'a\nold1\nold2\nz\n';
+ const after = 'a\nnew1\nnew2\nz\n';
+ // one hunk with two removed and two added lines; accept first, decline second
+ const merged = applyHunkDecisions(before, after, [[true, false, false, true]]);
+ // removed lines: decline first? decisions order removed lines then added lines? Expect new1 kept, old2 kept
+ assert.equal(merged, 'a\nold2\nnew2\nz\n');
+});
+
+test('diff hunk decisions support flat per-line decisions', () => {
+ const before = 'a\nold\nz\n';
+ const after = 'a\nnew\nz\n';
+ assert.equal(applyHunkDecisions(before, after, [true]), after);
+ assert.equal(applyHunkDecisions(before, after, [false]), before);
 });

@@ -274,28 +274,81 @@ function parseHunkDecision(value: unknown): boolean {
 
 export function applyHunkDecisions(before: string, after: string, decisions: unknown): string {
  const parts = diffLines(before, after);
- const normalized = Array.isArray(decisions) ? decisions : [];
+ // Count hunks and changed lines per hunk first, so flat global decision arrays
+ // can be distributed deterministically.
+ const hunkLineCounts: number[] = [];
+ let countingChanged = false;
+ let countingCount = 0;
+ for (const part of parts) {
+  if (part.added || part.removed) {
+   if (!countingChanged) { countingChanged = true; countingCount = 0; }
+   countingCount += splitChangedLines(part.value).length;
+  } else {
+   if (countingChanged) { hunkLineCounts.push(countingCount); countingChanged = false; }
+  }
+ }
+ if (countingChanged) hunkLineCounts.push(countingCount);
+
+ let perHunk: unknown[] = Array.isArray(decisions) ? [...(decisions as unknown[])] : [];
+ const totalChangedLines = hunkLineCounts.reduce((sum, count) => sum + count, 0);
+ const flatGlobal = Array.isArray(decisions)
+  && decisions.length === totalChangedLines
+  && totalChangedLines > 0
+  && decisions.length !== hunkLineCounts.length
+  && (decisions as unknown[]).every(item => !Array.isArray(item));
+ if (flatGlobal) {
+  let index = 0;
+  perHunk = hunkLineCounts.map(count => {
+   const slice = (decisions as unknown[]).slice(index, index + count);
+   index += count;
+   return slice;
+  });
+ }
+
+ const normalizeSpec = (value: unknown): boolean | boolean[] | null => {
+  if (value === undefined) return null;
+  if (Array.isArray(value)) return value.map(parseHunkDecision);
+  return parseHunkDecision(value);
+ };
+ const lineDecision = (spec: boolean | boolean[] | null, index: number): boolean => {
+  if (Array.isArray(spec)) return index < spec.length ? spec[index] : false;
+  if (spec === null) return false;
+  return spec;
+ };
+
  let result = '';
  let hunkIndex = -1;
  let inChanged = false;
+ let currentSpec: boolean | boolean[] | null = null;
+ let lineIndex = 0;
  for (const part of parts) {
   if (part.added || part.removed) {
    if (!inChanged) {
     hunkIndex += 1;
     inChanged = true;
+    lineIndex = 0;
+    currentSpec = normalizeSpec(perHunk[hunkIndex]);
    }
-   const accepted = parseHunkDecision(normalized[hunkIndex]);
-   if (part.added) {
-    if (accepted) result += part.value;
-   } else if (part.removed) {
-    if (!accepted) result += part.value;
+   for (const line of splitChangedLines(part.value)) {
+    const accepted = lineDecision(currentSpec, lineIndex);
+    lineIndex += 1;
+    if (part.added) {
+     if (accepted) result += line;
+    } else if (part.removed) {
+     if (!accepted) result += line;
+    }
    }
   } else {
    inChanged = false;
+   currentSpec = null;
    result += part.value;
   }
  }
  return result;
+}
+
+function splitChangedLines(value: string): string[] {
+ return value.match(/[^\n]*\n|[^\n]+/g) ?? [];
 }
 
 export const applyDiffDecisions = applyHunkDecisions;
