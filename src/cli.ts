@@ -72,6 +72,7 @@ type CliSpawnOptions={cwd?:string;env?:NodeJS.ProcessEnv;detached?:boolean};
 const UNSAFE_EXECUTION_ENV=[
  'NODE_OPTIONS','NODE_TLS_REJECT_UNAUTHORIZED','ELECTRON_RUN_AS_NODE',
  'DYLD_INSERT_LIBRARIES','LD_PRELOAD',
+ 'NODE_PATH','NODE_MODULE_PATH','PYTHONPATH','PERL5LIB',
 ];
 
 /**
