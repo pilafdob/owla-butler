@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {allowedPath,foldPath} from './core';
 import {record} from './validation';
 
-export type PathMove={from:string;to:string};
+type PathMove={from:string;to:string};
 export type OrganizationReview={
  moves:PathMove[];
  reason:string;

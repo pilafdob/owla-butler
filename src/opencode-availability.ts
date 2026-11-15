@@ -23,11 +23,11 @@ import type {UsageSnapshot} from './usage';
 import {t} from './i18n';
 
 /** How far a failure reaches. */
-export type OpencodeBlockScope='model'|'pool'|'account'|'none';
+type OpencodeBlockScope='model'|'pool'|'account'|'none';
 export type OpencodeFailure={scope:OpencodeBlockScope;reason:string;kind:'unavailable'|'balance'|'free-limit'|'usage-limit'|'auth'|'region'|'other'};
 
 /** A block without a reported reset is retried after this long. */
-export const OPENCODE_RETRY_AFTER_SECONDS=30*60;
+const OPENCODE_RETRY_AFTER_SECONDS=30*60;
 
 const FREE_NAME=/(^|[-_\s/(])free([-_\s)]|$)/i;
 /**
@@ -40,7 +40,7 @@ export function isOpencodeFreeModel(model:ProviderModel):boolean{
 }
 
 /** The OpenCode provider a model comes from: `opencode`, `opencode-go`, `github-copilot`… */
-export function opencodeSource(model:ProviderModel):string{
+function opencodeSource(model:ProviderModel):string{
  return model.providerID||model.id.split('/')[0]||'opencode';
 }
 

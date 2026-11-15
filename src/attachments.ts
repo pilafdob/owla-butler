@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join,extname} from 'node:path';
 
 const execute = promisify(execFile);
-export interface ConvertedAttachment {text:string;image?:Uint8Array;imageType?:string;notice?:string;}
+interface ConvertedAttachment {text:string;image?:Uint8Array;imageType?:string;notice?:string;}
 const textLimit = 64000;
 function bounded(text:string):string {
  return text.length>textLimit ? text.slice(0,textLimit)+'\n[Document shortened to 64,000 characters.]' : text;
@@ -26,7 +26,7 @@ export async function archiveParts(data:Uint8Array):Promise<Record<string,Uint8A
   else resolve(parts);
  }));
 }
-export function officeText(parts:Record<string,Uint8Array>,parse:(xml:string)=>Document):string {
+function officeText(parts:Record<string,Uint8Array>,parse:(xml:string)=>Document):string {
  const names = Object.keys(parts).filter(name=>name.endsWith('.xml')).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
  const shared:string[] = [];
  const sharedXml = parts['xl/sharedStrings.xml'];

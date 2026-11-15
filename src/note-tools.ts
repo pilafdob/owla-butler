@@ -8,7 +8,7 @@ const FRONTMATTER=/^---\r?\n([\s\S]*?)\r?\n?---(?:\r?\n|$)/;
 export type Yaml={parse:(text:string)=>unknown;stringify:(value:unknown)=>string};
 
 /** The frontmatter block at the start of a note, including its fences, or ''. */
-export function frontmatterBlock(text:string){return text.match(FRONTMATTER)?.[0]??'';}
+function frontmatterBlock(text:string){return text.match(FRONTMATTER)?.[0]??'';}
 
 const isRecord=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 
