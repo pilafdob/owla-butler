@@ -1,13 +1,28 @@
-## Unreleased
+# Changelog
 
-- Split diff view now supports accepting or declining individual changed hunks with floating check and X icons; partial accepts merge into the accepted note text.
+## 3.2.0
+
+- Split diff view now supports accepting or declining individual changed hunks, and individual lines within a hunk, with floating check and X icons; partial accepts merge into the accepted note text.
+
+### Fixed
+
+- Calibrated routing no longer reads an undefined attachments list as a crash.
+- The per-provider Foundation Models path now records its task kind for later escalation.
+- Automatic selection keeps context-window filtering on its fallback path.
+- The retry path no longer mixes curated and uncurated model pools or skips the token filter.
+- Session model availability now recognises Codex and Claude refusal messages, not only OpenCode-shaped ones.
+- Disconnecting a provider clears session availability state and moves active selection away from it.
 
 ## 3.1.9
 
 - Scope OpenCode Go paid-model scarcity to Go's own meters in automatic selection, so a low console budget no longer makes Go paid models ineligible or skews their plan-cost weighting. Console budgets remain visible in the usage panel.
 - Keep OpenCode console models visible in the one-message override selector.
 
-# Changelog
+## 3.1.8
+
+- OpenCode and Claude now require an explicit Connect action, matching Codex. Fresh installs and upgrades without saved consent stay disconnected.
+- Background usage refresh, automatic selection and fallback respect connection consent.
+- Disconnect targets the correct provider in Automatic settings and persists across restarts.
 
 ## 3.1.7
 
