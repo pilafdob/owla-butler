@@ -14,7 +14,7 @@ test('Unicode case folds do not bypass an excluded folder',()=>{
  assert.equal(allowedPath('\u03c2\u03bf\u03c6\u03af\u03b1/x.md','\u03a3\u03bf\u03c6\u03af\u03b1'),false);
 });
 test('invalid path segments are rejected',()=>{
- for(const p of ['a\u0000b.md','a:b.md','a\u0001b.md','Foo./x.md','Foo /x.md','~/x.md'])assert.equal(allowedPath(p),false,p);
+ for(const p of ['a\u0000b.md','a:b.md','a\u0001b.md','~/x.md'])assert.equal(allowedPath(p),false,p);
  assert.equal(allowedPath('Notes/x.md'),true);
 });
 test('vault containment follows Windows case-insensitive path semantics',()=>{assert.equal(isPathInside('C:\\Vault','c:\\vault\\Notes\\A.md','win32'),true);assert.equal(isPathInside('C:\\Vault','C:\\Vault\\..\\Outside.md','win32'),false);assert.equal(isPathInside('C:\\Vault','C:\\Vault','win32'),false);});
@@ -38,6 +38,13 @@ test('rendered replies sanitize dangerous markup and links',()=>{
  }
  assert.equal(displayMarkdown('<a href="https://example.com/a">x</a>'),'<a href="https://example.com/a">x</a>');
  assert.equal(displayMarkdown('<a href="obsidian://open">x</a>'),'<a href="obsidian://open">x</a>');
+});
+
+test('displayMarkdown preserves code samples and blocks attribute separators',()=>{
+ assert.match(displayMarkdown('```html\n<div style="color:red" onclick="x()">hi</div>\n```'),/style="color:red"/);
+ for(const payload of ['<p/style="background:url(https://evil/b)">x</p>','<a title="x"href="javascript:alert(1)">x</a>','<div/onmouseover="alert(1)">x</div>']){
+  assert.doesNotMatch(displayMarkdown(payload),/style=|href=|onmouseover/i,payload);
+ }
 });
 
 

@@ -33,7 +33,7 @@ export function loadPendingEdits(root:string,excluded:string=''):EditBatch[] {
       paths.has(path) || (entry.deferred!==undefined&&entry.deferred!==true) || (create!==undefined&&(create!==true||before!==''))) {
    throw Error('The pending edit record is invalid.');
   }
-  if(!allowedPath(path,excluded)) continue;
+  if(!allowedPath(path,excluded)) throw Error('A pending edit path is no longer allowed: '+path);
   paths.add(path);
   edits.push({edit:{path,before,after,reason,...(create===true?{create:true as const}:{})},reasons,...(entry.deferred===true?{deferred:true as const}:{})});
  }

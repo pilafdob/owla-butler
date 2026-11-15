@@ -127,7 +127,7 @@ const foldPath=(value:string)=>value.normalize('NFC').toUpperCase().toLowerCase(
 export {foldPath};
 const excludedCache=new Map<string,string[]>();
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
- if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')||p.endsWith('.')||p.endsWith(' ')||p==='~'||p.includes('\u0000')||p.includes(':')||/[\p{Cc}]/u.test(p)))return false;
+ if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')||(process.platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')))||p==='~'||p.includes('@@')||p.includes(':')||/[\p{Cc}]/u.test(p)))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
  const cacheKey=excluded;
@@ -213,33 +213,43 @@ export function formatTranscription(text:string):string {
 }
 export function displayMarkdown(text:string):string {
  let out=text.replace(/!\[/g,'[');
- // Remove executable/foreign-content tags entirely.
+ // Preserve code samples: sanitize only outside fenced and inline code.
+ const fences:string[]=[];
+ out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m);return '@@FENCE'+(fences.length-1)+'@@';});
+ const inlines:string[]=[];
+ out=out.replace(/`[^`\n]*`/g,m=>{inlines.push(m);return '@@INLINE'+(inlines.length-1)+'@@';});
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,'');
- out=out.replace(/<(?:script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');
- // Remove media/embed tags.
+ out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');
  out=out.replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');
- // Sanitize attributes on remaining tags.
  out=out.replace(/<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g,(_m:string,tag:string,attrs:string)=>{
   const name=tag.toLowerCase();
   let a=attrs;
-  a=a.replace(/\s+style\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'');
-  a=a.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'');
-  const forbidden=name==='a'?['src','srcset','poster','background']:['src','href','srcset','poster','background'];
-  for(const attr of forbidden){
-   const re=new RegExp('\\s+'+attr+'\\s*=\\s*("[^"]*"|\'[^\']*\'|[^\\s>]+)','gi');
+  const removeAttr=(attr:string)=>{
+   const re=new RegExp('(?<=[\\s/"\x27])'+attr+'\\s*=\\s*("[^"]*"|\x27[^\x27]*\x27|[^\\s>]+)','gi');
    a=a.replace(re,'');
-  }
+  };
+  removeAttr('style');
+  removeAttr('on[a-z]+'.replace('on[a-z]+','on[a-zA-Z]+')? 'on[a-zA-Z]+' : 'on[a-zA-Z]+');
+  // remove on* via regex
+  a=a.replace(/(?<=[\s/"\x27])on[a-zA-Z]+\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,'');
+  const forbidden=name==='a'
+   ?['src','srcset','poster','background','ping','action','formaction']
+   :['src','href','srcset','poster','background','ping','action','formaction'];
+  for(const attr of forbidden) removeAttr(attr);
   if(name==='a'){
-   a=a.replace(/\shref\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,(mm:string)=>{
+   a=a.replace(/(?<=[\s/"\x27])href\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,(mm:string)=>{
     const value=mm.match(/=(.*)/)?.[1]?.replace(/^['"]|['"]$/g,'').trim()??'';
-    if(/^https?:/i.test(value)||/^obsidian:/i.test(value))return mm;
+    if(/^https?:/i.test(value)||/^obsidian:/i.test(value)||/^mailto:/i.test(value)||/^#/i.test(value))return mm;
     return '';
    });
   }
   return '<'+tag+a+'>';
  });
+ out=out.replace(/@@FENCE(\d+)@@/g,(_m:string,i:string)=>fences[Number(i)]);
+ out=out.replace(/@@INLINE(\d+)@@/g,(_m:string,i:string)=>inlines[Number(i)]);
  return out;
 }
+
 export function insertion(path:string,before:string,content:string,start:number,end=start):Proposal {
  if(start<0||end<start||end>before.length)throw Error('The insertion position is no longer valid.');
  const frontmatter=before.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);if(frontmatter&&start<frontmatter[0].length)throw Error('Place the cursor in the note body, outside Properties, before inserting Markdown.');

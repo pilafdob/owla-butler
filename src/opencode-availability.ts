@@ -62,7 +62,7 @@ export function classifyOpencodeFailure(message:string):OpencodeFailure{
  return {scope:'none',kind:'other',reason:''};
 }
 
-type Block={until:number;reason:string;kind:OpencodeFailure['kind']};
+type Block={until:number;reason:string;kind:OpencodeFailure['kind'];goMeter?:boolean};
 
 export class OpencodeAvailability{
  private models=new Map<string,Block>();
@@ -122,9 +122,9 @@ export class OpencodeAvailability{
    if(full===null||until>full)full=until;
   }
   const current=this.pools.get('paid:opencode-go');
-  if(any&&full!==null)this.pools.set('paid:opencode-go',{until:full,reason:t('availability.goUsage'),kind:'usage-limit'});
+  if(any&&full!==null)this.pools.set('paid:opencode-go',{until:full,reason:t('availability.goUsage'),kind:'usage-limit',goMeter:true});
   // A meter that is no longer full lifts a block that came from the meters.
-  else if(current?.reason===t('availability.goUsage'))this.pools.delete('paid:opencode-go');
+  else if(current?.goMeter)this.pools.delete('paid:opencode-go');
  }
 
  /** The shared free-tier limit of OpenCode Zen, for the usage panel. */
