@@ -525,3 +525,40 @@ test('H5: in automatic mode the indicator shows a one-message override, or that 
  // Showing lastAutomaticRoute as the upcoming route is a known, deferred Medium follow-up (review-33-fifth.md).
 });
 
+
+test('H5: after a new chat the manual-mode indicator still names the provider',()=>{
+ const {view,butler,text}=indicatorView({provider:'opencode'});
+ setAutomatic(butler,false);
+ view.refreshModel();
+ assert.equal(text(),'OpenCode');
+ assert.notEqual(view.newChat(),false);
+ assert.equal(text(),'OpenCode');
+});
+
+test('H5: after a new chat in automatic mode the indicator drops the old route',()=>{
+ const {view,butler,text}=indicatorView({automaticProvider:true});
+ setAutomatic(butler,true);
+ view.nextRoute={provider:'opencode',model:'opencode/model-x',effort:'low'};
+ view.refreshModel();
+ assert.equal(text(),'OpenCode · opencode/model-x');
+ view.newChat();
+ assert.equal(text(),'Automatic selection · choosing at send');
+});
+
+test('H5: after restoring a saved chat the manual-mode indicator still names the provider',async()=>{
+ const {view,butler,text}=indicatorView({provider:'claude'});
+ setAutomatic(butler,false);
+ view.refreshModel();
+ assert.equal(text(),'Claude Code');
+ const opened:any[]=[];
+ const original=obsidian.FuzzySuggestModal.prototype.open;
+ obsidian.FuzzySuggestModal.prototype.open=function(this:any){opened.push(this);};
+ try{
+  const chat={id:'c',title:'Saved',created:Date.now(),messages:[{role:'user',content:'hello'}]};
+  view.chatStore=()=>({list:()=>[chat]});
+  view.userMessage=()=>{};
+  view.openSavedChat();
+  await opened[0].accept(chat);
+  assert.equal(text(),'Claude Code');
+ }finally{obsidian.FuzzySuggestModal.prototype.open=original;}
+});
