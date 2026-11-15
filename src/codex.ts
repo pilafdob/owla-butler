@@ -1,6 +1,5 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
 import {existsSync,mkdirSync} from 'node:fs';
-import {homedir} from 'node:os';
 import {delimiter,dirname,join,resolve} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
@@ -39,16 +38,15 @@ export function assertSessionPrivacy(value:unknown){const config=record(value),o
  * injected into every reply. Instructions at or above the home directory are
  * the user's own global file and are left alone.
  */
-export function inheritedInstructions(directory:string,home=homedir(),platform:NodeJS.Platform=process.platform):string[]{
+export function inheritedInstructions(directory:string):string[]{
  const found:string[]=[];
- const normalize=(value:string)=>platform==='linux'?value:value.toLowerCase();
- const stop=normalize(resolve(home));
  let current=resolve(directory);
- while(normalize(current)!==stop&&current!==dirname(current)){
+ while(true){
   for(const name of ['AGENTS.md','AGENTS.override.md']){
    const path=join(current,name);
    if(existsSync(path))found.push(path);
   }
+  if(current===dirname(current))break;
   current=dirname(current);
  }
  return found;
@@ -108,13 +106,14 @@ export class CodexBridge implements ProviderBridge{
  this.version=(await command(file,['--version'],env,startup.signal)).trim();if(!supportedVersion(this.version))throw Error('Update Codex to version 0.162.1 or newer, then reconnect.');if(generation!==this.generation)throw Error('Codex connection cancelled.');this.executable=file;mkdirSync(cwd,{recursive:true,mode:0o700});
   const inheritedFiles=inheritedInstructions(cwd);
   if(inheritedFiles.length)throw Error('Codex would read project instructions from '+inheritedFiles.join(', ')+'. Remove those files or move the OWLA storage folder, then reconnect.');
- const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','features.apps=false','features.shell_tool=false','features.code_mode=false','features.js_repl=false','features.multi_agent=false','features.view_image=false','features.skill_mcp_dependency_install=false','web_search='+JSON.stringify(web?'live':'disabled'),...extra];
+ const capabilityFeatures=['unified_exec','computer_use','browser_use','browser_use_full_cdp_access','in_app_browser','image_generation','hooks','tool_suggest','skill_search','sleep_tool','goals','memories','code_mode','js_repl','multi_agent','view_image','skill_mcp_dependency_install'];
+ const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','sandbox_mode="read-only"','approval_policy="never"','notify=[]','features.hooks=false','features.apps=false','features.shell_tool=false',...capabilityFeatures.map(feature=>'features.'+feature+'=false'),'web_search='+JSON.stringify(web?'live':'disabled'),...extra];
  const child=spawnCli(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,detached:process.platform!=='win32'});this.child=child;this.lines=newProtocolLines();child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
  await this.request('initialize',{clientInfo:{name:'owla_butler',title:'OWLA Butler',version:manifest.version},capabilities:{experimentalApi:true}});this.notify('initialized');
  const config=record(record(await this.request('config/read',{includeLayers:false})).config),features=record(config.features);
  const inherited=integrationOverrides(config);
  if(inherited.length&&!extra.length){this.disconnect('Isolating OWLA tools…',true);const next=this.generation;await this.closing;if(next!==this.generation)throw Error('Codex connection cancelled.');return this.start(file,cwd,inherited,web);}
- if(inherited.length||features.shell_tool!==false||features.apps!==false)throw Error('Codex could not isolate OWLA tools from your global configuration. No conversation was started.');
+ if(inherited.length||features.shell_tool!==false||features.apps!==false||(Array.isArray(config.notify)?config.notify.length>0:config.notify!==undefined)|| (config.hooks!==undefined&&!(typeof config.hooks==='object'&&config.hooks!==null&&!Array.isArray(config.hooks)&&Object.keys(record(config.hooks)).length===0))||config.sandbox_mode!=='read-only'||config.approval_policy!=='never'||Object.values(features).some(value=>value!==false))throw Error('Codex could not isolate OWLA tools from your global configuration. No conversation was started.');
  assertSessionPrivacy(config);
  await this.readAccount();this.models=[];
  if(this.needsSignIn){this.initialized=true;this.setStatus('Sign in to Codex');return;}
@@ -182,7 +181,12 @@ export class CodexBridge implements ProviderBridge{
  */
  private async assertIsolation():Promise<void>{
   const config=record(record(await this.request('config/read',{includeLayers:false})).config),features=record(config.features);
-  if(integrationOverrides(config).length||features.shell_tool!==false||features.apps!==false)throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
+  if(integrationOverrides(config).length)throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
+  if(features.shell_tool!==false||features.apps!==false)throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
+  if(config.notify!==undefined&&(!Array.isArray(config.notify)||config.notify.length))throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
+  if(config.hooks!==undefined&&!(typeof config.hooks==='object'&&config.hooks!==null&&!Array.isArray(config.hooks)&&Object.keys(record(config.hooks)).length===0))throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
+  if(config.sandbox_mode!=='read-only'||config.approval_policy!=='never')throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
+  for(const [,value] of Object.entries(features))if(value!==false)throw Error('Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.');
   assertSessionPrivacy(config);
  }
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
@@ -226,7 +230,8 @@ export class CodexBridge implements ProviderBridge{
  if(method==='item/started'){
   if(item.type==='webSearch'){usedWeb=true;options.onActivity('Searching the web…');}
   else if(item.type==='dynamicToolCall'&&typeof item.tool==='string')options.onActivity('Using '+item.tool.replace(/_/g,' ')+'…');
-  else if(item.type==='commandExecution'||item.type==='fileChange'||item.type==='mcpToolCall'){end(Error('Codex attempted an operation outside OWLA tools. The task was stopped.'));this.disconnect('Disconnected');}
+  else if(item.type==='userMessage'||item.type==='agentMessage'||item.type==='reasoning'){/* allowed */}
+  else {end(Error('Codex attempted an operation outside OWLA tools. The task was stopped.'));this.disconnect('Disconnected');}
  }
  if(method==='item/completed'&&item.type==='agentMessage'){
   if(!text&&typeof item.text==='string'&&item.text){text=item.text;options.onText(text);}

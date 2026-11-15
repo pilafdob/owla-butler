@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {CodexBridge,assertSessionPrivacy,replayHistory,supportedVersion,friendlyError} from '../src/codex';import {migrateSettings} from '../src/core';
 // The configuration a correctly isolated Codex session reports for every turn.
-const isolatedConfig={config:{features:{shell_tool:false,apps:false},analytics:{enabled:false},feedback:{enabled:false},otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'}}};
+const isolatedConfig={config:{notify:[],hooks:{},sandbox_mode:'read-only',approval_policy:'never',features:{shell_tool:false,apps:false,hooks:false,unified_exec:false,computer_use:false,browser_use:false,browser_use_full_cdp_access:false,in_app_browser:false,image_generation:false,tool_suggest:false,skill_search:false,sleep_tool:false,goals:false,memories:false,code_mode:false,js_repl:false,multi_agent:false,view_image:false,skill_mcp_dependency_install:false},analytics:{enabled:false},feedback:{enabled:false},otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'}}};
 test('migration removes inference configuration while preserving user work locations and exclusions',()=>{const s=migrateSettings({model:'qwen3:0.6b',executable:'/old/ollama',provider:'ollama',storageRoot:'/private/work',excludedFolders:'Private'});assert.equal(s.models.codex.model,'');assert.equal(s.storageRoot,'/private/work');assert.equal(s.excludedFolders,'Private');assert.equal('models' in s,true);assert.equal(s.provider,'codex');assert.equal(migrateSettings({...s,schemaVersion:3,models:{codex:{model:'selected',reasoning:'high'},opencode:{model:'',reasoning:''}}}).models.codex.model,'selected');});
 test('Codex version checks enforce the tested protocol baseline',()=>{assert.ok(supportedVersion('codex-cli 0.162.1'));assert.ok(supportedVersion('codex-cli 0.163.0'));assert.equal(supportedVersion('0.162.0'),false);assert.equal(supportedVersion('unknown'),false);});
 test('restart replay is bounded and never includes tool calls',()=>{const input=Array.from({length:20},(_,i)=>({role:'user' as const,content:'x'.repeat(6000)+i}));const r=replayHistory(input);assert.ok(r.shortened);assert.ok(r.messages.length<=12);assert.ok(r.messages.reduce((n,m)=>n+m.content.length,0)<=64000);assert.equal(r.messages.at(-1)?.content,input.at(-1)?.content);});
@@ -121,7 +121,7 @@ test('a configuration change between turns that re-enables an inherited tool sto
  await assert.rejects(b.run(options()),/could not isolate/);
 });
 
-test('project instructions above the session folder are found, the home folder and above are not',async()=>{
+test('project instructions are scanned up to the filesystem root, including the home folder',async()=>{
  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const {inheritedInstructions}=await import('../src/codex');
@@ -129,8 +129,8 @@ test('project instructions above the session folder are found, the home folder a
  try{
   const session=join(home,'shared','owla','session');mkdirSync(session,{recursive:true});
   writeFileSync(join(home,'AGENTS.md'),'global');
-  assert.deepEqual(inheritedInstructions(session,home),[]);
+  assert.deepEqual(inheritedInstructions(session),[join(home,'AGENTS.md')]);
   writeFileSync(join(home,'shared','AGENTS.md'),'project');
-  assert.deepEqual(inheritedInstructions(session,home),[join(home,'shared','AGENTS.md')]);
+  assert.deepEqual(inheritedInstructions(session),[join(home,'shared','AGENTS.md'),join(home,'AGENTS.md')]);
  }finally{rmSync(home,{recursive:true,force:true});}
 });
