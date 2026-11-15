@@ -32,7 +32,7 @@ function config(){
  }
  Object.assign(features,pinned);
  return {
-  notify:[],hooks:null,sandbox_mode:'read-only',approval_policy:'never',web_search:web,
+  notify:[],hooks:scenario().hooks??null,sandbox_mode:'read-only',approval_policy:'never',web_search:web,
   mcp_servers:{},plugins:{},features,
   analytics:{enabled:false},feedback:{enabled:false},
   otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'},
@@ -42,6 +42,7 @@ function config(){
 const results={
  'initialize':()=>({}),
  'config/read':()=>({config:config()}),
+ 'hooks/list':params=>scenario().hookInventory??{data:[{cwd:params.cwds[0],hooks:[],warnings:[],errors:[]}]},
  'account/read':()=>({account:{type:'chatgpt',planType:'plus'}}),
  'model/list':()=>({data:[{id:'fake',model:'fake',displayName:'Fake',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low',description:''}]}],nextCursor:null}),
  'account/rateLimits/read':()=>({rateLimits:null}),
@@ -57,8 +58,10 @@ process.stdin.on('data',chunk=>{
   if(!line.trim())continue;
   const message=JSON.parse(line);
   if(message.id===undefined)continue;
+  appendFileSync(join(dir,'requests.jsonl'),JSON.stringify(message)+'\n');
+  if(message.method==='hooks/list'&&scenario().hookInventoryError){process.stdout.write(JSON.stringify({id:message.id,error:{code:-32601,message:'hooks/list unavailable'}})+'\n');continue;}
   const result=results[message.method];
-  process.stdout.write(JSON.stringify(result?{id:message.id,result:result()}:{id:message.id,error:{code:-32601,message:'not supported by fake codex'}})+'\n');
+  process.stdout.write(JSON.stringify(result?{id:message.id,result:result(message.params)}:{id:message.id,error:{code:-32601,message:'not supported by fake codex'}})+'\n');
  }
 });
 process.stdin.on('end',()=>process.exit(0));

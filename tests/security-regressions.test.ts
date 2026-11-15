@@ -190,3 +190,27 @@ test('M2: a pending record for a now-excluded path fails the load instead of bei
   assert.throws(()=>loadPendingEdits(root,'private'),/no longer allowed/);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+
+test('hooks: trusted state never bypasses runtime isolation before thread/start',async()=>{
+ for(const active of [false,true]){
+  const b=new CodexBridge() as any,methods:string[]=[];
+  b.connect=async()=>{};
+  b.models=[{model:'test',supportedReasoningEfforts:[{reasoningEffort:'low'}]}];
+  b.request=async(method:string,params:any)=>{
+   methods.push(method);
+   if(method==='account/read')return {account:{type:'chatgpt'}};
+   if(method==='config/read')return {config:{...isolatedConfig.config,features:{...isolatedConfig.config.features,hooks:false},hooks:{Stop:[],state:{fixture:{enabled:true,trusted_hash:'sha256:fixture'}}}}};
+   if(method==='hooks/list')return {data:[{cwd:params.cwds[0],hooks:active?[{eventName:'stop',enabled:true,trustStatus:'trusted'}]:[],warnings:[],errors:[]}]};
+   if(method==='thread/start')return {thread:{id:'t'}};
+   if(method==='turn/start'){
+    queueMicrotask(()=>b.receive({method:'turn/completed',params:{threadId:'t',turn:{status:'completed'}}}));
+    return {turn:{id:'turn'}};
+   }
+   return {};
+  };
+  const pending=b.run({executable:'',cwd:tmpdir(),model:'test',effort:'low',instructions:'',text:'fixture',images:[],tools:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},tool:async()=>''});
+  if(active){await assert.rejects(pending,/could not verify that hooks are disabled/);assert.ok(!methods.includes('thread/start'));}
+  else{await pending;assert.ok(methods.indexOf('hooks/list')<methods.indexOf('thread/start'));}
+ }
+});
