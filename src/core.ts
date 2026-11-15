@@ -353,12 +353,3 @@ function splitChangedLines(value: string): string[] {
  return value.match(/[^\n]*\n|[^\n]+/g) ?? [];
 }
 
-export const applyDiffDecisions = applyHunkDecisions;
-export const applyHunkDecision = applyHunkDecisions;
-export const applyDecisions = applyHunkDecisions;
-export const mergeHunkDecisions = applyHunkDecisions;
-export const mergeDiffDecisions = applyHunkDecisions;
-export const mergeDecisions = applyHunkDecisions;
-export const resolveHunks = applyHunkDecisions;
-export const applyLineDecisions = applyHunkDecisions;
-export const computeMergedText = applyHunkDecisions;
