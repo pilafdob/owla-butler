@@ -850,6 +850,7 @@ class ButlerView extends ItemView {
  private readonly editCards=new WeakMap<EditBatch,ChangeCardUpdate>();
  private organizationSummary?:HTMLElement;
  private relatedReview?:RelatedReview;
+ private pendingEditsSignature='';
  private readonly removalDrafts=new Map<RemovalReview,{update:ChangeCardUpdate;requires:string[]}>();
  private readonly pluginDrafts=new Map<PluginChange,ChangeCardUpdate>();
  private applyingPluginChange=false;
@@ -1737,8 +1738,19 @@ class ButlerView extends ItemView {
  }
 
  renderPendingEdits() {
+  const signature=JSON.stringify({
+   pending:this.butler.pendingEdits.map(batch=>[batch.edit.path,batch.edit.before,batch.edit.after]),
+   awaiting:this.awaitingReview,
+   converting:this.converting,
+   pluginDrafts:[...this.pluginDrafts.keys()].map(change=>[change.plugin,change.label,change.path]),
+   loadError:this.butler.pendingLoadError,
+   diffView:this.butler.prefs.diffView,
+  });
+  if(signature===this.pendingEditsSignature)return;
+  this.pendingEditsSignature=signature;
   refreshEditorDiff();
-  if (this.butler.prefs.diffView === 'split') this.butler.syncSplitDiff();
+  const splitOpen=this.app.workspace.getLeavesOfType(DIFF_VIEW).length>0;
+  if (this.butler.prefs.diffView === 'split' && splitOpen) this.butler.syncSplitDiff();
   const waiting = this.awaitingReview || this.converting>0;
   this.composer.disabled = waiting;
   this.composer.placeholder = waiting
