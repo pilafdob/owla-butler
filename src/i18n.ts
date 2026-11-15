@@ -55,6 +55,14 @@ export const displayName = languageName;
  * 'en' when the Obsidian API is unavailable.
  */
 export function getObsidianLanguage(): LanguageCode {
+  if (languageSource) {
+    try {
+      const code = languageSource();
+      if (typeof code === 'string' && code.trim()) return normalizeLanguage(code);
+    } catch {
+      // ignore
+    }
+  }
   try {
     const w = (typeof window !== 'undefined' ? (window as { getLanguage?: () => string }) : undefined);
     if (w && typeof w.getLanguage === 'function') return normalizeLanguage(w.getLanguage());
@@ -66,6 +74,14 @@ export function getObsidianLanguage(): LanguageCode {
 
 /** Raw Obsidian language code (e.g. 'de-AT'), for Intl/date formatting. */
 export function getObsidianLanguageRaw(): string {
+  if (languageSource) {
+    try {
+      const code = languageSource();
+      if (typeof code === 'string' && code.trim()) return code.trim();
+    } catch {
+      // ignore
+    }
+  }
   try {
     const w = (typeof window !== 'undefined' ? (window as { getLanguage?: () => string }) : undefined);
     if (w && typeof w.getLanguage === 'function') {
@@ -87,6 +103,13 @@ export const obsidianLanguageRaw = getObsidianLanguageRaw;
 
 // Module-level override used by tests.
 let obsidianLanguageOverride: string | undefined;
+
+// Obsidian's getLanguage() is a module export, not a global. main.ts injects
+// it here at onload so i18n.ts stays free of Obsidian imports.
+let languageSource: (() => string | null | undefined) | null = null;
+export function setLanguageSource(source: (() => string | null | undefined) | null): void {
+  languageSource = source;
+}
 
 export function setObsidianLanguageForTests(code: string | null): void {
   obsidianLanguageOverride = code ?? undefined;
@@ -291,6 +314,9 @@ export const en = {
   'notice.foundationModelsCliUnavailable': 'The Foundation Models CLI is unavailable on this Mac.',
   'tooltip.overrideModelEffort': 'Override model and reasoning effort for one message',
   'label.automaticSelection': 'Automatic selection',
+  'label.sourcesAndActivity': 'Sources & activity',
+  'button.copyMarkdown': 'Copy Markdown',
+  'placeholder.composer': 'Ask about your note, or paste a screenshot…',
   'button.viewDiff': 'View diff',
   'button.acknowledgeRecovery': 'Acknowledge recovery record',
   'label.requires': 'Requires: ',
@@ -523,6 +549,9 @@ export const de: { [K in MessageKey]: string } = {
   'notice.foundationModelsCliUnavailable': 'Die Foundation-Models-CLI ist auf diesem Mac nicht verfügbar.',
   'tooltip.overrideModelEffort': 'Modell und Aufwandsniveau für eine Nachricht überschreiben',
   'label.automaticSelection': 'Automatische Auswahl',
+  'label.sourcesAndActivity': 'Quellen & Aktivität',
+  'button.copyMarkdown': 'Markdown kopieren',
+  'placeholder.composer': 'Frage zu deiner Notiz oder füge einen Screenshot ein…',
   'button.viewDiff': 'Diff anzeigen',
   'button.acknowledgeRecovery': 'Wiederherstellungseintrag bestätigen',
   'label.requires': 'Erfordert: ',

@@ -35,6 +35,14 @@ test('German catalog has the same keys as English', () => {
   assert.ok(enKeys.length > 0);
 });
 
+test('an injected language source is honoured', () => {
+  i18n.setObsidianLanguageForTests(null);
+  i18n.setLanguageSource(() => 'de');
+  assert.equal(i18n.getObsidianLanguage(), 'de');
+  assert.equal(i18n.t('action.send'), 'Senden');
+  i18n.setLanguageSource(null);
+});
+
 test('t returns German strings when language is de', () => {
   i18n.setObsidianLanguageForTests('de');
   assert.equal(i18n.t('action.send'), 'Senden');
