@@ -289,7 +289,9 @@ export function applyHunkDecisions(before: string, after: string, decisions: unk
  }
  if (countingChanged) hunkLineCounts.push(countingCount);
 
- let perHunk: unknown[] = Array.isArray(decisions) ? [...(decisions as unknown[])] : [];
+ let perHunk: unknown[];
+ if (Array.isArray(decisions)) perHunk = [...(decisions as unknown[])];
+ else perHunk = hunkLineCounts.map(() => decisions);
  const totalChangedLines = hunkLineCounts.reduce((sum, count) => sum + count, 0);
  const flatGlobal = Array.isArray(decisions)
   && decisions.length === totalChangedLines
