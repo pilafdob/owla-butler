@@ -39,17 +39,27 @@ export type PluginChange={
 };
 
 function discover(workspace:Workspace,id:string):Provider|undefined {
+ const app=(workspace as {app?:{plugins?:{enabledPlugins?:Set<string>;getPlugin?:(id:string)=>{api?:unknown}|null}}}).app;
+ if(app?.plugins?.enabledPlugins&&!app.plugins.enabledPlugins.has(id))return;
+ const validate=(api:unknown):Provider|undefined=>{
+  const recordApi=record(api);
+  if(!(recordApi.version===1&&typeof recordApi.read==='function'&&typeof recordApi.prepare==='function'))return;
+  const manifest=record(recordApi.manifest);
+  const identityCandidates=[recordApi.id,recordApi.plugin,recordApi.pluginId,recordApi.manifestId,manifest.id,manifest.pluginId];
+  if(identityCandidates.some(value=>value!==undefined&&value!==id))return;
+  return recordApi as unknown as Provider;
+ };
+ const installedApi=app?.plugins?.getPlugin?.(id)?.api;
+ if(installedApi!==undefined){
+  const validated=validate(installedApi);
+  if(validated)return validated;
+ }
  const replies:unknown[]=[];
  let receiving=true;
  workspace.trigger('pilafdob:'+id+':api:v1',(reply:unknown)=>{if(receiving)replies.push(reply);});
  receiving=false;
  if(replies.length!==1)return;
- const api=record(replies[0]);
- if(!(api.version===1&&typeof api.read==='function'&&typeof api.prepare==='function'))return;
- const manifest=record(api.manifest);
- const identityCandidates=[api.id,api.plugin,api.pluginId,api.manifestId,manifest.id,manifest.pluginId];
- if(identityCandidates.some(value=>value!==undefined&&value!==id))return;
- return api as unknown as Provider;
+ return validate(replies[0]);
 }
 
 function display(feature:Feature,value:Value):string {
