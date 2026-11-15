@@ -18,3 +18,6 @@ scripts/vault-guard.mjs
 scripts/vault-guard.test.mjs
 scripts/fix-codex-permissions.sh
 scripts/vault-guard/
+
+# Symlinked node_modules (never commit)
+node_modules
