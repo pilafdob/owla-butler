@@ -110,7 +110,9 @@ export default class Butler extends Plugin {
    const before=typeof edit.before==='string'?edit.before:'';
    const after=typeof edit.after==='string'?edit.after:'';
    try{
-    await this.restoreEdit({path,before:after,after:before,reason:'Restore OWLA Butler edit'} as Proposal);
+    // restoreEdit swaps before/after itself; a note already at its original text is left alone.
+    if(await this.currentText(path)===before)continue;
+    await this.restoreEdit({path,before,after,reason:'Restore OWLA Butler edit'} as Proposal);
    }catch{
     failed=true;remaining.push(value);
    }
