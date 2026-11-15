@@ -63,10 +63,26 @@ export function getObsidianLanguage(): LanguageCode {
   return 'en';
 }
 
+/** Raw Obsidian language code (e.g. 'de-AT'), for Intl/date formatting. */
+export function getObsidianLanguageRaw(): string {
+  try {
+    const w = (typeof window !== 'undefined' ? (window as { getLanguage?: () => string }) : undefined);
+    if (w && typeof w.getLanguage === 'function') {
+      const code = w.getLanguage();
+      if (typeof code === 'string' && code.trim()) return code.trim();
+    }
+  } catch {
+    // ignore
+  }
+  return 'en';
+}
+
 /** Aliases. */
 export const getLanguage = getObsidianLanguage;
 export const obsidianLanguageCode = getObsidianLanguage;
 export const currentObsidianLanguage = getObsidianLanguage;
+export const getLanguageRaw = getObsidianLanguageRaw;
+export const obsidianLanguageRaw = getObsidianLanguageRaw;
 
 // Module-level override used by tests.
 let obsidianLanguageOverride: string | undefined;
@@ -106,7 +122,7 @@ export const interpolateMessage = interpolate;
 // Translation catalogs
 // ---------------------------------------------------------------------------
 
-export const en: Record<string, string> = {
+export const en = {
   'app.name': 'OWLA Butler',
   'action.send': 'Send',
   'action.stop': 'Stop',
@@ -135,9 +151,26 @@ export const en: Record<string, string> = {
   'diff.declineHunk': 'Decline hunk',
   'greeting': 'Hello, {name}!',
   'count.items': '{count} items',
-};
+  'exhaustion.codex': 'Codex usage limit reached.',
+  'exhaustion.opencode': 'OpenCode usage limit reached.',
+  'exhaustion.opencode.free': 'The OpenCode free models’ shared limit is reached.',
+  'exhaustion.claude': 'Claude usage limit reached.',
+  'exhaustion.reset': ' It resets {date}.',
+  'exhaustion.resets': ' Resets {date}.',
+  'exhaustion.opencode.noReset': 'The free models’ shared limit is reached. OpenCode did not say when it resets.',
+  'exhaustion.opencode.noLimits': 'OpenCode reports no plan limits for your connected providers. Free models share one limit that OpenCode reports only when it is reached; it will appear here then.',
+  'availability.region': 'not allowed in your workspace’s privacy regions',
+  'availability.freeLimit': 'free models’ shared limit reached',
+  'availability.noCredit': 'no credit balance',
+  'availability.unavailable': 'not available on your plan',
+  'availability.usageLimit': 'usage limit reached',
+  'availability.auth': 'sign-in refused',
+  'availability.goUsage': 'OpenCode Go usage limit reached',
+} as const;
 
-export const de: Record<string, string> = {
+export type MessageKey = keyof typeof en;
+
+export const de: { [K in MessageKey]: string } = {
   'app.name': 'OWLA Butler',
   'action.send': 'Senden',
   'action.stop': 'Stopp',
@@ -166,6 +199,21 @@ export const de: Record<string, string> = {
   'diff.declineHunk': 'Block ablehnen',
   'greeting': 'Hallo, {name}!',
   'count.items': '{count} Elemente',
+  'exhaustion.codex': 'Codex-Nutzungslimit erreicht.',
+  'exhaustion.opencode': 'OpenCode-Nutzungslimit erreicht.',
+  'exhaustion.opencode.free': 'Das gemeinsame Limit der kostenlosen OpenCode-Modelle ist erreicht.',
+  'exhaustion.claude': 'Claude-Nutzungslimit erreicht.',
+  'exhaustion.reset': ' Setzt sich zurück am {date}.',
+  'exhaustion.resets': ' Setzt sich zurück am {date}.',
+  'exhaustion.opencode.noReset': 'Das gemeinsame Limit der kostenlosen OpenCode-Modelle ist erreicht. OpenCode nannte kein Zurücksetzungsdatum.',
+  'exhaustion.opencode.noLimits': 'OpenCode meldet keine Plan-Limits für verbundene Anbieter. Kostenlose Modelle teilen sich ein Limit, das erst beim Erreichen gemeldet wird.',
+  'availability.region': 'in den Datenschutzregionen deines Arbeitsbereichs nicht erlaubt',
+  'availability.freeLimit': 'gemeinsames Limit der kostenlosen Modelle erreicht',
+  'availability.noCredit': 'kein Guthaben',
+  'availability.unavailable': 'nicht in deinem Plan enthalten',
+  'availability.usageLimit': 'Nutzungslimit erreicht',
+  'availability.auth': 'Anmeldung abgelehnt',
+  'availability.goUsage': 'OpenCode Go-Nutzungslimit erreicht',
 };
 
 export const messages = { en, de } as const;
@@ -190,7 +238,7 @@ function activeLanguage(): LanguageCode {
 export function t(key: string, vars?: Record<string, unknown> | null, lang?: string | null): string {
   const language = normalizeLanguage(lang ?? activeLanguage());
   const table = language === 'de' ? de : en;
-  const template = table[key] ?? en[key] ?? key;
+  const template = (table as Record<string, string>)[key] ?? (en as Record<string, string>)[key] ?? key;
   return interpolate(template, vars);
 }
 

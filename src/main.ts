@@ -9,7 +9,7 @@ import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,pre
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
 import {autoEntries,autoFallbackRoute,clearRoutingCache,getRoutingDecisions,heuristicPerProviderRoute,heuristicTaskClass,offeredEntries,pickEscalationRoute,pickRoute,quickPerProviderRoute,reloadRoutingCalibration,renderRoutingDetails,routeAcrossProviders,shouldEscalateQuality,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
 import {currentModels,type TaskKind} from './model-profiles';
-import {replyLanguageInstruction,getObsidianLanguage} from './i18n';
+import {replyLanguageInstruction,getObsidianLanguage,getObsidianLanguageRaw} from './i18n';
 import {attachmentSizeBucket,buildRoutingContext,checkFoundationModelsHealth,DegradationNotifier,fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,prewarmFoundationModels,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute,type RoutingAttachment,type RoutingContext} from './routing';
 import {clearRoutingHistory,loadRoutingHistory,recordRoutingOutcome,saveRoutingHistory,type RoutingHistoryData} from './routing-history';
 import {SessionModelAvailability} from './opencode-availability';
@@ -2479,11 +2479,11 @@ class ButlerSettingsTab extends PluginSettingTab {
    card.createEl('strong',{text:row.bucket+' · '+row.window});
    card.createEl('p',{text:row.used+'% used · '+row.remaining+'% remaining'});
    card.createEl('progress',{attr:{max:'100',value:String(Math.max(0,Math.min(100,row.used))),'aria-label':row.bucket+' '+row.window+' usage'}});
-   card.createEl('p',{text:row.resetsAt?'Resets '+new Date(row.resetsAt*1000).toLocaleString():'Reset time not provided by '+name+'.'});
+   card.createEl('p',{text:row.resetsAt?'Resets '+new Date(row.resetsAt*1000).toLocaleString(getObsidianLanguageRaw()):'Reset time not provided by '+name+'.'});
   }
   const resets=bridge.usage?.rateLimitResetCredits?.availableCount;
   if(typeof resets==='number')el.createEl('p',{text:'Available rate-limit resets: '+resets});
-  if(bridge.usageUpdatedAt)el.createEl('p',{text:'Reported by '+name+' · updated '+new Date(bridge.usageUpdatedAt).toLocaleString(),cls:'setting-item-description'});
+  if(bridge.usageUpdatedAt)el.createEl('p',{text:'Reported by '+name+' · updated '+new Date(bridge.usageUpdatedAt).toLocaleString(getObsidianLanguageRaw()),cls:'setting-item-description'});
   if(bridge.usageError&&rows.length)el.createEl('p',{text:'Refresh failed; showing the last reported limits.'});
  }
  private async refreshUsage(provider:ProviderId){
