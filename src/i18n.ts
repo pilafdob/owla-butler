@@ -404,6 +404,14 @@ export const en = {
   'button.allowOnce': 'Allow once',
   'button.allowForChat': 'Always for this chat',
   'button.dontSearch': "Don't search",
+  'codex.isolation.global': 'Codex could not isolate OWLA tools from your global configuration. No conversation was started.',
+  'codex.isolation.globalTurn': 'Codex could not isolate OWLA tools from your global configuration. Reconnect to retry.',
+  'codex.isolation.telemetry': 'Codex could not disable optional telemetry for this session. Check managed Codex settings. No conversation was started.',
+  'codex.isolation.featureName': 'Codex could not isolate OWLA tools: feature name {key} is not supported. Remove it from your Codex config. No conversation was started.',
+  'codex.isolation.featureValue': 'Codex could not isolate OWLA tools: feature {key} has an unsupported value. Set it to true or false in your Codex config. No conversation was started.',
+  'codex.isolation.tooManyFeatures': 'Codex could not isolate OWLA tools: more than {max} Codex features are turned on. Turn some off in your Codex config. No conversation was started.',
+  'codex.isolation.featureManaged': 'Codex could not isolate OWLA tools: feature {key} is enforced by managed Codex settings. OWLA cannot turn it off for its session. No conversation was started.',
+  'codex.isolation.featureTurn': "Codex could not isolate OWLA tools: feature {key} was turned on while Codex was running. Reconnect Codex to apply OWLA's isolation.",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -666,6 +674,14 @@ export const de: { [K in MessageKey]: string } = {
   'button.allowOnce': 'Einmal erlauben',
   'button.allowForChat': 'Für diesen Chat immer',
   'button.dontSearch': 'Nicht suchen',
+  'codex.isolation.global': 'Codex konnte die OWLA-Werkzeuge nicht von deiner globalen Konfiguration abschirmen. Es wurde keine Unterhaltung gestartet.',
+  'codex.isolation.globalTurn': 'Codex konnte die OWLA-Werkzeuge nicht von deiner globalen Konfiguration abschirmen. Verbinde neu, um es erneut zu versuchen.',
+  'codex.isolation.telemetry': 'Codex konnte die optionale Telemetrie für diese Sitzung nicht abschalten. Prüfe verwaltete Codex-Einstellungen. Es wurde keine Unterhaltung gestartet.',
+  'codex.isolation.featureName': 'Codex konnte die OWLA-Werkzeuge nicht abschirmen: Der Funktionsname {key} wird nicht unterstützt. Entferne ihn aus deiner Codex-Konfiguration. Es wurde keine Unterhaltung gestartet.',
+  'codex.isolation.featureValue': 'Codex konnte die OWLA-Werkzeuge nicht abschirmen: Die Funktion {key} hat einen nicht unterstützten Wert. Setze sie in deiner Codex-Konfiguration auf true oder false. Es wurde keine Unterhaltung gestartet.',
+  'codex.isolation.tooManyFeatures': 'Codex konnte die OWLA-Werkzeuge nicht abschirmen: Mehr als {max} Codex-Funktionen sind eingeschaltet. Schalte einige in deiner Codex-Konfiguration aus. Es wurde keine Unterhaltung gestartet.',
+  'codex.isolation.featureManaged': 'Codex konnte die OWLA-Werkzeuge nicht abschirmen: Die Funktion {key} wird von verwalteten Codex-Einstellungen erzwungen. OWLA kann sie für seine Sitzung nicht abschalten. Es wurde keine Unterhaltung gestartet.',
+  'codex.isolation.featureTurn': 'Codex konnte die OWLA-Werkzeuge nicht abschirmen: Die Funktion {key} wurde eingeschaltet, während Codex lief. Verbinde Codex neu, um die OWLA-Abschirmung anzuwenden.',
 };
 
 export const messages = { en, de } as const;
