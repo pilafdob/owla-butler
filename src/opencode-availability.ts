@@ -50,11 +50,11 @@ export function opencodePool(model:ProviderModel):string{
 
 /** Reads an OpenCode failure message and decides how far it reaches. */
 export function classifyOpencodeFailure(message:string):OpencodeFailure{
- if(/hosted outside/i.test(message))return {scope:'model',kind:'region',reason:'not allowed in your workspace’s privacy regions'};
+ if(/hosted outside|outside (?:your |the )?(?:region|location|country)|not available in your (?:region|location|country)|\bregion\b.*(?:not allowed|restricted)/i.test(message))return {scope:'model',kind:'region',reason:'not allowed in your workspace’s privacy regions'};
  if(/free-limit|free usage limit/i.test(message))return {scope:'pool',kind:'free-limit',reason:'free models’ shared limit reached'};
  if(/insufficient (balance|credit|fund)|top up|out of credits|no credits|payment required|\b402\b|billing/i.test(message))
   return {scope:'pool',kind:'balance',reason:'no credit balance'};
- if(/model[^.]{0,40}(unavailable|not (available|supported|found|enabled|allowed|included))|unsupported model|model_not_supported|not (included|available) (in|on|with) your (plan|subscription)|does not have access|no access to|not entitled|\b403\b|forbidden/i.test(message))
+ if(/model[^.]{0,40}(unavailable|not (available|supported|found|enabled|allowed|included))|unsupported model|model_not_supported|not (included|available) (in|on|with) your (plan|subscription)|does not have access|no access to|not entitled|not found|unknown model|does not exist|permission denied|access denied|\b403\b|\b404\b|forbidden/i.test(message))
   return {scope:'model',kind:'unavailable',reason:'not available on your plan'};
  if(/usage limit|rate.?limit|quota|\b429\b|too many requests/i.test(message))return {scope:'pool',kind:'usage-limit',reason:'usage limit reached'};
  if(/\b401\b|unauthori[sz]ed|authentication|credential|sign in/i.test(message))return {scope:'account',kind:'auth',reason:'sign-in refused'};
