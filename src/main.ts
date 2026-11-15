@@ -149,7 +149,7 @@ export default class Butler extends Plugin {
   this.registerEvent(this.app.workspace.on('active-leaf-change',leaf=>{if(leaf?.view instanceof MarkdownView)this.last=leaf.view;}));
   this.registerEvent(this.app.workspace.on('layout-change',()=>{this.markdownViewsIndexed=false;}));
   this.registerEvent(this.app.workspace.on('file-open',()=>{const v=this.app.workspace.getActiveViewOfType(MarkdownView);if(v)this.last=v;}));
-  this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{if(editor.getSelection())menu.addItem(item=>item.setTitle('Add selection to OWLA Butler').setIcon('message-square-plus').onClick(()=>void this.selection(editor,view.file)));}));
+  this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{if(editor.getSelection())menu.addItem(item=>item.setTitle(t('menu.addSelectionToOwla')).setIcon('message-square-plus').onClick(()=>void this.selection(editor,view.file)));}));
   this.registerEvent(this.app.workspace.on('file-menu',(menu,file)=>{
    if(file instanceof TFolder&&this.allowedVaultFile(file.path)){
     this.addAttachmentMenu(menu,'Add folder to OWLA chat',[file]);
@@ -175,10 +175,10 @@ export default class Butler extends Plugin {
    if(typeof path!=='string'||!this.allowedPdf(path)||!Number.isInteger(number)||number<1)return;
    event.preventDefault();event.stopImmediatePropagation();
    const menu=new Menu().setUseNativeMenu(false),link='[['+path+'#page='+number+']]';
-   menu.addItem(item=>item.setTitle('Add page to OWLA').setIcon('file-plus').onClick(async()=>{try{const view=await this.open();view.attachVaultPdf(path+'#page='+number);}catch(error){new Notice(friendlyError(error));}}));
-   menu.addItem(item=>item.setTitle('Copy link to page').setIcon('link').onClick(()=>void navigator.clipboard.writeText(link)));
+   menu.addItem(item=>item.setTitle(t('menu.addPageToOwla')).setIcon('file-plus').onClick(async()=>{try{const view=await this.open();view.attachVaultPdf(path+'#page='+number);}catch(error){new Notice(friendlyError(error));}}));
+   menu.addItem(item=>item.setTitle(t('menu.copyLinkToPage')).setIcon('link').onClick(()=>void navigator.clipboard.writeText(link)));
    const selected=window.getSelection()?.toString();
-   if(selected)menu.addItem(item=>item.setTitle('Copy selected text').setIcon('copy').onClick(()=>void navigator.clipboard.writeText(selected)));
+   if(selected)menu.addItem(item=>item.setTitle(t('menu.copySelectedText')).setIcon('copy').onClick(()=>void navigator.clipboard.writeText(selected)));
    nodeTimeout(()=>menu.showAtMouseEvent(event),0);
   },true);
   this.app.workspace.onLayoutReady(()=>{this.last=this.app.workspace.getActiveViewOfType(MarkdownView);this.syncSplitDiff();});
@@ -653,15 +653,15 @@ export default class Butler extends Plugin {
  }
 }
 function commonChange(before:string,after:string){let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;let end=before.length,newEnd=after.length;while(end>start&&newEnd>start&&before[end-1]===after[newEnd-1]){end--;newEnd--;}return {start,end,text:after.slice(start,newEnd)};}
-class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
+class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder(t('placeholder.addNoteAsContext'));}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
 private items:TFile[]|null=null;getItems(){return this.items??=this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
-class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
+class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder(t('placeholder.chooseModel'));}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 class TurnRouteModal extends Modal {
  constructor(app:App,butler:Butler,private items:{provider:ProviderId;model:CodexModel}[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void,private skipped:{provider:ProviderId;message:string}[]=[]){
   super(app);butler.ownModal(this);
  }
  onOpen(){
-  this.setTitle('Override the next message');
+  this.setTitle(t('dialog.overrideNextMessage'));
   // A provider missing from the list is explained: out of usage with its
   // reset time, or not reachable. Otherwise a connected but depleted Codex
   // would simply vanish from the choices.
@@ -670,8 +670,8 @@ class TurnRouteModal extends Modal {
   const showProvider=distinctProviders.size>1;
   const key=(item:{provider:ProviderId;model:CodexModel})=>modelKey(item.provider,item.model);
   let current=this.items.find(item=>item.provider===this.initial.provider&&key(item)===this.initial.model)??this.items[0];
-  const modelSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Model'}});
-  const effortSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Reasoning effort'}});
+  const modelSelect=this.contentEl.createEl('select',{attr:{'aria-label':t('label.model')}});
+  const effortSelect=this.contentEl.createEl('select',{attr:{'aria-label':t('label.reasoningEffort')}});
   for(const item of this.items){
    const label=showProvider
     ?PROVIDER_NAMES[item.provider]+' · '+(item.provider==='opencode'&&item.model.providerID&&item.model.providerID!=='opencode'?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName)
@@ -729,7 +729,7 @@ class SplitDiffView extends ItemView {
   const batch=pending.find(item=>item.edit.path===this.path)??pending.find(item=>item.edit.path===this.butler.last?.file?.path)??pending[0];
   this.path=batch.edit.path;
   if(pending.length>1){
-   const select=this.contentEl.createEl('select',{attr:{'aria-label':'Note diff'}});
+   const select=this.contentEl.createEl('select',{attr:{'aria-label':t('label.noteDiff')}});
    for(const item of pending)select.createEl('option',{text:item.edit.path,value:item.edit.path});
    select.value=this.path;select.onchange=()=>{this.path=select.value;this.render();};
   }
@@ -833,7 +833,7 @@ class EditDiff extends Modal {
 
  onOpen() {
   this.modalEl.addClass('owla-review');
-  this.setTitle('Suggested changes');
+  this.setTitle(t('dialog.suggestedChanges'));
   renderSourceDiff(this.contentEl,this.batch);
  }
 
@@ -883,7 +883,7 @@ class ButlerView extends ItemView {
    const menu = new Menu();
    menu.addItem(item => item.setTitle(t('chat.saveRecentChat')).setIcon('save').onClick(() => this.saveChat()));
    menu.addItem(item => item.setTitle(t('chat.openSavedChat')).setIcon('history').onClick(() => this.openSavedChat()));
-   menu.addItem(item => item.setTitle('Delete a saved chat').setIcon('trash').onClick(() => this.openSavedChat(true)));
+   menu.addItem(item => item.setTitle(t('menu.deleteSavedChat')).setIcon('trash').onClick(() => this.openSavedChat(true)));
    if (event.detail) menu.showAtMouseEvent(event);
    else {
     const bounds = more.getBoundingClientRect();
@@ -927,7 +927,7 @@ class ButlerView extends ItemView {
    void this.attachVaultEntries(entries,files);
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
-  const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:'Attach',cls:'owla-small-button'});setTooltip(attach,'Attach files');attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:'Add note',cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:'Choose model',cls:'owla-model',attr:{'aria-label':'Choose model'}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':'Reasoning effort'}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:'Send',cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
+  const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:'Attach',cls:'owla-small-button'});setTooltip(attach,'Attach files');attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:'Add note',cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:'Choose model',cls:'owla-model',attr:{'aria-label':'Choose model'}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:'Send',cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
   this.automaticLabel=toolbar.createEl('button',{text:'Automatic selection',cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
   setTooltip(this.automaticLabel,'Override model and reasoning effort for one message');
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
@@ -2541,7 +2541,7 @@ class ButlerSettingsTab extends PluginSettingTab {
     try{await this.refreshUsage(provider);}
     finally{refreshing=false;update();}
    };
-   setting.addButton(b=>{refresh=b.setButtonText('Refresh usage').onClick(()=>void refreshUsage());});
+   setting.addButton(b=>{refresh=b.setButtonText(t('button.refreshUsage')).onClick(()=>void refreshUsage());});
    this.usageUpdaters.add(update);
    const usage=setting.descEl.createDiv('owla-usage');this.usageEls.set(provider,usage);
    this.renderUsage(provider);
@@ -2551,7 +2551,7 @@ class ButlerSettingsTab extends PluginSettingTab {
  }
  private executableSection(provider:ProviderId,label:string):SettingDefinitionItem{
   return {name:label,desc:this.butler.providerExecutable(provider)||'Automatically detected on this device.',visible:this.visibleFor(provider),render:setting=>{
-   setting.addButton(b=>b.setButtonText('Choose executable…').onClick(()=>{
+   setting.addButton(b=>b.setButtonText(t('button.chooseExecutable')).onClick(()=>{
     const input=setting.settingEl.createEl('input',{type:'file',cls:'owla-hidden'});
     input.onchange=async()=>{
      try{
@@ -2572,7 +2572,7 @@ class ButlerSettingsTab extends PluginSettingTab {
  }
  getSettingDefinitions():SettingDefinitionItem[]{
   return [
-  {name:'Assistant provider',desc:'Choose which assistant answers your messages. Codex uses your ChatGPT login. OpenCode uses the providers you connected in OpenCode, including its free models. Claude Code uses your Claude subscription login.',render:setting=>{
+  {name:t('settings.assistantProvider'),desc:t('settings.desc.assistantProvider'),render:setting=>{
    setting.addDropdown(dropdown=>{
     if(supportsAutomaticSelection())dropdown.addOption('auto','Automatic');
     dropdown.addOption('codex','Codex').addOption('opencode','OpenCode').addOption('claude','Claude Code');
@@ -2608,9 +2608,9 @@ class ButlerSettingsTab extends PluginSettingTab {
    });
    });
   }},
-  {name:'Fallback provider',desc:'When the selected provider reports that its usage limit is reached, OWLA serves the next messages with this provider and switches back as soon as the limit resets. Choose None to be told instead of switched.',visible:()=>!this.butler.prefs.automaticProvider,render:setting=>{
+  {name:t('settings.fallbackProvider'),desc:t('settings.desc.fallbackProvider'),visible:()=>!this.butler.prefs.automaticProvider,render:setting=>{
    setting.addDropdown(dropdown=>{
-    dropdown.addOption('none','None');
+    dropdown.addOption('none',t('option.none'));
     for(const id of PROVIDER_IDS)dropdown.addOption(id,PROVIDER_NAMES[id]);
     const update=()=>{
      for(const option of Array.from(dropdown.selectEl.options))option.disabled=option.value===this.butler.prefs.provider;
@@ -2628,10 +2628,10 @@ class ButlerSettingsTab extends PluginSettingTab {
    });
    return ()=>{this.updateFallback=undefined;};
   }},
-  {name:'Account and privacy',render:setting=>{
+  {name:t('settings.accountPrivacy'),render:setting=>{
    setting.descEl.createEl('p',{text:this.privacyText()});
   }},
-  {name:'Codex connection',desc:'Codex 0.162.1 or newer must be installed and signed in with ChatGPT. OWLA starts it on demand with its shell, file and MCP access turned off. No API key is needed.',visible:this.visibleFor('codex'),render:setting=>{
+  {name:t('settings.codexConnection'),desc:t('settings.desc.codexConnection'),visible:this.visibleFor('codex'),render:setting=>{
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.providerExecutable('codex')||findCodexExecutable(process.env.PATH??'');
@@ -2657,16 +2657,16 @@ class ButlerSettingsTab extends PluginSettingTab {
     catch(e){new Notice(friendlyError(e));}
     finally{pending=false;update();}
    };
-   setting.addButton(b=>{connect=b.setButtonText('Connect Codex').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'codex'})));})
-   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('codex')));})
-   .addButton(b=>{signIn=b.setButtonText('Sign in').onClick(()=>run(()=>this.butler.signInToCodex()));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('codex')));});
+   setting.addButton(b=>{connect=b.setButtonText(t('button.connectCodex')).setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'codex'})));})
+   .addButton(b=>{verify=b.setButtonText(t('button.verifyConnection')).setCta().onClick(()=>run(()=>this.butler.verifyProvider('codex')));})
+   .addButton(b=>{signIn=b.setButtonText(t('button.signIn')).onClick(()=>run(()=>this.butler.signInToCodex()));})
+   .addButton(b=>{disconnect=b.setButtonText(t('button.disconnect')).onClick(()=>run(()=>this.butler.disconnectProvider('codex')));});
    this.connectionUpdaters.add(update);
    update();
    return ()=>{this.connectionUpdaters.delete(update);};}},
   this.executableSection('codex','Codex executable'),
   this.usageSection('codex','Codex usage limits','Actual account limits reported by Codex, not an estimated message counter.'),
-  {name:'OpenCode connection',desc:'OpenCode 2.2 or newer must be installed. OWLA starts it on demand and uses the providers you connected in OpenCode.',visible:this.visibleFor('opencode'),render:setting=>{
+  {name:t('settings.opencodeConnection'),desc:t('settings.desc.opencodeConnection'),visible:this.visibleFor('opencode'),render:setting=>{
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'');
@@ -2689,15 +2689,15 @@ class ButlerSettingsTab extends PluginSettingTab {
     catch(e){new Notice(friendlyError(e));}
     finally{pending=false;update();}
    };
-   setting.addButton(b=>{connect=b.setButtonText('Connect OpenCode').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'opencode'})));})
-   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('opencode')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('opencode')));});
+   setting.addButton(b=>{connect=b.setButtonText(t('button.connectOpencode')).setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'opencode'})));})
+   .addButton(b=>{verify=b.setButtonText(t('button.verifyConnection')).setCta().onClick(()=>run(()=>this.butler.verifyProvider('opencode')));})
+   .addButton(b=>{disconnect=b.setButtonText(t('button.disconnect')).onClick(()=>run(()=>this.butler.disconnectProvider('opencode')));});
    this.connectionUpdaters.add(update);
    update();
    return ()=>{this.connectionUpdaters.delete(update);};}},
   this.executableSection('opencode','OpenCode executable'),
   this.usageSection('opencode','OpenCode usage limits','Limits reported by OpenCode for the plan or budgets you connected.'),
-  {name:'Claude Code connection',desc:'Claude Code 2.1.322 or newer must be installed and signed in with your Claude account. OWLA starts it on demand with your CLAUDE.md, skills, plugins and built-in tools turned off. No API key is needed.',visible:this.visibleFor('claude'),render:setting=>{
+  {name:t('settings.claudeConnection'),desc:t('settings.desc.claudeConnection'),visible:this.visibleFor('claude'),render:setting=>{
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'');
@@ -2720,15 +2720,15 @@ class ButlerSettingsTab extends PluginSettingTab {
     catch(e){new Notice(friendlyError(e));}
     finally{pending=false;update();}
    };
-   setting.addButton(b=>{connect=b.setButtonText('Connect Claude Code').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'claude'})));})
-   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('claude')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('claude')));});
+   setting.addButton(b=>{connect=b.setButtonText(t('button.connectClaudeCode')).setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'claude'})));})
+   .addButton(b=>{verify=b.setButtonText(t('button.verifyConnection')).setCta().onClick(()=>run(()=>this.butler.verifyProvider('claude')));})
+   .addButton(b=>{disconnect=b.setButtonText(t('button.disconnect')).onClick(()=>run(()=>this.butler.disconnectProvider('claude')));});
    this.connectionUpdaters.add(update);
    update();
    return ()=>{this.connectionUpdaters.delete(update);};}},
   this.executableSection('claude','Claude Code executable'),
   this.usageSection('claude','Claude usage limits','Plan limits reported by Claude Code. They are read without sending a message and update after each reply.'),
-  {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to select a compatible model and reasoning effort from your prompt and attachment names.',visible:()=>supportsAutomaticSelection(),render:setting=>{
+  {name:t('settings.automaticModelEffort'),desc:t('settings.desc.automaticModelEffort'),visible:()=>supportsAutomaticSelection(),render:setting=>{
    if(this.butler.prefs.automaticProvider)setting.descEl.createDiv({text:'The Automatic provider already chooses the model and reasoning effort for every message.'});
    const available=hasFoundationModelsCLI();
    if(!available)setting.descEl.createDiv({text:'The Foundation Models CLI is unavailable on this Mac.'});
@@ -2740,7 +2740,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    }
    let checkBtn!:ButtonComponent;
    setting.addButton(b=>{
-    checkBtn=b.setButtonText('Check automatic selection').onClick(async()=>{
+    checkBtn=b.setButtonText(t('button.checkAutomaticSelection')).onClick(async()=>{
      checkBtn.setDisabled(true);
      try{
       const status=await checkFoundationModelsHealth();
@@ -2762,11 +2762,11 @@ class ButlerSettingsTab extends PluginSettingTab {
      this.update();
     }));
   }},
-  {name:'Automatic selection priority',desc:'Balance cost and capability, favour lower plan usage and free models, or favour higher-tier models and quality escalation.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:t('settings.automaticSelectionPriority'),desc:t('settings.desc.selectionPriority'),visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
    setting.addDropdown(dropdown=>dropdown
-    .addOption('cost','Cost')
-    .addOption('balance','Balanced')
-    .addOption('intelligence','Intelligence')
+    .addOption('cost',t('option.cost'))
+    .addOption('balance',t('option.balanced'))
+    .addOption('intelligence',t('option.intelligence'))
     .setValue(this.butler.prefs.routingMode)
     .onChange(async value=>{
      this.butler.prefs.routingMode=value as RoutingMode;
@@ -2774,51 +2774,51 @@ class ButlerSettingsTab extends PluginSettingTab {
      await this.butler.save();
     }));
   }},
-  {name:'Thorough automatic selection',desc:'Always run the on-device classifier with chain-of-thought reasoning, attachment names and raw note previews instead of fast local heuristics.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:t('settings.thoroughSelection'),desc:t('settings.desc.thoroughSelection'),visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.routingThorough).onChange(async value=>{
     this.butler.prefs.routingThorough=value;
     clearRoutingCache();
     await this.butler.save();
    }));
   }},
-  {name:'Automatic selection privacy mode',desc:'Keep note excerpts, heading outlines, chat topics and filenames out of the on-device classifier. It still reads your request, on this Mac, so it can judge the task. The chosen assistant receives everything as usual.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:t('settings.automaticSelectionPrivacy'),desc:t('settings.desc.privacyMode'),visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.routingPrivacyMode).onChange(async value=>{
     this.butler.prefs.routingPrivacyMode=value;
     clearRoutingCache();
     await this.butler.save();
    }));
   }},
-  {name:'Show automatic selection details',desc:'Include a collapsible section under each reply with the top candidate models and their scores.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:t('settings.showSelectionDetails'),desc:t('settings.desc.showSelectionDetails'),visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.showRoutingDetails).onChange(async value=>{
     this.butler.prefs.showRoutingDetails=value;
     await this.butler.save();
    }));
   }},
-  {name:'Allow web search',desc:'The assistant can search the web when needed. Search queries may be based on the context you provide.',render:setting=>{setting.addToggle(t=>t.setValue(this.butler.prefs.webSearch).onChange(async value=>{this.butler.view?.clearWarmup();this.butler.prefs.webSearch=value;await this.butler.save();}));}},
-  {name:'Plugin Interconnectivity',desc:'Let OWLA use the Pilafdob plugins enabled in this vault. It can look up and propose changes to Nicons icons, Pinup pins, and Folder and Graphs Plus graph options. You review each change before it is applied.',render:setting=>{
+  {name:t('settings.allowWebSearch'),desc:t('settings.desc.allowWebSearch'),render:setting=>{setting.addToggle(t=>t.setValue(this.butler.prefs.webSearch).onChange(async value=>{this.butler.view?.clearWarmup();this.butler.prefs.webSearch=value;await this.butler.save();}));}},
+  {name:t('settings.pluginInterconnectivity'),desc:t('settings.desc.pluginInterconnectivity'),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.pluginInterconnectivity).onChange(async enabled=>{
     try{await this.butler.setPluginInterconnectivity(enabled);}
     catch(e){new Notice(friendlyError(e));}
    }));
   }},
-  {name:'Diff view',desc:'Choose how pending Markdown edits are displayed. Accept or decline changes in chat.',render:setting=>{setting.addDropdown(dropdown=>dropdown.addOption('highlights','Highlights in editor').addOption('none','None').addOption('split','Split diff view').setValue(this.butler.prefs.diffView).onChange(async value=>{this.butler.prefs.diffView=value as DiffView;refreshEditorDiff();this.butler.syncSplitDiff();await this.butler.save();}));}},
-  {name:'Excluded folders',desc:'Vault-relative paths, one per line. Hidden/configuration files are always excluded.',render:setting=>{setting.addTextArea(t=>t.setValue(this.butler.prefs.excludedFolders).onChange(async v=>{this.butler.prefs.excludedFolders=v;await this.butler.save();}));}},
-  {name:'Models and account limits',desc:'Choose the model and reasoning effort in the sidebar. Usage follows the limits of the selected provider. OWLA does not change global settings or sign out your other clients.'}
+  {name:t('settings.diffView'),desc:t('settings.desc.diffView'),render:setting=>{setting.addDropdown(dropdown=>dropdown.addOption('highlights',t('option.highlightsInEditor')).addOption('none',t('option.none')).addOption('split',t('option.splitDiffView')).setValue(this.butler.prefs.diffView).onChange(async value=>{this.butler.prefs.diffView=value as DiffView;refreshEditorDiff();this.butler.syncSplitDiff();await this.butler.save();}));}},
+  {name:t('settings.excludedFolders'),desc:t('settings.desc.excludedFolders'),render:setting=>{setting.addTextArea(t=>t.setValue(this.butler.prefs.excludedFolders).onChange(async v=>{this.butler.prefs.excludedFolders=v;await this.butler.save();}));}},
+  {name:t('settings.modelsAndLimits'),desc:t('settings.desc.modelsAndLimits')}
   ];
  }
 }
 
-class SavedChatPicker extends FuzzySuggestModal<SavedChat>{constructor(app:App,butler:Butler,private chats:SavedChat[],private accept:(chat:SavedChat)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a saved chat…');}getItems(){return this.chats;}getItemText(chat:SavedChat){return chat.title+' · '+new Date(chat.created).toLocaleDateString();}onChooseItem(chat:SavedChat){void Promise.resolve(this.accept(chat)).catch(e=>new Notice(friendlyError(e)));}}
-class ChatNameModal extends Modal{constructor(app:App,butler:Butler,private name:string,private accept:(title:string)=>void){super(app);butler.ownModal(this);}onOpen(){this.setTitle('Save recent chat');this.contentEl.createEl('p',{text:'Save the last three exchanges locally. Images, attachments and edit buttons are not saved. Up to 20 chats can be saved. Delete an unwanted saved chat before adding more.'});new Setting(this.contentEl).setName('Chat name').addText(t=>t.setValue(this.name).onChange(v=>this.name=v));new Setting(this.contentEl).addButton(b=>b.setButtonText('Save chat').setCta().onClick(()=>{this.accept(this.name);this.close();}));}onClose(){this.contentEl.empty();}}
-class ChatDeleteModal extends Modal{constructor(app:App,butler:Butler,private name:string,private accept:()=>void){super(app);butler.ownModal(this);}onOpen(){this.setTitle('Delete saved chat?');this.contentEl.createEl('p',{text:'Delete “'+this.name+'” from local saved chats? This cannot be undone. Notes are not affected.'});new Setting(this.contentEl).addButton(b=>b.setButtonText('Cancel').onClick(()=>this.close())).addButton(b=>b.setButtonText('Delete chat').setDestructive().onClick(()=>{this.accept();this.close();}));}onClose(){this.contentEl.empty();}}
+class SavedChatPicker extends FuzzySuggestModal<SavedChat>{constructor(app:App,butler:Butler,private chats:SavedChat[],private accept:(chat:SavedChat)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder(t('placeholder.chooseSavedChat'));}getItems(){return this.chats;}getItemText(chat:SavedChat){return chat.title+' · '+new Date(chat.created).toLocaleDateString();}onChooseItem(chat:SavedChat){void Promise.resolve(this.accept(chat)).catch(e=>new Notice(friendlyError(e)));}}
+class ChatNameModal extends Modal{constructor(app:App,butler:Butler,private name:string,private accept:(title:string)=>void){super(app);butler.ownModal(this);}onOpen(){this.setTitle(t('dialog.saveRecentChat'));this.contentEl.createEl('p',{text:t('dialog.saveRecentChatDesc')});new Setting(this.contentEl).setName(t('dialog.chatName')).addText(t=>t.setValue(this.name).onChange(v=>this.name=v));new Setting(this.contentEl).addButton(b=>b.setButtonText(t('button.saveChat')).setCta().onClick(()=>{this.accept(this.name);this.close();}));}onClose(){this.contentEl.empty();}}
+class ChatDeleteModal extends Modal{constructor(app:App,butler:Butler,private name:string,private accept:()=>void){super(app);butler.ownModal(this);}onOpen(){this.setTitle(t('dialog.deleteSavedChat'));this.contentEl.createEl('p',{text:t('dialog.deleteSavedChatDesc',{name:this.name})});new Setting(this.contentEl).addButton(b=>b.setButtonText(t('button.cancel')).onClick(()=>this.close())).addButton(b=>b.setButtonText(t('button.deleteChat')).setDestructive().onClick(()=>{this.accept();this.close();}));}onClose(){this.contentEl.empty();}}
 
 class OrganizationDiff extends Modal {
  private closed=false;
  constructor(app:App,private butler:Butler){super(app);butler.ownModal(this);}
  async onOpen(){
-  this.setTitle('Review organization');
+  this.setTitle(t('dialog.reviewOrganization'));
   this.modalEl.addClass('owla-review');
-  const status=this.contentEl.createEl('p',{text:'Checking paths and links…',attr:{role:'status'}});
+  const status=this.contentEl.createEl('p',{text:t('dialog.checkingPaths'),attr:{role:'status'}});
   const organization=this.butler.organization;
   try{
    if(this.butler.pendingEdits.length)throw Error('Resolve the note changes before reviewing moves.');
@@ -2866,7 +2866,7 @@ class OrganizationDiff extends Modal {
 class RemovalDiff extends Modal {
  constructor(app:App,butler:Butler,private review:RemovalReview,private accept:()=>Promise<void>){super(app);butler.ownModal(this);}
  onOpen(){
-  this.setTitle('Review deletion');
+  this.setTitle(t('dialog.reviewDeletion'));
   this.modalEl.addClass('owla-review');
   const {path,reason,children,backlinks}=this.review;
   this.contentEl.createDiv({text:path,cls:'owla-review-path'});
@@ -2895,10 +2895,10 @@ class RemovalDiff extends Modal {
 class PdfAnnotationReview extends Modal {
  constructor(app:App,private butler:Butler,private file:TFile|File,private original:Uint8Array,private comments:PdfComment[],private validate:()=>void,private accepted:(path:string)=>void){super(app);butler.ownModal(this);}
  onOpen(){
-  this.setTitle('Review PDF annotations');
-  this.contentEl.createEl('p',{text:'Save a separate annotated copy of '+(this.file instanceof TFile?this.file.path:this.file.name)+'.'});
-  for(const comment of this.comments)this.contentEl.createEl('p',{text:'Page '+comment.page+' · '+comment.text});
-  const button=this.contentEl.createEl('button',{text:'Accept annotations',cls:'mod-cta'});
+  this.setTitle(t('dialog.reviewPdfAnnotations'));
+  this.contentEl.createEl('p',{text:t('dialog.saveAnnotatedCopy',{path:this.file instanceof TFile?this.file.path:this.file.name})});
+  for(const comment of this.comments)this.contentEl.createEl('p',{text:t('dialog.pdfPageComment',{page:comment.page,text:comment.text})});
+  const button=this.contentEl.createEl('button',{text:t('button.acceptAnnotations'),cls:'mod-cta'});
   button.onclick=()=>void this.save(button);
  }
  private async save(button:HTMLButtonElement){
