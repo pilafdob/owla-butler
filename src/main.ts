@@ -690,8 +690,8 @@ class TurnRouteModal extends Modal {
    refresh(current.model.defaultReasoningEffort);
   };
   const actions=this.contentEl.createDiv('owla-review-actions');
-  actions.createEl('button',{text:'Use automatic'}).onclick=()=>{this.choose();this.close();};
-  actions.createEl('button',{text:'Use once',cls:'mod-cta'}).onclick=()=>{
+  actions.createEl('button',{text:t('button.useAutomatic')}).onclick=()=>{this.choose();this.close();};
+  actions.createEl('button',{text:t('button.useOnce'),cls:'mod-cta'}).onclick=()=>{
    this.choose({provider:current.provider,model:key(current),effort:effortSelect.value});
    this.close();
   };
@@ -898,7 +898,7 @@ class ButlerView extends ItemView {
   const composerWrap = this.contentEl.createDiv('owla-composer-wrap');
   this.chips = composerWrap.createDiv('owla-chips');
   const composerLabel = composerWrap.createEl('label');
-  composerLabel.createSpan({cls:'owla-visually-hidden',text:'Message OWLA Butler'});
+  composerLabel.createSpan({cls:'owla-visually-hidden',text:t('notice.messageOwla')});
   this.composer = composerLabel.createEl('textarea', {
    cls:'owla-composer',
    attr:{placeholder:'Ask about your note, or paste a screenshot…',rows:'3'}
@@ -927,7 +927,7 @@ class ButlerView extends ItemView {
    void this.attachVaultEntries(entries,files);
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
-  const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:'Attach',cls:'owla-small-button'});setTooltip(attach,'Attach files');attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:'Add note',cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:'Choose model',cls:'owla-model',attr:{'aria-label':'Choose model'}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:'Send',cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
+  const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:t('button.attach'),cls:'owla-small-button'});setTooltip(attach,t('tooltip.attachFiles'));attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:t('button.addNote'),cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:t('button.chooseModel'),cls:'owla-model',attr:{'aria-label':t('button.chooseModel')}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:t('button.send'),cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
   this.automaticLabel=toolbar.createEl('button',{text:'Automatic selection',cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
   setTooltip(this.automaticLabel,'Override model and reasoning effort for one message');
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
@@ -1063,10 +1063,10 @@ class ButlerView extends ItemView {
   panel.createEl('p',{text:this.controller?'Stop the current reply and start a new chat?':'Start a new chat? Draft text and attachments will be cleared.'});
   const close=()=>{panel.remove();this.resetPrompt=undefined;trigger.focus();};
   const row=panel.createDiv('owla-message-actions');
-  const cancel=row.createEl('button',{text:'Cancel'});
+  const cancel=row.createEl('button',{text:t('button.cancel')});
   cancel.onclick=close;
   row.createEl('button',{text:this.controller?'Stop and start new':'New chat'}).onclick=()=>{if(this.newChat())trigger.focus();};
-  const save=row.createEl('button',{text:'Save and start new',cls:'mod-cta'});
+  const save=row.createEl('button',{text:t('button.saveAndStartNew'),cls:'mod-cta'});
   save.disabled=!!this.controller||!this.history.length;
   save.onclick=()=>{close();this.saveChat(()=>{if(!this.controller)this.newChat();});};
   panel.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}};
@@ -1298,7 +1298,7 @@ class ButlerView extends ItemView {
     } catch(error) {
      if(epoch===this.attachmentEpoch){
       const label=this.attachmentName(name);
-      this.pdfs.push({name:label,source:label+' · Content unavailable',text:'Could not read the attached file: '+friendlyError(error)});
+      this.pdfs.push({name:label,source:label+' · Content unavailable',text:t('notice.couldNotReadAttachedFile')+friendlyError(error)});
      }
     }
     this.renderAttachments();
@@ -1502,15 +1502,15 @@ class ButlerView extends ItemView {
    const card=(reply?.querySelector<HTMLElement>('.owla-tool-cards')??log).createDiv('owla-edit-card');
    this.annotationDrafts.set(source,{comments,card});
    card.createEl('p',{text:'PDF comments · '+source+'\n'+comments.map(item=>'Page '+item.page+' · '+item.text).join('\n')});
-   const review=card.createEl('button',{text:'Review annotated copy…'});
+   const review=card.createEl('button',{text:t('button.reviewAnnotatedCopy')});
    review.onclick=()=>new PdfAnnotationReview(this.app,this.butler,file,bytes,comments,()=>{if(this.controller)throw Error('Wait for the reply to finish before accepting PDF annotations.');if(this.annotationDrafts.get(source)?.card!==card)throw Error('This proposal was replaced. Review the latest PDF annotations.');},output=>{this.annotationDrafts.delete(source);card.remove();const summary=reply?.querySelector<HTMLElement>('.owla-change-summary');if(summary)this.changeCard(summary,output,'Annotated copy created',()=>void this.openChangedPath(output));else new Notice(t('notice.annotatedCopyCreated'));this.renderPendingEdits();}).open();
-   card.createEl('button',{text:'Decline'}).onclick=()=>{this.annotationDrafts.delete(source);card.remove();this.renderPendingEdits();};
+   card.createEl('button',{text:t('button.decline')}).onclick=()=>{this.annotationDrafts.delete(source);card.remove();this.renderPendingEdits();};
    this.renderPendingEdits();
    return 'PDF comment is ready for review in chat. The original has not been changed. Saving an annotated copy requires the review button.';
   }
   if(name==='read_reference'){if(typeof args.name!=='string')throw Error('Choose a reference name.');const offset=args.offset??0;if(typeof offset!=='number')throw Error('Provide a numeric reference offset.');const text=prefixToolNames(readReference(args.name,offset),this.butler.activeProvider);log.createDiv({text:'Consulted '+args.name,cls:'owla-activity'});return text;}
   if(name==='search_vault'){
-   if(typeof args.query!=='string'||!args.query.trim())throw Error('Provide a search query.');const query=args.query.trim().slice(0,200);log.createDiv({text:'Searching your vault…',cls:'owla-activity'});
+   if(typeof args.query!=='string'||!args.query.trim())throw Error('Provide a search query.');const query=args.query.trim().slice(0,200);log.createDiv({text:t('notice.searchingVault'),cls:'owla-activity'});
    const {folder=''}=args;
    if(typeof folder!=='string'||(folder&&(!this.butler.allowedVaultFile(folder)||!this.app.vault.getFolderByPath(folder))))throw Error('Choose an allowed vault folder.');
    const found:{path:string;score:number}[]=[];
@@ -1765,7 +1765,7 @@ class ButlerView extends ItemView {
   }
 
   (this.relatedReview?.container??this.feed).append(this.pendingArea);
-  if(this.relatedReview)this.pendingArea.createDiv({text:'Review related changes',cls:'owla-edit-title'});
+  if(this.relatedReview)this.pendingArea.createDiv({text:t('dialog.reviewRelatedChanges'),cls:'owla-edit-title'});
   if(this.awaitingReview)this.clearWarmup();
   for(const [change,update] of this.pluginDrafts){
    const card=this.pendingArea.createDiv('owla-edit-card');
@@ -1774,8 +1774,8 @@ class ButlerView extends ItemView {
    card.createEl('p',{text:change.before+' → '+change.after});
    card.createEl('p',{text:change.reason});
    const actions=card.createDiv('owla-message-actions');
-   const accept=actions.createEl('button',{text:'Accept',cls:'mod-cta'});
-   const decline=actions.createEl('button',{text:'Decline'});
+   const accept=actions.createEl('button',{text:t('button.accept'),cls:'mod-cta'});
+   const decline=actions.createEl('button',{text:t('button.decline')});
    accept.disabled=decline.disabled=this.applyingPluginChange||this.isBusy();
    accept.onclick=()=>void this.applyPluginChange(change);
    decline.onclick=()=>{
@@ -1785,7 +1785,7 @@ class ButlerView extends ItemView {
    };
   }
   if (this.butler.pendingLoadError) {
-   this.pendingArea.createDiv({text:'Could not load pending changes. '+this.butler.pendingLoadError,cls:'owla-error'});
+   this.pendingArea.createDiv({text:t('notice.couldNotLoadPendingChanges')+this.butler.pendingLoadError,cls:'owla-error'});
    return;
   }
   for (const batch of this.butler.pendingEdits) {
@@ -1795,8 +1795,8 @@ class ButlerView extends ItemView {
    card.createDiv({text:edit.path,cls:'owla-edit-path'});
    card.createEl('p',{text:reasons.length > 1 ? reasons.length+' changes' : edit.reason});
    const row = card.createDiv('owla-message-actions');
-   const accept = row.createEl('button',{text:'Accept',cls:'mod-cta'});
-   const decline = row.createEl('button',{text:'Decline'});
+   const accept = row.createEl('button',{text:t('button.accept'),cls:'mod-cta'});
+   const decline = row.createEl('button',{text:t('button.decline')});
    row.createEl('button',{text:'View diff'}).onclick = () => new EditDiff(this.app,this.butler,batch).open();
    const decide = async (keep:boolean) => {
     accept.disabled = decline.disabled = true;
@@ -1807,7 +1807,7 @@ class ButlerView extends ItemView {
   }
   const organization=this.butler.organization;
   if(organization.loadError){
-   this.pendingArea.createDiv({text:'Could not load organization review. '+organization.loadError,cls:'owla-error'});
+   this.pendingArea.createDiv({text:t('notice.couldNotLoadOrganizationReview')+organization.loadError,cls:'owla-error'});
   }
   if(organization.review){
    const {review,progress}=organization;
@@ -1826,12 +1826,12 @@ class ButlerView extends ItemView {
      catch(error){new Notice(friendlyError(error));}
     };
    }else{
-    const preview=row.createEl('button',{text:'Review paths',cls:'mod-cta'});
-    const decline=row.createEl('button',{text:'Decline'});
+    const preview=row.createEl('button',{text:t('dialog.reviewPaths'),cls:'mod-cta'});
+    const decline=row.createEl('button',{text:t('button.decline')});
     const waitingOnNotes=this.butler.pendingEdits.length>0;
     preview.disabled=organization.busy||waitingOnNotes;
     decline.disabled=organization.busy;
-    if(waitingOnNotes)card.createEl('p',{text:'Resolve the note changes before reviewing moves.',cls:'owla-change-status'});
+    if(waitingOnNotes)card.createEl('p',{text:t('notice.resolveNoteChangesBeforeMoves'),cls:'owla-change-status'});
     preview.onclick=()=>new OrganizationDiff(this.app,this.butler).open();
     decline.onclick=()=>{
      try{organization.decline();this.organizationDecided('Organization declined',review,'declined');}
@@ -1841,11 +1841,11 @@ class ButlerView extends ItemView {
   }
   for(const review of this.removalDrafts.keys()){
    const card=this.pendingArea.createDiv('owla-edit-card');
-   card.createDiv({text:'Suggested deletion',cls:'owla-edit-title'});
+   card.createDiv({text:t('dialog.suggestedDeletion'),cls:'owla-edit-title'});
    card.createDiv({text:review.path,cls:'owla-edit-path'});
    const actions=card.createDiv('owla-message-actions');
-   const preview=actions.createEl('button',{text:'Review deletion'});
-   const decline=actions.createEl('button',{text:'Decline'});
+   const preview=actions.createEl('button',{text:t('dialog.reviewDeletion')});
+   const decline=actions.createEl('button',{text:t('button.decline')});
    const blocker=this.removalBlocker(review);
    const removal=this.removalDrafts.get(review);
    const required=removal?.requires??[];
@@ -2334,14 +2334,14 @@ class ButlerView extends ItemView {
   const latestDecision=getRoutingDecisions().at(-1);
   if(latestDecision)renderRoutingDetails(disclosure,latestDecision,true);
  }
- if(!this.turnSources.size&&!result.sources.length&&!activity.childElementCount)disclosure.createDiv({text:'No sources or activity for this reply.'});
+ if(!this.turnSources.size&&!result.sources.length&&!activity.childElementCount)disclosure.createDiv({text:t('notice.noSourcesOrActivity')});
  footer.append(disclosure);
  this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text,...(captured?{sourcePath:captured.path}:{})});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice(t('notice.codexContextTrimmed'));}this.history=this.history.slice(-12);
  this.copyButton(footer,stripFence(text),'Copy Markdown');
  if (captured && !batches.size && !organization.review && !organization.removals?.length && !pluginChanges.length) {
   actions.createEl('button',{text:captured.start===captured.end?'Insert at cursor…':'Replace selection…'}).onclick =
    () => void this.applyReplyAction(() => insertion(captured.path,captured.text,text,captured.start,captured.end),changes);
-  actions.createEl('button',{text:'Append to note…'}).onclick =
+  actions.createEl('button',{text:t('button.append')}).onclick =
    () => void this.applyReplyAction(() => proposal(captured.path,captured.text,'',stripFence(text),'Append Codex response',this.butler.prefs.excludedFolders),changes);
  }
  this.status.setText(this.awaitingReview ? 'Accept or decline pending changes' : 'Done · '+this.butler.providerName(provider));
@@ -2518,7 +2518,7 @@ class ButlerSettingsTab extends PluginSettingTab {
   const resets=bridge.usage?.rateLimitResetCredits?.availableCount;
   if(typeof resets==='number')el.createEl('p',{text:'Available rate-limit resets: '+resets});
   if(bridge.usageUpdatedAt)el.createEl('p',{text:'Reported by '+name+' · updated '+new Date(bridge.usageUpdatedAt).toLocaleString(getObsidianLanguageRaw()),cls:'setting-item-description'});
-  if(bridge.usageError&&rows.length)el.createEl('p',{text:'Refresh failed; showing the last reported limits.'});
+  if(bridge.usageError&&rows.length)el.createEl('p',{text:t('notice.refreshFailed')});
  }
  private async refreshUsage(provider:ProviderId){
   const bridge=this.bridgeOf(provider);
@@ -2843,8 +2843,8 @@ class OrganizationDiff extends Modal {
     }
    }
    const actions=this.contentEl.createDiv('owla-review-actions');
-   actions.createEl('button',{text:'Cancel'}).onclick=()=>this.close();
-   const accept=actions.createEl('button',{text:'Accept',cls:'mod-cta'});
+   actions.createEl('button',{text:t('button.cancel')}).onclick=()=>this.close();
+   const accept=actions.createEl('button',{text:t('button.accept'),cls:'mod-cta'});
    if(!this.butler.automaticLinksEnabled()){
     status.setText('Turn on automatic internal link updates in Obsidian settings, then reopen this review.');
     accept.disabled=true;
@@ -2881,8 +2881,8 @@ class RemovalDiff extends Modal {
   }
   const error=this.contentEl.createDiv({cls:'owla-error',attr:{role:'status'}});
   const actions=this.contentEl.createDiv('owla-review-actions');
-  actions.createEl('button',{text:'Cancel'}).onclick=()=>this.close();
-  const button=actions.createEl('button',{text:'Move to trash',cls:'mod-warning'});
+  actions.createEl('button',{text:t('button.cancel')}).onclick=()=>this.close();
+  const button=actions.createEl('button',{text:t('button.moveToTrash'),cls:'mod-warning'});
   button.onclick=async()=>{
    button.disabled=true;
    try{await this.accept();this.close();}
