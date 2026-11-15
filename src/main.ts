@@ -928,8 +928,8 @@ class ButlerView extends ItemView {
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
   const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:t('button.attach'),cls:'owla-small-button'});setTooltip(attach,t('tooltip.attachFiles'));attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:t('button.addNote'),cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:t('button.chooseModel'),cls:'owla-model',attr:{'aria-label':t('button.chooseModel')}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:t('button.send'),cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
-  this.automaticLabel=toolbar.createEl('button',{text:'Automatic selection',cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
-  setTooltip(this.automaticLabel,'Override model and reasoning effort for one message');
+  this.automaticLabel=toolbar.createEl('button',{text:t('label.automaticSelection'),cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
+  setTooltip(this.automaticLabel,t('tooltip.overrideModelEffort'));
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
   this.status=this.contentEl.createDiv({text:'Codex',cls:'owla-status'});this.refreshModel();this.renderConnection();this.renderPendingEdits();
  }
@@ -1501,14 +1501,14 @@ class ButlerView extends ItemView {
    const reply=log.closest('.owla-assistant');
    const card=(reply?.querySelector<HTMLElement>('.owla-tool-cards')??log).createDiv('owla-edit-card');
    this.annotationDrafts.set(source,{comments,card});
-   card.createEl('p',{text:'PDF comments · '+source+'\n'+comments.map(item=>'Page '+item.page+' · '+item.text).join('\n')});
+   card.createEl('p',{text:t('notice.pdfComments',{source})+'\n'+comments.map(item=>t('notice.pdfPage',{page:item.page})+' · '+item.text).join('\n')});
    const review=card.createEl('button',{text:t('button.reviewAnnotatedCopy')});
    review.onclick=()=>new PdfAnnotationReview(this.app,this.butler,file,bytes,comments,()=>{if(this.controller)throw Error('Wait for the reply to finish before accepting PDF annotations.');if(this.annotationDrafts.get(source)?.card!==card)throw Error('This proposal was replaced. Review the latest PDF annotations.');},output=>{this.annotationDrafts.delete(source);card.remove();const summary=reply?.querySelector<HTMLElement>('.owla-change-summary');if(summary)this.changeCard(summary,output,'Annotated copy created',()=>void this.openChangedPath(output));else new Notice(t('notice.annotatedCopyCreated'));this.renderPendingEdits();}).open();
    card.createEl('button',{text:t('button.decline')}).onclick=()=>{this.annotationDrafts.delete(source);card.remove();this.renderPendingEdits();};
    this.renderPendingEdits();
    return 'PDF comment is ready for review in chat. The original has not been changed. Saving an annotated copy requires the review button.';
   }
-  if(name==='read_reference'){if(typeof args.name!=='string')throw Error('Choose a reference name.');const offset=args.offset??0;if(typeof offset!=='number')throw Error('Provide a numeric reference offset.');const text=prefixToolNames(readReference(args.name,offset),this.butler.activeProvider);log.createDiv({text:'Consulted '+args.name,cls:'owla-activity'});return text;}
+  if(name==='read_reference'){if(typeof args.name!=='string')throw Error('Choose a reference name.');const offset=args.offset??0;if(typeof offset!=='number')throw Error('Provide a numeric reference offset.');const text=prefixToolNames(readReference(args.name,offset),this.butler.activeProvider);log.createDiv({text:t('notice.consulted')+args.name,cls:'owla-activity'});return text;}
   if(name==='search_vault'){
    if(typeof args.query!=='string'||!args.query.trim())throw Error('Provide a search query.');const query=args.query.trim().slice(0,200);log.createDiv({text:t('notice.searchingVault'),cls:'owla-activity'});
    const {folder=''}=args;
@@ -1540,7 +1540,7 @@ class ButlerView extends ItemView {
    if (typeof path !== 'string' || !this.butler.allowedNote(path)) throw Error('Provide an allowed vault-relative Markdown path.');
    const pending = batches?.get(path);
    if (pending) {
-    log.createDiv({text:'Read staged preview for '+path,cls:'owla-activity'});
+    log.createDiv({text:t('notice.readStagedPreview')+path,cls:'owla-activity'});
     return 'Staged preview for this reply:\n'+clip(pending.edit.after,4000);
    }
    const text = await this.butler.currentText(path);
@@ -1567,7 +1567,7 @@ class ButlerView extends ItemView {
     return 'Source: [['+path+fragment+']]\n'+clip(text.slice(section.start.offset,section.end?.offset),4000);
    }
    this.addVaultSource('Read note: '+path,path);
-   log.createDiv({text:'Read '+path,cls:'owla-activity'});
+   log.createDiv({text:t('notice.read')+path,cls:'owla-activity'});
    const headings=cache?.headings?.slice(0,30).map(item=>item.heading);
    return clip(text,4000)+(headings?.length?'\n[Indexed headings: '+JSON.stringify(headings)+'. Use read_note with heading for a specific section.]':'');
   }
@@ -1596,7 +1596,7 @@ class ButlerView extends ItemView {
    const pending=stageProposal(snapshot,{path,oldText:change.before||base,newText:change.before?change.after:change.text,reason},batches.get(path),p.excludedFolders);
    if(pending.edit.before===pending.edit.after){batches.delete(path);return 'The staged changes cancel out. No proposal remains for this note.';}
    batches.set(path,pending);
-   log.createDiv({text:'Proposed property changes for '+path,cls:'owla-activity'});
+   log.createDiv({text:t('notice.proposedPropertyChanges')+path,cls:'owla-activity'});
    return 'Property changes queued for this note. The body is unchanged.'+this.linkCheck(path,pending.edit.before,pending.edit.after,batches);
   }
   if (name==='propose_edit') {
@@ -1797,7 +1797,7 @@ class ButlerView extends ItemView {
    const row = card.createDiv('owla-message-actions');
    const accept = row.createEl('button',{text:t('button.accept'),cls:'mod-cta'});
    const decline = row.createEl('button',{text:t('button.decline')});
-   row.createEl('button',{text:'View diff'}).onclick = () => new EditDiff(this.app,this.butler,batch).open();
+   row.createEl('button',{text:t('button.viewDiff')}).onclick = () => new EditDiff(this.app,this.butler,batch).open();
    const decide = async (keep:boolean) => {
     accept.disabled = decline.disabled = true;
     await this.decideEdit(batch, keep);
@@ -1819,7 +1819,7 @@ class ButlerView extends ItemView {
     for(const [index,{from,to}] of review.moves.entries()){
      card.createDiv({text:(index<progress.completed?'Recorded complete: ':'Check paths: ')+from+' → '+to,cls:'owla-edit-path'});
     }
-    const acknowledge=row.createEl('button',{text:'Acknowledge recovery record'});
+    const acknowledge=row.createEl('button',{text:t('button.acknowledgeRecovery')});
     acknowledge.disabled=organization.busy;
     acknowledge.onclick=()=>{
      try{organization.acknowledgeRecovery();this.organizationDecided('Organization recovery record saved',review,'declined');}
@@ -1851,7 +1851,7 @@ class ButlerView extends ItemView {
    const required=removal?.requires??[];
    if(blocker)removal?.update('Deletion blocked',null);
    else removal?.update('Suggested deletion');
-   if(required.length)card.createEl('p',{text:'Requires: '+required.join(', '),cls:'owla-change-status'});
+   if(required.length)card.createEl('p',{text:t('label.requires')+required.join(', '),cls:'owla-change-status'});
    if(blocker)card.createEl('p',{text:blocker,cls:'owla-change-status'});
    preview.disabled=this.removing||!!blocker;
    decline.disabled=this.removing;
@@ -1947,7 +1947,7 @@ class ButlerView extends ItemView {
  const answer=this.feed.createDiv('owla-assistant');
  const heading=this.replyHeading(answer,true);
  const disclosure=answer.createEl('details',{cls:'owla-working'});
- const summary=disclosure.createEl('summary',{text:'Working'});
+ const summary=disclosure.createEl('summary',{text:t('label.working')});
  const activity=disclosure.createDiv('owla-activities');
  const content=answer.createDiv('owla-message-content');
  answer.createDiv('owla-tool-cards');
@@ -2028,13 +2028,13 @@ class ButlerView extends ItemView {
   await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});signal.throwIfAborted();
   route={model:override.model,effort:override.effort};
   this.automaticLabel.setText('Override · '+route.model+' · '+route.effort);
-  activity.createDiv({text:'One-message override · '+route.model+' · '+route.effort,cls:'owla-activity'});
+  activity.createDiv({text:t('notice.oneMessageOverride')+route.model+' · '+route.effort,cls:'owla-activity'});
  }else if(choosesProvider){
   this.automaticLabel.setText('Selecting provider, model and reasoning effort…');
   this.status.setText('Selecting locally…');
   const {offers,failed}=await this.butler.automaticOffers(specs);
   signal.throwIfAborted();
-  for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
+  for(const item of failed)activity.createDiv({text:t('notice.automaticSelectionSkipped')+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
   const needsImg=!!(inputImages.length||this.pdfAttachments.size);
   let entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
   if(!entries.length)entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
@@ -2055,10 +2055,10 @@ class ButlerView extends ItemView {
     const fallbackTask=heuristicTaskClass(prompt,routingContext,true)!;
     autoTask=fallbackTask;
     choice=pickRoute(entries,offers,fallbackTask,home,Date.now()/1000,routingContext,this.butler.prefs.routingMode,this.butler.routingHistory);
-    activity.createDiv({text:'Automatic selection used heuristic fallback · '+reasonText,cls:'owla-activity'});
+    activity.createDiv({text:t('notice.automaticSelectionHeuristicFallback')+reasonText,cls:'owla-activity'});
    }catch{
     choice=autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
-    activity.createDiv({text:'Automatic selection unavailable · '+reasonText,cls:'owla-activity'});
+    activity.createDiv({text:t('notice.automaticSelectionUnavailable')+reasonText,cls:'owla-activity'});
    }
   }
   if(choice.provider!==provider){
@@ -2072,7 +2072,7 @@ class ButlerView extends ItemView {
   this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');
   await this.butler.connect({keepAlive:true,automatic:true,provider,tools:specs});signal.throwIfAborted();
   route={model:choice.model,effort:choice.effort,provider};
-  activity.createDiv({text:'Automatic selection · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
+  activity.createDiv({text:t('notice.automaticSelection')+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
   this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
   this.lastAutomaticRoute=route;
   if(autoTask)this.lastAutomaticTaskKind=autoTask.kind;
@@ -2090,7 +2090,7 @@ class ButlerView extends ItemView {
    const quick=quickPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory);
    if(quick){route={model:quick.model,effort:quick.effort};autoTask=quick.task;}
    else {autoTask=heuristicTaskClass(prompt,routingContext,true)!;route=await routeWithFoundationModels(prompt,candidates,signal,routingContext,provider);}
-   activity.createDiv({text:'Automatic selection · '+route.model+' · '+route.effort+(quick?' · local':''),cls:'owla-activity'});
+   activity.createDiv({text:t('notice.automaticSelection')+route.model+' · '+route.effort+(quick?' · local':''),cls:'owla-activity'});
    this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
   }catch(error){
    if(signal.aborted)this.automaticLabel.setText('Automatic selection');
@@ -2102,7 +2102,7 @@ class ButlerView extends ItemView {
     route={model:heur.model,effort:heur.effort};
     autoTask=heur.task;
    }catch{/* Keep fallbackRoute result. */}
-   activity.createDiv({text:'Automatic selection unavailable · '+reasonText+' Using '+route.model+' · '+route.effort,cls:'owla-activity'});
+   activity.createDiv({text:t('notice.automaticSelectionUnavailable')+reasonText+' Using '+route.model+' · '+route.effort,cls:'owla-activity'});
    this.automaticLabel.setText('Fallback · '+route.model+' · '+route.effort);
   }
   route={...route,provider};
@@ -2129,7 +2129,7 @@ class ButlerView extends ItemView {
      if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
      if(pluginTurn.handles(name)){
       const output=pluginTurn.invoke(name,args);
-      activity.createDiv({text:'Checked a Pilafdob plugin option',cls:'owla-activity'});
+      activity.createDiv({text:t('notice.checkedPluginOption'),cls:'owla-activity'});
       return output;
      }
      return this.tool(name,args,activity,batches,organization,sourcePath);
@@ -2173,7 +2173,7 @@ class ButlerView extends ItemView {
      if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
      pendingText='';text='';
      try{streamNode.data='';}catch{/* Ignore non-mutable text node. */}
-     activity.createDiv({text:'Escalating thin reply to '+this.butler.providerName(provider)+' · '+route.model,cls:'owla-activity'});
+     activity.createDiv({text:t('notice.escalatingThinReply')+this.butler.providerName(provider)+' · '+route.model,cls:'owla-activity'});
      this.lastAutomaticRoute=route;
      try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});}
      catch{signal.throwIfAborted();break;}
@@ -2412,18 +2412,18 @@ class ButlerView extends ItemView {
  }
  private exhaustionNotice(content:HTMLElement,states:ProviderExhaustion[],all:boolean){
   const box=content.createDiv({cls:'owla-error'});
-  box.createEl('p',{text:all?'All connected providers have been exhausted.':this.butler.providerName(states[0].provider)+' usage is depleted.'});
+  box.createEl('p',{text:all?t('notice.allProvidersExhausted'):this.butler.providerName(states[0].provider)+t('notice.usageDepletedSuffix')});
   if(all)box.createEl('p',{text:describeProviders(states)});
   else for(const state of states)box.createEl('p',{text:exhaustionLabel(state)});
   const current=states[0].provider,preferred=this.butler.prefs.fallback;
   const usable=(id:ProviderId)=>id!==current&&!this.butler.exhaustionOf(id).exhausted&&(this.butler.isProviderConnected(id));
   const alternative:ProviderId|null=preferred!=='none'&&usable(preferred)?preferred:PROVIDER_IDS.find(usable)??null;
   if(this.butler.prefs.automaticProvider){
-   box.createEl('p',{text:alternative?'Automatic selection uses another connected provider for the next message.':'No other connected provider is available.'});
+   box.createEl('p',{text:alternative?t('notice.automaticSelectionUsesAlternative'):t('notice.noOtherProvider')});
    return;
   }
   if(alternative){
-   const button=box.createEl('button',{text:'Switch to '+this.butler.providerName(alternative)});
+   const button=box.createEl('button',{text:t('button.switchTo')+this.butler.providerName(alternative)});
    button.onclick=()=>{
     void this.butler.useProvider(alternative).then(()=>{
      this.refreshModel();
@@ -2516,8 +2516,8 @@ class ButlerSettingsTab extends PluginSettingTab {
    card.createEl('p',{text:row.resetsAt?'Resets '+new Date(row.resetsAt*1000).toLocaleString(getObsidianLanguageRaw()):'Reset time not provided by '+name+'.'});
   }
   const resets=bridge.usage?.rateLimitResetCredits?.availableCount;
-  if(typeof resets==='number')el.createEl('p',{text:'Available rate-limit resets: '+resets});
-  if(bridge.usageUpdatedAt)el.createEl('p',{text:'Reported by '+name+' · updated '+new Date(bridge.usageUpdatedAt).toLocaleString(getObsidianLanguageRaw()),cls:'setting-item-description'});
+  if(typeof resets==='number')el.createEl('p',{text:t('notice.availableRateLimitResets')+resets});
+  if(bridge.usageUpdatedAt)el.createEl('p',{text:t('notice.reportedBy')+name+' · updated '+new Date(bridge.usageUpdatedAt).toLocaleString(getObsidianLanguageRaw()),cls:'setting-item-description'});
   if(bridge.usageError&&rows.length)el.createEl('p',{text:t('notice.refreshFailed')});
  }
  private async refreshUsage(provider:ProviderId){
@@ -2635,7 +2635,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.providerExecutable('codex')||findCodexExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Codex was not found. Install it, or choose its executable.'});
+   setting.descEl.createEl('p',{text:detected?t('notice.detectedAt',{path:detected}):t('notice.codexNotFound')});
    let connect!:ButtonComponent,verify!:ButtonComponent,signIn!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
@@ -2670,7 +2670,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'OpenCode was not found. Install it, or choose its executable.'});
+   setting.descEl.createEl('p',{text:detected?t('notice.detectedAt',{path:detected}):t('notice.opencodeNotFound')});
    let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
@@ -2701,7 +2701,7 @@ class ButlerSettingsTab extends PluginSettingTab {
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Claude Code was not found. Install it, or choose its executable.'});
+   setting.descEl.createEl('p',{text:detected?t('notice.detectedAt',{path:detected}):t('notice.claudeNotFound')});
    let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
    let pending=false;
    const update=()=>{
@@ -2729,9 +2729,9 @@ class ButlerSettingsTab extends PluginSettingTab {
   this.executableSection('claude','Claude Code executable'),
   this.usageSection('claude','Claude usage limits','Plan limits reported by Claude Code. They are read without sending a message and update after each reply.'),
   {name:t('settings.automaticModelEffort'),desc:t('settings.desc.automaticModelEffort'),visible:()=>supportsAutomaticSelection(),render:setting=>{
-   if(this.butler.prefs.automaticProvider)setting.descEl.createDiv({text:'The Automatic provider already chooses the model and reasoning effort for every message.'});
+   if(this.butler.prefs.automaticProvider)setting.descEl.createDiv({text:t('notice.automaticProviderAlreadyChooses')});
    const available=hasFoundationModelsCLI();
-   if(!available)setting.descEl.createDiv({text:'The Foundation Models CLI is unavailable on this Mac.'});
+   if(!available)setting.descEl.createDiv({text:t('notice.foundationModelsCliUnavailable')});
    else{
     const setup=setting.descEl.createDiv();
     setup.appendText('Before enabling, open Terminal, run ');
