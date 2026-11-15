@@ -147,6 +147,7 @@ export default class Butler extends Plugin {
   }});
   this.settingsTab=new ButlerSettingsTab(this.app,this);this.addSettingTab(this.settingsTab);
   this.registerEvent(this.app.workspace.on('active-leaf-change',leaf=>{if(leaf?.view instanceof MarkdownView)this.last=leaf.view;}));
+  this.registerEvent(this.app.workspace.on('layout-change',()=>{this.markdownViewsIndexed=false;}));
   this.registerEvent(this.app.workspace.on('file-open',()=>{const v=this.app.workspace.getActiveViewOfType(MarkdownView);if(v)this.last=v;}));
   this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{if(editor.getSelection())menu.addItem(item=>item.setTitle('Add selection to OWLA Butler').setIcon('message-square-plus').onClick(()=>void this.selection(editor,view.file)));}));
   this.registerEvent(this.app.workspace.on('file-menu',(menu,file)=>{
@@ -438,7 +439,8 @@ export default class Butler extends Plugin {
  ownModal(modal:Modal){this.ownedModals.add(modal);const close=modal.onClose.bind(modal);modal.onClose=()=>{this.ownedModals.delete(modal);close();};}
  async selection(editor:Editor,file:TFile|null){if(!file||!editor.getSelection())return;const v=await this.open();v.selections.push({path:file.path,text:clip(editor.getSelection(),3000)});v.renderAttachments();v.composer.focus();}
  capture():Captured|null {
-  const leaves=this.app.workspace.getLeavesOfType('markdown');
+  const views=this.indexMarkdownViews();
+  const leaves=this.markdownLeaves;
   const current=this.app.workspace.getActiveViewOfType(MarkdownView);if(current)this.last=current;
   if(this.last&&!leaves.some(l=>l.view===this.last))this.last=null;
   if(!this.last){const active=this.app.workspace.getActiveFile();this.last=(leaves.map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===active?.path) as MarkdownView|undefined)??null;}
@@ -460,9 +462,27 @@ export default class Butler extends Plugin {
  */
  private resolvedRoot:{base:string;root:string}|null=null;
   private pathCache=new Map<string,boolean>();
+  private markdownLeaves:WorkspaceLeaf[]=[];
+  private markdownViewsByPath=new Map<string,MarkdownView>();
+  private markdownViewsCount=-1;
+  private markdownViewsIndexed=false;
+  private indexMarkdownViews(force=false):Map<string,MarkdownView>{
+   const leaves=this.app.workspace.getLeavesOfType('markdown');
+   if(force||!this.markdownViewsIndexed||leaves.length!==this.markdownViewsCount){
+    this.markdownLeaves=leaves;
+    this.markdownViewsByPath.clear();
+    for(const leaf of leaves){
+     const view=leaf.view;
+     if(view instanceof MarkdownView&&view.file)this.markdownViewsByPath.set(view.file.path,view);
+    }
+    this.markdownViewsCount=leaves.length;
+    this.markdownViewsIndexed=true;
+   }
+   return this.markdownViewsByPath;
+  }
  private vaultRoot(base:string){if(this.resolvedRoot?.base!==base)this.resolvedRoot={base,root:realpathSync(base)};return this.resolvedRoot.root;}
  allowedVaultFile(path:string,extension:string|null=null){const key=path+'\u0000'+(extension??'')+'\u0000'+this.prefs.excludedFolders;const cached=this.pathCache.get(key);if(cached!==undefined)return cached;let result=false;if(!allowedPath(path,this.prefs.excludedFolders,extension))result=false;else try{const base=this.vaultBasePath();if(base){const root=this.vaultRoot(base),file=realpathSync(join(base,path));if(isPathInside(root,file))result=allowedPath(relative(root,file).split(/[\\]/).join('/'),this.prefs.excludedFolders,extension);}}catch{result=false;}this.pathCache.set(key,result);return result;}
- async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
+ async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');let views=this.indexMarkdownViews();let view=views.get(path);if(!view||view.file?.path!==path){views=this.indexMarkdownViews(true);view=views.get(path);}if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
  /** Optional per-vault calibration override, kept in OWLA's private storage beside the routing history. */
  routingCalibrationPath(){return join(this.vaultStorage(),'routing-calibration.json');}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
