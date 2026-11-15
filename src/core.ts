@@ -127,7 +127,7 @@ const foldPath=(value:string)=>value.normalize('NFC').toUpperCase().toLowerCase(
 export {foldPath};
 const excludedCache=new Map<string,string[]>();
 export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
- if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')||(process.platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')))||p==='~'||p.includes('@@')||p.includes(':')||/[\p{Cc}]/u.test(p)))return false;
+ if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')||(process.platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')))||p==='~'||p.includes(':')||/[\p{Cc}]/u.test(p)))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
  const cacheKey=excluded;
@@ -212,12 +212,16 @@ export function formatTranscription(text:string):string {
  }).join('\n');
 }
 export function displayMarkdown(text:string):string {
+ const nonce=Math.random().toString(36).slice(2);
  let out=text.replace(/!\[/g,'[');
+ // Prevent backticks inside HTML tags from shielding attributes.
+ out=out.replace(/<[^>]*>/g,m=>m.replace(/`/g,String.fromCharCode(1)));
  // Preserve code samples: sanitize only outside fenced and inline code.
  const fences:string[]=[];
- out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m);return '@@FENCE'+(fences.length-1)+'@@';});
+ out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m);return '@@FENCE'+nonce+(fences.length-1)+'@@';});
  const inlines:string[]=[];
- out=out.replace(/`[^`\n]*`/g,m=>{inlines.push(m);return '@@INLINE'+(inlines.length-1)+'@@';});
+ out=out.replace(/`[^`\n]*`/g,m=>{inlines.push(m);return '@@INLINE'+nonce+(inlines.length-1)+'@@';});
+ out=out.replace(new RegExp(String.fromCharCode(1),'g'),'`');
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,'');
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');
  out=out.replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');
@@ -245,8 +249,8 @@ export function displayMarkdown(text:string):string {
   }
   return '<'+tag+a+'>';
  });
- out=out.replace(/@@FENCE(\d+)@@/g,(_m:string,i:string)=>fences[Number(i)]);
- out=out.replace(/@@INLINE(\d+)@@/g,(_m:string,i:string)=>inlines[Number(i)]);
+ out=out.replace(new RegExp('@@FENCE'+nonce+'(\\d+)@@','g'),(_m:string,i:string)=>fences[Number(i)]);
+ out=out.replace(new RegExp('@@INLINE'+nonce+'(\\d+)@@','g'),(_m:string,i:string)=>inlines[Number(i)]);
  return out;
 }
 

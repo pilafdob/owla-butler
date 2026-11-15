@@ -228,11 +228,14 @@ export class CodexBridge implements ProviderBridge{
  if(options.signal.aborted)return;
  if(method==='item/agentMessage/delta'&&typeof p.delta==='string'){text+=p.delta;options.onText(p.delta);}
  if(method==='item/started'){
-  if(item.type==='webSearch'){usedWeb=true;options.onActivity('Searching the web…');}
-  else if(item.type==='dynamicToolCall'&&typeof item.tool==='string')options.onActivity('Using '+item.tool.replace(/_/g,' ')+'…');
-  else if(item.type==='userMessage'||item.type==='agentMessage'||item.type==='reasoning'||item.type==='contextCompaction'||item.type==='plan'){/* allowed */}
-  else if(item.type==='commandExecution'||item.type==='fileChange'||item.type==='mcpToolCall'||item.type==='collabAgentToolCall'||item.type==='imageView'){end(Error('Codex attempted an operation outside OWLA tools. The task was stopped.'));this.disconnect('Disconnected');}
-  else {options.onActivity('Codex reported '+item.type+'.');}
+  if(item.type==='webSearch'){
+   if(!options.web){end(Error('Codex attempted web search without consent. The task was stopped.'));this.disconnect('Disconnected');return;}
+   usedWeb=true;options.onActivity('Searching the web…');
+  } else if(item.type==='dynamicToolCall'&&typeof item.tool==='string'){
+   if(!options.tools.some(tool=>tool.name===item.tool)){end(Error('Codex attempted an operation outside OWLA tools. The task was stopped.'));this.disconnect('Disconnected');return;}
+   options.onActivity('Using '+item.tool.replace(/_/g,' ')+'…');
+  } else if(item.type==='userMessage'||item.type==='agentMessage'||item.type==='reasoning'||item.type==='contextCompaction'||item.type==='plan'||item.type==='functionCallOutput'){/* allowed */}
+  else {end(Error('Codex attempted an operation outside OWLA tools. The task was stopped.'));this.disconnect('Disconnected');}
  }
  if(method==='item/completed'&&item.type==='agentMessage'){
   if(!text&&typeof item.text==='string'&&item.text){text=item.text;options.onText(text);}

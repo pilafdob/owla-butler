@@ -91,6 +91,11 @@ export default class Butler extends Plugin {
  providerSessionDirectory(provider:ProviderId=this.activeProvider):string{return join(this.vaultStorage(),provider+'-session');}
 
  get pendingEdits():readonly EditBatch[] { return this.pending; }
+ async clearPendingEdits(){
+  const {rmSync}=await import('node:fs');
+  try{rmSync(join(this.vaultStorage(),'pending-edits.json'),{force:true});}catch{/* ignore */}
+  this.pending=[];this.pendingLoadError='';
+ }
  get reviewBlocked():boolean { return this.applyingEdit || this.pending.length > 0 || !!this.pendingLoadError || this.organization.blocked; }
 
  async onload(){
@@ -153,14 +158,14 @@ export default class Butler extends Plugin {
   this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{if(editor.getSelection())menu.addItem(item=>item.setTitle(t('menu.addSelectionToOwla')).setIcon('message-square-plus').onClick(()=>void this.selection(editor,view.file)));}));
   this.registerEvent(this.app.workspace.on('file-menu',(menu,file)=>{
    if(file instanceof TFolder&&this.allowedVaultFile(file.path)){
-    this.addAttachmentMenu(menu,'Add folder to OWLA chat',[file]);
+    this.addAttachmentMenu(menu,t('menu.addFolderToOwla'),[file]);
    } else if(file instanceof TFile&&this.allowedVaultFile(file.path)){
-    const title=this.allowedNote(file.path)?'Add note to OWLA Butler':this.allowedPdf(file.path)?'Add PDF to OWLA':'Add file to OWLA chat';
+    const title=this.allowedNote(file.path)?t('menu.addNoteToOwla'):this.allowedPdf(file.path)?t('menu.addPdfToOwla'):'Add file to OWLA chat';
     this.addAttachmentMenu(menu,title,[file]);
    }
   }));
  this.registerEvent(this.app.workspace.on('files-menu',(menu,files)=>{
-   if(files.some(file=>this.allowedVaultFile(file.path)))this.addAttachmentMenu(menu,'Add files to OWLA chat',files);
+   if(files.some(file=>this.allowedVaultFile(file.path)))this.addAttachmentMenu(menu,t('menu.addFilesToOwla'),files);
   }));
   this.registerDomEvent(window,'contextmenu',event=>{
    const target=event.target;
@@ -323,7 +328,7 @@ export default class Butler extends Plugin {
   });
  }
  /** Connects every candidate in parallel and collects what each can offer. */
- async automaticOffers(tools:ToolSpec[]):Promise<{offers:ProviderOffer[];failed:{provider:ProviderId;message:string}[]}>{
+ async automaticOffers(tools:ToolSpec[],web=this.prefs.webSearch):Promise<{offers:ProviderOffer[];failed:{provider:ProviderId;message:string}[]}>{
   const candidates=this.automaticCandidates();
   // Exhausted providers are not offered; say so, with their reset time.
   const exhausted=PROVIDER_IDS.filter(provider=>!candidates.includes(provider)&&this.exhaustionOf(provider).exhausted)
@@ -331,7 +336,7 @@ export default class Butler extends Plugin {
   const results=await Promise.all(candidates.map(async provider=>{
    const bridge=this.bridgeFor(provider),release=bridge.hold();
    try{
-    await this.connect({keepAlive:true,automatic:true,provider,tools});
+    await this.connect({keepAlive:true,automatic:true,provider,tools,web});
     const prefs=this.prefs.models[provider];
     if(!bridge.selectableModels.length)throw Error('No models reported.');
     // OpenCode already leaves out models whose pool, plan or region refused them.
@@ -650,7 +655,7 @@ export default class Butler extends Plugin {
 }
 function commonChange(before:string,after:string){let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;let end=before.length,newEnd=after.length;while(end>start&&newEnd>start&&before[end-1]===after[newEnd-1]){end--;newEnd--;}return {start,end,text:after.slice(start,newEnd)};}
 class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder(t('placeholder.addNoteAsContext'));}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
-private items:TFile[]|null=null;getItems(){const allowed=new Map<string,boolean>();return this.items??=this.app.vault.getMarkdownFiles().filter(f=>{let v=allowed.get(f.path);if(v===undefined){v=this.butler.allowedNote(f.path);allowed.set(f.path,v);}return v;});}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
+private items:TFile[]|null=null;getItems(){return this.items??=this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
 class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder(t('placeholder.chooseModel'));}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 class TurnRouteModal extends Modal {
  constructor(app:App,butler:Butler,private items:{provider:ProviderId;model:CodexModel}[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void,private skipped:{provider:ProviderId;message:string}[]=[]){
@@ -929,7 +934,6 @@ class ButlerView extends ItemView {
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
   const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:t('button.attach'),cls:'owla-small-button'});setTooltip(attach,t('tooltip.attachFiles'));attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:t('button.addNote'),cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:t('button.chooseModel'),cls:'owla-model',attr:{'aria-label':t('button.chooseModel')}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:t('button.send'),cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
-  this.providerIndicator=toolbar.createSpan({text:t('label.automaticSelection'),cls:'owla-provider-indicator owla-hidden'});
   this.automaticLabel=toolbar.createEl('button',{text:t('label.automaticSelection'),cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
   setTooltip(this.automaticLabel,t('tooltip.overrideModelEffort'));
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
@@ -973,7 +977,7 @@ class ButlerView extends ItemView {
    let skipped:{provider:ProviderId;message:string}[]=[];
    if(this.butler.prefs.automaticProvider){
     const specs=this.butler.buildToolSpecs().specs;
-    const {offers,failed}=await this.butler.automaticOffers(specs);
+    const {offers,failed}=await this.butler.automaticOffers(specs,this.effectiveWebSearch());
     skipped=failed;
     if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
     // The override is chosen by hand: list every model the offers make
@@ -1042,7 +1046,7 @@ class ButlerView extends ItemView {
    if(this.closing||this.isBusy()||this.composer.ownerDocument.activeElement!==this.composer)return;
    const release=this.butler.bridge.hold();
    this.releaseWarmup=release;
-   void this.butler.connect({keepAlive:true}).catch(()=>{
+   void this.butler.connect({keepAlive:true,web:this.effectiveWebSearch()}).catch(()=>{
     if(this.releaseWarmup===release)this.clearWarmup();
    });
   },250);
@@ -1202,6 +1206,7 @@ class ButlerView extends ItemView {
  }
  private async renderReply(content:HTMLElement, text:string, sourcePath=''){
   await MarkdownRenderer.render(this.app, displayMarkdown(text), content, sourcePath, this);
+  this.sanitizeRenderedReply(content);
 
   const openNote = (event:MouseEvent, anchor:HTMLElement) => {
    if (event.button !== 0 && event.button !== 1) return;
@@ -1223,6 +1228,21 @@ class ButlerView extends ItemView {
   content.on('click', 'a.internal-link', openNote, true);
   content.on('auxclick', 'a.internal-link', openNote, true);
  }
+ private sanitizeRenderedReply(root:HTMLElement){
+  const blocked=new Set(['script','style','svg','math','input','picture','iframe','object','embed','video','audio','source','link']);
+  for(const el of Array.from(root.querySelectorAll('*'))){
+   const tag=el.tagName.toLowerCase();
+   if(blocked.has(tag)||tag==='img'){el.remove();continue;}
+   for(const attr of Array.from(el.attributes)){
+    const name=attr.name.toLowerCase();
+    if(name==='style'||name.startsWith('on')||['src','srcset','poster','background','ping','action','formaction'].includes(name))el.removeAttribute(attr.name);
+   }
+   if(tag==='a'){
+    const href=el.getAttribute('href')??'';
+    if(href&&!/^(https?:|obsidian:|mailto:|#)/i.test(href))el.removeAttribute('href');
+   }
+  }
+ }
  private canRestoreDraft(){return !this.composer.value&&!this.images.length&&!this.pdfs.length&&!this.selections.length&&!this.notes.size&&!this.folders.size;}
  private restoreDraft(draft:Draft){this.composer.value=draft.text;this.images=draft.images;this.pdfs=draft.pdfs;this.selections=draft.selections;this.notes=new Set(draft.notes);this.folders=new Set(draft.folders);this.renderAttachments();}
  private chatStore(){return new ChatStore(this.butler.vaultStorage());}
@@ -1237,9 +1257,10 @@ class ButlerView extends ItemView {
   if(!automaticModels)this.nextRoute=undefined;const modelPrefs=this.butler.modelPrefs;const modelLabel='Choose '+this.butler.providerName(this.butler.activeProvider)+' model';this.modelLabel?.setText(modelPrefs.model||modelLabel);if(this.modelLabel)setTooltip(this.modelLabel,modelPrefs.model?modelLabel+' · '+modelPrefs.model:modelLabel);if(this.effortSelect){this.effortSelect.empty();const model=this.butler.bridge.resolveModel(modelPrefs.model);for(const e of model?.supportedReasoningEfforts??[])this.effortSelect.createEl('option',{value:e.reasoningEffort,text:e.reasoningEffort});if(!model)this.effortSelect.createEl('option',{value:modelPrefs.reasoning,text:modelPrefs.reasoning||'Reasoning'});this.effortSelect.value=modelPrefs.reasoning;this.effortSelect.disabled=this.isBusy();}}
  renderWebSearchConsent(){
   if(!this.webSearchConsentBar)return;
-  const needs=this.butler.prefs.webSearch&&this.webSearchChatConsent===null;
+  const needs=this.butler.prefs.webSearch&&this.webSearchChatConsent===null&&!this.webSearchTurnConsent;
   this.webSearchConsentBar.toggleClass('owla-hidden',!needs);
  }
+ effectiveWebSearch(){const base=this.butler.prefs.webSearch;if(!base)return false;if(this.webSearchChatConsent===false)return false;if(this.webSearchChatConsent===true)return true;return this.webSearchTurnConsent;}
  isBusy(){return !!this.controller;}
  pickImage(){this.imageInput.click();}
  private vaultDropEntries(uris:string):TAbstractFile[] {
@@ -1531,8 +1552,7 @@ class ButlerView extends ItemView {
    const {folder=''}=args;
    if(typeof folder!=='string'||(folder&&(!this.butler.allowedVaultFile(folder)||!this.app.vault.getFolderByPath(folder))))throw Error('Choose an allowed vault folder.');
    const found:{path:string;score:number}[]=[];
-   const allowed=new Map<string,boolean>();
-   const files=this.app.vault.getMarkdownFiles().filter(f=>{if(!folder||!f.path.startsWith(folder+'/'))return false;let v=allowed.get(f.path);if(v===undefined){v=this.butler.allowedNote(f.path);allowed.set(f.path,v);}return v;});
+   const files=this.app.vault.getMarkdownFiles().filter(f=>{if(folder&&!f.path.startsWith(folder+'/'))return false;return this.butler.allowedNote(f.path);});
    const openText=new Map<string,string>();
    for(const leaf of this.app.workspace.getLeavesOfType('markdown')){const view=leaf.view;if(view instanceof MarkdownView&&view.file)openText.set(view.file.path,view.editor.getValue());}
    const queue=files.slice();
@@ -1749,7 +1769,7 @@ class ButlerView extends ItemView {
    };
    new Notice(keep ? (edit.create ? 'Created ' + edit.path : 'Changes accepted.') : 'Changes declined.');
    this.renderPendingEdits();
-   if (!this.awaitingReview) this.status.setText('Ready for your next message');
+   if (!this.awaitingReview) this.status.setText(t('status.ready'));
   } catch (e) {
    new Notice(friendlyError(e));
   }
@@ -1777,7 +1797,7 @@ class ButlerView extends ItemView {
   const waiting = this.awaitingReview || this.converting>0;
   this.composer.disabled = waiting;
   this.composer.placeholder = waiting
-   ? this.converting ? 'Preparing attachments…' : 'Accept or decline pending changes to continue…'
+   ? this.converting ? t('notice.preparingAttachments') : t('notice.acceptOrDecline')
    : t('placeholder.composer');
   this.sendBtn.disabled = waiting && !this.controller;
   this.pendingArea.empty();
@@ -1809,6 +1829,8 @@ class ButlerView extends ItemView {
   }
   if (this.butler.pendingLoadError) {
    this.pendingArea.createDiv({text:t('notice.couldNotLoadPendingChanges')+this.butler.pendingLoadError,cls:'owla-error'});
+   const clear=this.pendingArea.createEl('button',{text:t('button.clearPendingEdits'),cls:'mod-warning'});
+   clear.onclick=()=>{void this.butler.clearPendingEdits().then(()=>this.renderPendingEdits());};
    return;
   }
   for (const batch of this.butler.pendingEdits) {
@@ -2062,7 +2084,7 @@ class ButlerView extends ItemView {
  }else if(choosesProvider){
   this.automaticLabel.setText('Selecting provider, model and reasoning effort…');
   this.status.setText('Selecting locally…');
-  const {offers,failed}=await this.butler.automaticOffers(specs);
+  const {offers,failed}=await this.butler.automaticOffers(specs,this.effectiveWebSearch());
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:t('notice.automaticSelectionSkipped')+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
   const needsImg=!!(inputImages.length||this.pdfAttachments.size);
@@ -2205,7 +2227,7 @@ class ButlerView extends ItemView {
      try{streamNode.data='';}catch{/* Ignore non-mutable text node. */}
      activity.createDiv({text:t('notice.escalatingThinReply')+this.butler.providerName(provider)+' · '+route.model,cls:'owla-activity'});
      this.lastAutomaticRoute=route;
-     try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});}
+     try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});}
      catch{signal.throwIfAborted();break;}
      signal.throwIfAborted();
      continue;
@@ -2258,7 +2280,7 @@ class ButlerView extends ItemView {
    activity.createDiv({text:(regionRestricted&&!state.exhausted?'OpenCode does not allow that model in your workspace’s privacy regions. Retrying with another model…':failedModel+' failed · '+failureReason+' · retrying with '+this.butler.providerName(provider)+' · '+route.model),cls:'owla-activity'});
    this.lastAutomaticRoute=route;
    // A retry that cannot connect reports the original failure, not the connect error.
-   try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});}
+   try{await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});}
    catch{signal.throwIfAborted();throw error;}
    signal.throwIfAborted();
   }
@@ -2425,7 +2447,7 @@ class ButlerView extends ItemView {
   const bridge=this.butler.bridgeFor(nextProvider);
   // The fallback may not have been connected yet this session.
   if(!bridge.selectableModels.length){
-   try{await this.butler.connect({keepAlive:true,automatic:true,provider:nextProvider,tools:opts.specs});}catch{return null;}
+   try{await this.butler.connect({keepAlive:true,automatic:true,provider:nextProvider,tools:opts.specs,web:this.effectiveWebSearch()});}catch{return null;}
    opts.signal.throwIfAborted();
   }
   if(!bridge.selectableModels.length)return null;
