@@ -763,12 +763,20 @@ export function pickEscalationRoute(opts:{
 
 /** In-memory routing decision cache with 5-minute TTL and >5% usage change invalidation (C1). */
 const CACHE_TTL_MS=5*60_000;
+const ROUTE_CACHE_MAX_ENTRIES=128;
 type CachedRouteEntry={
  result:AutoRoute&{task:TaskClass;classifier:'heuristic'|'fm'};
  createdAt:number;
  usageSnapshot:Map<ProviderId,number|null>;
 };
 const routeCache=new Map<string,CachedRouteEntry>();
+function setRouteCache(key:string,entry:CachedRouteEntry):void{
+ if(routeCache.size>=ROUTE_CACHE_MAX_ENTRIES&&!routeCache.has(key)){
+  const oldest=routeCache.keys().next().value;
+  if(oldest!==undefined)routeCache.delete(oldest);
+ }
+ routeCache.set(key,entry);
+}
 
 export function clearRoutingCache():void{
  routeCache.clear();
@@ -845,7 +853,7 @@ export async function routeAcrossProviders(
   if(heuristic){
    const route=pickRoute(entries,offers,heuristic,home,nowSec,context,mode,history);
    const result={...route,task:heuristic,classifier:'heuristic' as const};
-   routeCache.set(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
+   setRouteCache(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
    return result;
   }
  }
@@ -855,7 +863,7 @@ export async function routeAcrossProviders(
   const fallbackTask=heuristicTaskClass(prompt,context,true)!;
   const route=pickRoute(entries,offers,fallbackTask,home,nowSec,context,mode,history);
   const result={...route,task:fallbackTask,classifier:'heuristic' as const};
-  routeCache.set(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
+  setRouteCache(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
   return result;
  }
 
@@ -873,6 +881,6 @@ export async function routeAcrossProviders(
  const task=calibrateTask(raw,prompt,context);
  const route=pickRoute(entries,offers,task,home,nowSec,context,mode,history);
  const result={...route,task,classifier:'fm' as const};
- routeCache.set(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
+ setRouteCache(cacheKey,{result,createdAt:nowMs,usageSnapshot:currentUsage});
  return result;
 }
