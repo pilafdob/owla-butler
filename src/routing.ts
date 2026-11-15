@@ -62,39 +62,6 @@ export function estimateTokens(text:string):number{
  return text?Math.ceil(text.length/3.5):0;
 }
 
-const tokenCountCache=new Map<string,number>();
-/**
- * Counts tokens via `fm count-tokens` when available on macOS, caching results
- * and falling back to `estimateTokens` on any failure or non-macOS host.
- */
-export async function countFoundationModelTokens(text:string,signal?:AbortSignal):Promise<number>{
- if(!text)return 0;
- const cached=tokenCountCache.get(text);
- if(cached!==undefined)return cached;
- if(!hasFoundationModelsCLI())return estimateTokens(text);
- try{
-  const count=await new Promise<number>((resolve,reject)=>{
-   const child=execFile(fm,['count-tokens','--quiet'],{signal,timeout:2000,maxBuffer:1024,shell:false},(error,stdout)=>{
-    if(error){reject(error instanceof Error?error:Error('Token count failed'));return;}
-    const match=stdout.match(/\b(\d+)\b/);
-    const parsed=match?Number(match[1]):NaN;
-    if(!Number.isFinite(parsed)||parsed<=0){reject(Error('Unreadable token count'));return;}
-    resolve(parsed);
-   });
-   child.stdin?.on('error',()=>{ /* Handled by callback. */ });
-   child.stdin?.end(text);
-  });
-  if(tokenCountCache.size>=256){
-   const oldest=tokenCountCache.keys().next().value;
-   if(oldest!==undefined)tokenCountCache.delete(oldest);
-  }
-  tokenCountCache.set(text,count);
-  return count;
- }catch{
-  return estimateTokens(text);
- }
-}
-
 /** The identifier a provider uses for one of its models. */
 export function modelKey(provider:ProviderId,model:CodexModel):string{
  return provider==='codex'?(model.model||model.id):model.id;
@@ -111,7 +78,7 @@ const modelGuidance:Record<string,string>={
 
 // OpenCode models carry no curated quality notes, so the router weighs the
 // facts OpenCode itself reports: price, accepted modalities and context size.
-export function opencodeTaskFit(model:CodexModel):string{
+function opencodeTaskFit(model:CodexModel):string{
  const parts:string[]=[];
  const cost=model.cost;
  if(cost&&cost.input===0&&cost.output===0)parts.push('Free to use.');
@@ -182,7 +149,7 @@ export type RoutingAttachment={
  sizeBucket?:'small'|'medium'|'large';
 };
 
-export type ComplexityFeatures={
+type ComplexityFeatures={
  promptWords:number;
  codeFences:number;
  questionMarks:number;
@@ -317,7 +284,7 @@ export function extractRecentTopics(messages:readonly {content:string}[]):string
 }
 
 /** Estimates total input tokens for the main turn to filter models with insufficient context windows. */
-export function estimateContextTokens(input:{
+function estimateContextTokens(input:{
  promptChars?:number;
  activeNoteChars?:number;
  selectedChars?:number;
@@ -338,7 +305,7 @@ export function estimateContextTokens(input:{
  return Math.ceil(chars/3.5)+imageTokens;
 }
 
-export type SummarizeRoutingOptions={
+type SummarizeRoutingOptions={
  budget?:number;
  includeNames?:boolean;
  thorough?:boolean;
@@ -461,7 +428,7 @@ export function summarizeRoutingContext(
  }&typeof rest;
 }
 
-export type BuildRoutingContextInput={
+type BuildRoutingContextInput={
  prompt:string;
  attachments:RoutingAttachment[];
  activeNoteText?:string;

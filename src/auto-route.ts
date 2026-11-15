@@ -57,12 +57,12 @@ export type ProviderOffer={
  preferred?:{model:string;effort:string};
 };
 
-export type AutoEntry={provider:ProviderId;model:ProviderModel;key:string};
+type AutoEntry={provider:ProviderId;model:ProviderModel;key:string};
 /** `writes`: the request changes the vault (edits, new notes, moves), set by calibrateTask. */
 export type TaskClass={difficulty:number;kind:TaskKind;tools:boolean;effort:string;writes?:boolean};
 
 const EFFORT_SCALE=['none','minimal','low','medium','high','xhigh','max'];
-export const AUTO_FIELDS:RouteSchemaFields={
+const AUTO_FIELDS:RouteSchemaFields={
  difficulty:{type:'integer',enum:[1,2,3,4,5]},
  kind:{type:'string'},
  tools:{type:'boolean'},
@@ -88,7 +88,7 @@ const KIND_SYNONYMS:[RegExp,TaskKind][]=[
 ];
 
 /** Calibration data structure (C3). */
-export type RoutingCalibration={
+type RoutingCalibration={
  kindCeiling:Record<TaskKind,number>;
  editVerbs:string[];
  editTargets:string[];
@@ -554,7 +554,7 @@ export function scoreEntries(
 }
 
 /** In-memory audit log of the last 50 routing decisions (B11). */
-export type RoutingDecisionRecord={
+type RoutingDecisionRecord={
  timestamp:number;
  kind:TaskKind;
  difficulty:number;
@@ -567,7 +567,7 @@ export type RoutingDecisionRecord={
 const MAX_ROUTING_DECISIONS=50;
 const routingDecisions:RoutingDecisionRecord[]=[];
 
-export function recordRoutingDecision(decision:RoutingDecisionRecord):void{
+function recordRoutingDecision(decision:RoutingDecisionRecord):void{
  routingDecisions.push(decision);
  if(routingDecisions.length>MAX_ROUTING_DECISIONS){
   routingDecisions.splice(0,routingDecisions.length-MAX_ROUTING_DECISIONS);
@@ -582,7 +582,7 @@ export function clearRoutingDecisions():void{
  routingDecisions.length=0;
 }
 
-export type DetailsContainer={
+type DetailsContainer={
  createEl:<K extends keyof HTMLElementTagNameMap>(tag:K,opts?:{text?:string;cls?:string})=>HTMLElementTagNameMap[K]&DetailsContainer;
  createDiv:(opts?:string|{text?:string;cls?:string})=>HTMLElement&DetailsContainer;
 };

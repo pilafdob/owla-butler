@@ -10,13 +10,13 @@
  * unit-tested in Node without the Obsidian app.
  */
 
-export type LanguageCode = 'en' | 'de';
+type LanguageCode = 'en' | 'de';
 export type LocaleCode = string;
 
 const SUPPORTED: LanguageCode[] = ['en', 'de'];
 
 /** Map an Obsidian/ISO language code to a supported language code. */
-export function normalizeLanguage(code?: string | null): LanguageCode {
+function normalizeLanguage(code?: string | null): LanguageCode {
   const raw = typeof code === 'string' ? code.trim() : '';
   if (!raw) return 'en';
   const base = raw.toLowerCase().split(/[-_]/)[0];
@@ -24,29 +24,29 @@ export function normalizeLanguage(code?: string | null): LanguageCode {
 }
 
 /** Alias names used by various callers/tests. */
-export const normalizeLocale = normalizeLanguage;
-export const normalizeLang = normalizeLanguage;
-export const normalizeObsidianLanguage = normalizeLanguage;
-export const languageCode = normalizeLanguage;
-export const obsidianLanguage = normalizeLanguage;
-export const uiLanguage = normalizeLanguage;
-export const appLanguage = normalizeLanguage;
-export const currentLanguage = normalizeLanguage;
-export const detectLanguage = normalizeLanguage;
+const normalizeLocale = normalizeLanguage;
+const normalizeLang = normalizeLanguage;
+const normalizeObsidianLanguage = normalizeLanguage;
+const languageCode = normalizeLanguage;
+const obsidianLanguage = normalizeLanguage;
+const uiLanguage = normalizeLanguage;
+const appLanguage = normalizeLanguage;
+const currentLanguage = normalizeLanguage;
+const detectLanguage = normalizeLanguage;
 
 /** Human-readable language names. */
-export const LANGUAGE_NAMES: Record<LanguageCode, string> = {
+const LANGUAGE_NAMES: Record<LanguageCode, string> = {
   en: 'English',
   de: 'German',
 };
 
-export function languageName(code?: string | null): string {
+function languageName(code?: string | null): string {
   const normalized = normalizeLanguage(code);
   return LANGUAGE_NAMES[normalized];
 }
 
 /** Alias. */
-export const languageLabel = languageName;
+const languageLabel = languageName;
 export const displayName = languageName;
 
 /**
@@ -78,9 +78,9 @@ export function getObsidianLanguageRaw(): string {
 }
 
 /** Aliases. */
-export const getLanguage = getObsidianLanguage;
-export const obsidianLanguageCode = getObsidianLanguage;
-export const currentObsidianLanguage = getObsidianLanguage;
+const getLanguage = getObsidianLanguage;
+const obsidianLanguageCode = getObsidianLanguage;
+const currentObsidianLanguage = getObsidianLanguage;
 export const getLanguageRaw = getObsidianLanguageRaw;
 export const obsidianLanguageRaw = getObsidianLanguageRaw;
 
@@ -93,18 +93,18 @@ export function setObsidianLanguageForTests(code: string | null): void {
 
 // Allow tests to override via a stored value.
 const originalGetObsidianLanguage = getObsidianLanguage;
-export function getLanguageWithOverride(): LanguageCode {
+function getLanguageWithOverride(): LanguageCode {
   if (obsidianLanguageOverride !== undefined) return normalizeLanguage(obsidianLanguageOverride);
   return originalGetObsidianLanguage();
 }
 
 // Prefer override-aware version as the default exported getter.
-export const getObsidianLanguageCode = getLanguageWithOverride;
+const getObsidianLanguageCode = getLanguageWithOverride;
 
 /**
  * Interpolation. Supports `{key}`, `{{key}}` and `${key}` placeholders.
  */
-export function interpolate(template: string, vars?: Record<string, unknown> | null): string {
+function interpolate(template: string, vars?: Record<string, unknown> | null): string {
   if (!vars) return template;
   return template.replace(/\$\{(\w+)\}|\{\{(\w+)\}\}|\{(\w+)\}/g, (_match: string, a?: string, b?: string, c?: string) => {
     const key = a || b || c || '';
@@ -114,9 +114,9 @@ export function interpolate(template: string, vars?: Record<string, unknown> | n
   });
 }
 
-export const formatMessage = interpolate;
+const formatMessage = interpolate;
 export const format = interpolate;
-export const interpolateMessage = interpolate;
+const interpolateMessage = interpolate;
 
 // ---------------------------------------------------------------------------
 // Translation catalogs
@@ -168,7 +168,7 @@ export const en = {
   'availability.goUsage': 'OpenCode Go usage limit reached',
 } as const;
 
-export type MessageKey = keyof typeof en;
+type MessageKey = keyof typeof en;
 
 export const de: { [K in MessageKey]: string } = {
   'app.name': 'OWLA Butler',
@@ -217,14 +217,14 @@ export const de: { [K in MessageKey]: string } = {
 };
 
 export const messages = { en, de } as const;
-export const locales = { en, de } as const;
+const locales = { en, de } as const;
 export const translations = { en, de } as const;
 export const strings = { en, de } as const;
 export const catalog = { en, de } as const;
-export const LANGUAGE_PACKS = { en, de } as const;
-export const packs = { en, de } as const;
+const LANGUAGE_PACKS = { en, de } as const;
+const packs = { en, de } as const;
 
-export const catalogs = { en, de };
+const catalogs = { en, de };
 
 // ---------------------------------------------------------------------------
 // Translation lookup
@@ -247,9 +247,9 @@ export const translate = t;
 export const __ = t;
 export const i18n = t;
 export const msg = t;
-export const formatText = t;
+const formatText = t;
 
-export function translateWithLanguage(key: string, lang: string, vars?: Record<string, unknown> | null): string {
+function translateWithLanguage(key: string, lang: string, vars?: Record<string, unknown> | null): string {
   return t(key, vars, lang);
 }
 
@@ -264,17 +264,17 @@ export function replyLanguageInstruction(lang?: string | null): string {
 }
 
 /** Aliases. */
-export const languageInstruction = replyLanguageInstruction;
-export const replyInLanguage = replyLanguageInstruction;
-export const obsidianReplyLanguage = replyLanguageInstruction;
-export const replyLanguage = replyLanguageInstruction;
-export const aiLanguageInstruction = replyLanguageInstruction;
+const languageInstruction = replyLanguageInstruction;
+const replyInLanguage = replyLanguageInstruction;
+const obsidianReplyLanguage = replyLanguageInstruction;
+const replyLanguage = replyLanguageInstruction;
+const aiLanguageInstruction = replyLanguageInstruction;
 
-export function appendReplyLanguage(instructions: string, lang?: string | null): string {
+function appendReplyLanguage(instructions: string, lang?: string | null): string {
   return instructions + '\n' + replyLanguageInstruction(lang);
 }
 
-export const withReplyLanguage = appendReplyLanguage;
+const withReplyLanguage = appendReplyLanguage;
 
 // Default export collecting everything for convenience.
 const i18nDefault = {

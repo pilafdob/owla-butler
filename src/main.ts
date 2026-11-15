@@ -1,7 +1,7 @@
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
-import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,applyHunkDecisions} from './core';
+import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,applyHunkDecisions,groupDiffLines} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
@@ -722,13 +722,13 @@ class SplitDiffView extends ItemView {
  }
  private renderDiff(container:HTMLElement,batch:EditBatch){
   const decisions=this.decisions.get(batch) ?? [];
-  const parts=diffLines(batch.edit.before,batch.edit.after);
+  const blocks=groupDiffLines(batch.edit.before,batch.edit.after);
   let hunkIndex=-1;
   let inChanged=false;
   let hunk:HTMLElement|null=null;
   let lineIndex=0;
-  for(const part of parts){
-   if(part.added || part.removed){
+  for(const block of blocks){
+   if(block.changed){
     if(!inChanged){
      inChanged=true;
      hunkIndex+=1;
@@ -743,28 +743,30 @@ class SplitDiffView extends ItemView {
      acceptButton.onclick=()=>void this.decideHunk(batch,hunkIndex,true);
      declineButton.onclick=()=>void this.decideHunk(batch,hunkIndex,false);
     }
-    const lines=part.value.match(/[^\n]*\n|[^\n]+/g) ?? [];
-    for(const line of lines){
-     if(!decisions[hunkIndex])decisions[hunkIndex]=[];
-     while(decisions[hunkIndex].length<=lineIndex)decisions[hunkIndex].push(null);
-     const lineDecision=decisions[hunkIndex][lineIndex];
-     const linePre=hunk!.createEl('pre',{text:line,cls:(part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged')+' owla-diff-line'});
-     if(lineDecision===true)linePre.addClass('owla-line-accepted');
-     if(lineDecision===false)linePre.addClass('owla-line-declined');
-     const lineActions=linePre.createDiv('owla-line-actions');
-     const lineAccept=lineActions.createEl('button',{cls:'owla-line-button',attr:{'aria-label':'Accept this line','title':'Accept this line'}});
-     setIcon(lineAccept,'check');
-     const lineDecline=lineActions.createEl('button',{cls:'owla-line-button',attr:{'aria-label':'Decline this line','title':'Decline this line'}});
-     setIcon(lineDecline,'x');
-     const capturedLine=lineIndex;
-     lineAccept.onclick=event=>{event.stopPropagation();void this.decideLine(batch,hunkIndex,capturedLine,true);};
-     lineDecline.onclick=event=>{event.stopPropagation();void this.decideLine(batch,hunkIndex,capturedLine,false);};
-     lineIndex+=1;
+    for(const part of block.parts){
+     const lines=part.value.match(/[^\n]*\n|[^\n]+/g) ?? [];
+     for(const line of lines){
+      if(!decisions[hunkIndex])decisions[hunkIndex]=[];
+      while(decisions[hunkIndex].length<=lineIndex)decisions[hunkIndex].push(null);
+      const lineDecision=decisions[hunkIndex][lineIndex];
+      const linePre=hunk!.createEl('pre',{text:line,cls:(part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged')+' owla-diff-line'});
+      if(lineDecision===true)linePre.addClass('owla-line-accepted');
+      if(lineDecision===false)linePre.addClass('owla-line-declined');
+      const lineActions=linePre.createDiv('owla-line-actions');
+      const lineAccept=lineActions.createEl('button',{cls:'owla-line-button',attr:{'aria-label':'Accept this line','title':'Accept this line'}});
+      setIcon(lineAccept,'check');
+      const lineDecline=lineActions.createEl('button',{cls:'owla-line-button',attr:{'aria-label':'Decline this line','title':'Decline this line'}});
+      setIcon(lineDecline,'x');
+      const capturedLine=lineIndex;
+      lineAccept.onclick=event=>{event.stopPropagation();void this.decideLine(batch,hunkIndex,capturedLine,true);};
+      lineDecline.onclick=event=>{event.stopPropagation();void this.decideLine(batch,hunkIndex,capturedLine,false);};
+      lineIndex+=1;
+     }
     }
    } else {
     inChanged=false;
     hunk=null;
-    container.createEl('pre',{text:part.value,cls:'owla-unchanged'});
+    for(const part of block.parts) container.createEl('pre',{text:part.value,cls:'owla-unchanged'});
    }
   }
   this.decisions.set(batch,decisions);
@@ -817,7 +819,7 @@ class EditDiff extends Modal {
 
  onClose() { this.contentEl.empty(); }
 }
-export class ButlerView extends ItemView {
+class ButlerView extends ItemView {
  composer!:HTMLTextAreaElement;private feed!:HTMLElement;private pendingArea!:HTMLElement;private chips!:HTMLElement;private status!:HTMLElement;private sendBtn!:HTMLButtonElement;private modelLabel!:HTMLElement;private automaticLabel!:HTMLButtonElement;
  private nextRoute?:CodexRoute;
  private lastAutomaticRoute?:CodexRoute;
