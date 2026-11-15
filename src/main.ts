@@ -96,13 +96,29 @@ export default class Butler extends Plugin {
   const {rmSync}=await import('node:fs');
   let records:unknown[]=[];
   try{const parsed:unknown=JSON.parse(readFileSync(join(this.vaultStorage(),'pending-edits.json'),'utf8'));if(Array.isArray(parsed))records=parsed;}catch{/* ignore */}
+  const remaining:unknown[]=[];
+  let failed=false;
   for(const value of records){
+   const entry=record(value);
+   const edit=record(entry.edit);
+   const path=edit.path;
+   const deferred=entry.deferred===true;
+   const create=edit.create===true;
+   // Deferred and new-note drafts were never applied to an existing note.
+   if(deferred||create){continue;}
+   if(typeof path!=='string'||!allowedPath(path,this.prefs.excludedFolders)){remaining.push(value);continue;}
+   const before=typeof edit.before==='string'?edit.before:'';
+   const after=typeof edit.after==='string'?edit.after:'';
    try{
-    const edit=record(value).edit; const path=record(edit).path;
-    if(typeof path!=='string'||!allowedPath(path,this.prefs.excludedFolders))continue;
-    const proposal={path,before:record(edit).after,after:record(edit).before,reason:'Restore OWLA Butler edit'} as Proposal;
-    await this.restoreEdit(proposal);
-   }catch{/* ignore */}
+    await this.restoreEdit({path,before:after,after:before,reason:'Restore OWLA Butler edit'} as Proposal);
+   }catch{
+    failed=true;remaining.push(value);
+   }
+  }
+  if(failed){
+   try{savePendingEdits(this.vaultStorage(),remaining as EditBatch[]);}catch{/* ignore */}
+   this.pendingLoadError='Could not restore one or more pending edits.';
+   return;
   }
   try{rmSync(join(this.vaultStorage(),'pending-edits.json'),{force:true});}catch{/* ignore */}
   this.pending=[];this.pendingLoadError='';
@@ -1104,7 +1120,7 @@ class ButlerView extends ItemView {
    return false;
   }
   this.resetPrompt?.remove();this.resetPrompt=undefined;this.clearWarmup();
-  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText(t('label.automaticSelection'));this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.webSearchChatConsent=null;this.webSearchTurnConsent=false;this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
+  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText(t('label.automaticSelection'));this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.webSearchChatConsent=null;this.webSearchTurnConsent=false;if(this.providerIndicator)this.providerIndicator.setText(t('label.automaticSelection'));this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
   return true;
  }
  private copyButton(parent:HTMLElement, text:string, label:string){
@@ -1251,14 +1267,17 @@ class ButlerView extends ItemView {
     const allowed=el.classList.contains('svg-icon')||!!el.closest('.mermaid')||el.classList.contains('mermaid');
     if(!allowed){el.remove();continue;}
    } else if(tag==='picture'){el.remove();continue;}
-   else if(blocked.has(tag)){el.remove();continue;}
+   else if(tag==='img'){
+    const src=el.getAttribute('src')??'';
+    if(!src||/^(https?:|data:|javascript:)/i.test(src)){el.remove();continue;}
+   } else if(blocked.has(tag)){el.remove();continue;}
    for(const attr of Array.from(el.attributes)){
     const name=attr.name.toLowerCase();
     if(name.startsWith('on')){el.removeAttribute(attr.name);continue;}
-    if(['srcset','poster','background','ping','action','formaction'].includes(name)){el.removeAttribute(attr.name);continue;}
+    if(name==='src'||['srcset','poster','background','ping','action','formaction'].includes(name)){el.removeAttribute(attr.name);continue;}
     if(name==='style'){
      const value=attr.value;
-     if(/url\s*\(|expression\s*\(|@import|javascript:/i.test(value))el.removeAttribute(attr.name);
+     if(/url\s*\(|expression\s*\(|@import|javascript:|image-set\s*\(|\\/i.test(value))el.removeAttribute(attr.name);
     }
    }
    if(tag==='a'){
@@ -1283,7 +1302,16 @@ class ButlerView extends ItemView {
   this.effortSelect?.toggleClass('owla-hidden',automaticModels);
   this.automaticLabel?.toggleClass('owla-hidden',!automaticModels);
   if(this.automaticLabel)this.automaticLabel.disabled=this.isBusy();
-  if(!automaticModels)this.nextRoute=undefined;const modelPrefs=this.butler.modelPrefs;const modelLabel='Choose '+this.butler.providerName(this.butler.activeProvider)+' model';this.modelLabel?.setText(modelPrefs.model||modelLabel);if(this.modelLabel)setTooltip(this.modelLabel,modelPrefs.model?modelLabel+' · '+modelPrefs.model:modelLabel);if(this.effortSelect){this.effortSelect.empty();const model=this.butler.bridge.resolveModel(modelPrefs.model);for(const e of model?.supportedReasoningEfforts??[])this.effortSelect.createEl('option',{value:e.reasoningEffort,text:e.reasoningEffort});if(!model)this.effortSelect.createEl('option',{value:modelPrefs.reasoning,text:modelPrefs.reasoning||'Reasoning'});this.effortSelect.value=modelPrefs.reasoning;this.effortSelect.disabled=this.isBusy();}}
+  if(!automaticModels)this.nextRoute=undefined;
+  if(this.providerIndicator){
+   if(automaticModels){
+    const route=this.nextRoute??this.lastAutomaticRoute;
+    this.providerIndicator.setText(route?this.butler.providerName(route.provider)+' · '+route.model:t('label.automaticSelection')+' · choosing at send');
+   } else {
+    this.providerIndicator.setText(this.butler.providerName(this.butler.activeProvider));
+   }
+  }
+  const modelPrefs=this.butler.modelPrefs;const modelLabel='Choose '+this.butler.providerName(this.butler.activeProvider)+' model';this.modelLabel?.setText(modelPrefs.model||modelLabel);if(this.modelLabel)setTooltip(this.modelLabel,modelPrefs.model?modelLabel+' · '+modelPrefs.model:modelLabel);if(this.effortSelect){this.effortSelect.empty();const model=this.butler.bridge.resolveModel(modelPrefs.model);for(const e of model?.supportedReasoningEfforts??[])this.effortSelect.createEl('option',{value:e.reasoningEffort,text:e.reasoningEffort});if(!model)this.effortSelect.createEl('option',{value:modelPrefs.reasoning,text:modelPrefs.reasoning||'Reasoning'});this.effortSelect.value=modelPrefs.reasoning;this.effortSelect.disabled=this.isBusy();}}
  renderWebSearchConsent(){
   if(!this.webSearchConsentBar)return;
   const needs=this.butler.prefs.webSearch&&this.webSearchChatConsent===null&&!this.webSearchTurnConsent;
@@ -2108,7 +2136,7 @@ class ButlerView extends ItemView {
   this.status.setText(t('status.connectingTo',{provider:this.butler.providerName(provider)}));
   await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();
   route={model:override.model,effort:override.effort};
-  this.automaticLabel.setText('Override · '+route.model+' · '+route.effort);
+  this.automaticLabel.setText(t('status.overrideRoute',{route:route.model+' · '+route.effort}));
   if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider)+' · '+route.model);
   activity.createDiv({text:t('notice.oneMessageOverride')+route.model+' · '+route.effort,cls:'owla-activity'});
  }else if(choosesProvider){
@@ -2155,7 +2183,7 @@ class ButlerView extends ItemView {
   await this.butler.connect({keepAlive:true,automatic:true,provider,tools:specs,web});signal.throwIfAborted();
   route={model:choice.model,effort:choice.effort,provider};
   activity.createDiv({text:t('notice.automaticSelection')+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
-  this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
+  this.automaticLabel.setText(t('status.autoRoute',{route:this.butler.providerName(provider)+' · '+route.model+' · '+route.effort}));
   if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider)+' · '+route.model);
   this.lastAutomaticRoute=route;
   if(autoTask)this.lastAutomaticTaskKind=autoTask.kind;
@@ -2174,7 +2202,7 @@ class ButlerView extends ItemView {
    if(quick){route={model:quick.model,effort:quick.effort};autoTask=quick.task;}
    else {autoTask=heuristicTaskClass(prompt,routingContext,true)!;route=await routeWithFoundationModels(prompt,candidates,signal,routingContext,provider);}
    activity.createDiv({text:t('notice.automaticSelection')+route.model+' · '+route.effort+(quick?' · local':''),cls:'owla-activity'});
-   this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
+   this.automaticLabel.setText(t('status.autoRoute',{route:route.model+' · '+route.effort}));
   }catch(error){
    if(signal.aborted)this.automaticLabel.setText(t('label.automaticSelection'));
    signal.throwIfAborted();
@@ -2186,7 +2214,7 @@ class ButlerView extends ItemView {
     autoTask=heur.task;
    }catch{/* Keep fallbackRoute result. */}
    activity.createDiv({text:t('notice.automaticSelectionUnavailable')+reasonText+' Using '+route.model+' · '+route.effort,cls:'owla-activity'});
-   this.automaticLabel.setText('Fallback · '+route.model+' · '+route.effort);
+   this.automaticLabel.setText(t('status.fallbackRoute',{route:route.model+' · '+route.effort}));
   }
   route={...route,provider};
   this.lastAutomaticRoute=route;
@@ -2249,9 +2277,9 @@ class ButlerView extends ItemView {
      route={model:escalated.model,effort:escalated.effort,provider:escalated.provider};
      if(choosesProvider){
       this.butler.autoProvider=provider;
-      this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
+      this.automaticLabel.setText(t('status.autoRoute',{route:this.butler.providerName(provider)+' · '+route.model+' · '+route.effort}));
      }else{
-      this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
+      this.automaticLabel.setText(t('status.autoRoute',{route:route.model+' · '+route.effort}));
      }
      if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
      pendingText='';text='';
@@ -2301,9 +2329,9 @@ class ButlerView extends ItemView {
    route={model:next.model,effort:next.effort,provider:next.provider};
    if(choosesProvider){
     this.butler.autoProvider=provider;
-    this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
+    this.automaticLabel.setText(t('status.autoRoute',{route:this.butler.providerName(provider)+' · '+route.model+' · '+route.effort}));
    }else{
-    this.automaticLabel.setText('Auto · '+route.model+' · '+route.effort);
+    this.automaticLabel.setText(t('status.autoRoute',{route:route.model+' · '+route.effort}));
    }
    if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
    pendingText='';text='';
@@ -2358,7 +2386,7 @@ class ButlerView extends ItemView {
  }
  if(batches.size){
   let applied=0,drafted=0;
-  this.status.setText(mixed?'Preparing related changes…':'Applying suggested changes…');
+  this.status.setText(mixed?t('status.preparingRelatedChanges'):t('status.applyingSuggestedChanges'));
   for(const batch of batches.values()){
    signal.throwIfAborted();
    try{
@@ -2438,7 +2466,7 @@ class ButlerView extends ItemView {
  else if(current.exhausted)this.exhaustionNotice(content,states.length>1?states:[current],states.length>1);
  content.createDiv({text:message,cls:'owla-error'});
  if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText(t('status.draftRestoredMessage',{message}));}
- else{this.status.setText(t('status.earlierDraftAvailable',{message}));const restore=actions.createEl('button',{text:t('chat.restoreDraft')});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice(t('notice.clearDraftBeforeRestore'));return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
+ else{this.status.setText(t('status.earlierDraftAvailable',{message}));const restore=actions.createEl('button',{text:t('chat.restoreDraft')});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice(t('notice.clearDraftBeforeRestore'));return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText(t('status.draftRestored'));};}}
  finally{heading.removeClass('is-working');summary.setText(t('label.sourcesAndActivity'));if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.offeredToolNames=null;this.webSearchTurnConsent=false;this.renderWebSearchConsent();this.sendBtn.setText(t('action.send'));if(override)this.automaticLabel.setText(t('label.automaticSelection'));this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
  }
  private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
