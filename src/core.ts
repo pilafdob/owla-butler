@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {diffLines} from 'diff';
 import {isAbsolute,relative,sep,win32} from 'node:path';
 import {record} from './validation';
 import type {FallbackChoice,ProviderId} from './provider';
@@ -229,3 +230,80 @@ export function editWarnings(before:string,after:string):string[]{
 
 /** An explicitly quoted replacement can be prepared without trusting model tool use. */
 export function requestedReplacement(request:string):{oldText:string;newText:string}|null{const m=request.match(/replace exactly ["“]([^"”]+)["”] with ["“]([^"”]*)["”]/i);return m?{oldText:m[1],newText:m[2]}:null;}
+
+export interface DiffHunk { before: string; after: string; }
+
+export function diffHunks(before: string, after: string): DiffHunk[] {
+ const hunks: DiffHunk[] = [];
+ let currentBefore = '';
+ let currentAfter = '';
+ let inHunk = false;
+ for (const part of diffLines(before, after)) {
+  if (part.added || part.removed) {
+   inHunk = true;
+   if (part.removed) currentBefore += part.value;
+   if (part.added) currentAfter += part.value;
+  } else {
+   if (inHunk) {
+    hunks.push({before: currentBefore, after: currentAfter});
+    currentBefore = '';
+    currentAfter = '';
+    inHunk = false;
+   }
+  }
+ }
+ if (inHunk) hunks.push({before: currentBefore, after: currentAfter});
+ return hunks;
+}
+
+function parseHunkDecision(value: unknown): boolean {
+ if (typeof value === 'boolean') return value;
+ if (typeof value === 'string') {
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'accept' || normalized === 'accepted' || normalized === 'keep' || normalized === 'true' || normalized === 'yes';
+ }
+ if (value && typeof value === 'object') {
+  const record = value as Record<string, unknown>;
+  if (typeof record.accepted === 'boolean') return record.accepted;
+  if (typeof record.accept === 'boolean') return record.accept;
+  if (typeof record.decision === 'string') return parseHunkDecision(record.decision);
+  if (typeof record.keep === 'boolean') return record.keep;
+ }
+ return Boolean(value);
+}
+
+export function applyHunkDecisions(before: string, after: string, decisions: unknown): string {
+ const parts = diffLines(before, after);
+ const normalized = Array.isArray(decisions) ? decisions : [];
+ let result = '';
+ let hunkIndex = -1;
+ let inChanged = false;
+ for (const part of parts) {
+  if (part.added || part.removed) {
+   if (!inChanged) {
+    hunkIndex += 1;
+    inChanged = true;
+   }
+   const accepted = parseHunkDecision(normalized[hunkIndex]);
+   if (part.added) {
+    if (accepted) result += part.value;
+   } else if (part.removed) {
+    if (!accepted) result += part.value;
+   }
+  } else {
+   inChanged = false;
+   result += part.value;
+  }
+ }
+ return result;
+}
+
+export const applyDiffDecisions = applyHunkDecisions;
+export const applyHunkDecision = applyHunkDecisions;
+export const applyDecisions = applyHunkDecisions;
+export const mergeHunkDecisions = applyHunkDecisions;
+export const mergeDiffDecisions = applyHunkDecisions;
+export const mergeDecisions = applyHunkDecisions;
+export const resolveHunks = applyHunkDecisions;
+export const applyLineDecisions = applyHunkDecisions;
+export const computeMergedText = applyHunkDecisions;
