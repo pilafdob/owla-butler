@@ -381,19 +381,70 @@ test('M2: clearing the pending record asks first and changes nothing when declin
  assert.equal(butler.reviewBlocked,true);
 });
 
-test('M2: confirming the clear restores allowed notes, leaves excluded notes alone and unblocks review',async()=>{
- const butler=makeButler(makeApp(),{excludedFolders:'Private'});
+// ---------------------------------------------------------------- R7: clear-record restore (real write path)
+
+/** A Butler whose notes live in memory; restoreEdit/writeEdit run unmodified against them. */
+function restoreFixture(texts:Record<string,string>,pending:unknown[]){
+ const app=makeApp({files:Object.keys(texts),texts});
+ const writes:{path:string;text:string}[]=[];
+ (app.vault as any).process=async(file:any,change:(current:string)=>string)=>{const next=change(texts[file.path]);texts[file.path]=next;writes.push({path:file.path,text:next});return next;};
+ const butler=makeButler(app,{excludedFolders:'Private'});
  butler.organization={blocked:false};
- const file=writePending(butler,records);
+ const file=writePending(butler,pending);
  butler.pendingLoadError='A pending edit path is no longer allowed: Private/Secret.md';
- const restored:any[]=[];butler.restoreEdit=async(p:any)=>{restored.push(p);};
  (globalThis as any).window??=new EventTarget();
  (globalThis as any).window.confirm=()=>true;
+ return {butler,file,texts,writes};
+}
+const applied=(path:string,before:string,after:string,extra:Record<string,unknown>={})=>({edit:{path,before,after,reason:'r',...extra},reasons:['r']});
+
+test('R7: confirming the clear restores a provisionally applied edit to its original text, exactly once',async()=>{
+ const {butler,file,texts,writes}=restoreFixture({'Notes/A.md':'ALPHA (AI)','Notes/B.md':'CHARLIE (AI)'},[applied('Notes/A.md','alpha','ALPHA (AI)'),applied('Notes/B.md','charlie','CHARLIE (AI)')]);
  await butler.clearPendingEdits();
- assert.deepEqual(restored.map(({path,before,after})=>({path,before,after})),[{path:'Notes/A.md',before:'ALPHA',after:'alpha'}]);
+ assert.equal(texts['Notes/A.md'],'alpha');
+ assert.equal(texts['Notes/B.md'],'charlie');
+ assert.deepEqual(writes.map(w=>w.path).sort(),['Notes/A.md','Notes/B.md'],'each note written once');
  assert.equal(existsSync(file),false);
  assert.equal(butler.pendingLoadError,'');
  assert.equal(butler.reviewBlocked,false);
+});
+
+test('R7: a note already at its original text is left untouched, so unaccepted AI text is never written',async()=>{
+ const {butler,file,texts,writes}=restoreFixture({'Notes/A.md':'alpha'},[applied('Notes/A.md','alpha','ALPHA (AI)')]);
+ await butler.clearPendingEdits();
+ assert.equal(texts['Notes/A.md'],'alpha');
+ assert.deepEqual(writes,[]);
+ assert.equal(existsSync(file),false);
+ assert.equal(butler.reviewBlocked,false);
+});
+
+test('R7: deferred and new-note records were never applied and are not written',async()=>{
+ const {butler,texts,writes}=restoreFixture({'Notes/A.md':'alpha','Notes/B.md':''},[{...applied('Notes/A.md','alpha','ALPHA (AI)'),deferred:true},applied('Notes/B.md','','new note (AI)',{create:true})]);
+ await butler.clearPendingEdits();
+ assert.equal(texts['Notes/A.md'],'alpha');
+ assert.equal(texts['Notes/B.md'],'');
+ assert.deepEqual(writes,[]);
+});
+
+test('R7: when a restore fails the record is kept and review stays blocked',async()=>{
+ // The user edited the note after the proposal: neither the original nor the AI text is current.
+ const {butler,file,texts,writes}=restoreFixture({'Notes/A.md':'user rewrote this','Notes/B.md':'CHARLIE (AI)'},[applied('Notes/A.md','alpha','ALPHA (AI)'),applied('Notes/B.md','charlie','CHARLIE (AI)')]);
+ await butler.clearPendingEdits();
+ assert.equal(texts['Notes/A.md'],'user rewrote this');
+ assert.ok(existsSync(file),'record kept');
+ const kept=JSON.parse(readFileSync(file,'utf8'));
+ assert.deepEqual(kept.map((r:any)=>r.edit.path),['Notes/A.md']);
+ assert.notEqual(butler.pendingLoadError,'');
+ assert.equal(butler.reviewBlocked,true);
+ assert.equal(texts['Notes/B.md'],'charlie','the restorable note is still restored');
+ assert.deepEqual(writes.map(w=>w.path),['Notes/B.md']);
+});
+
+test('R7: excluded notes are not changed by the clear',async()=>{
+ const {butler,texts,writes}=restoreFixture({'Notes/A.md':'ALPHA (AI)','Private/Secret.md':'SECRET (AI)'},[applied('Notes/A.md','alpha','ALPHA (AI)'),applied('Private/Secret.md','secret','SECRET (AI)')]);
+ await butler.clearPendingEdits();
+ assert.equal(texts['Private/Secret.md'],'SECRET (AI)');
+ assert.deepEqual(writes.map(w=>w.path),['Notes/A.md']);
 });
 
 // ---------------------------------------------------------------- R1: search_vault scope
