@@ -281,7 +281,8 @@ export class ClaudeBridge implements ProviderBridge{
       else if(method==='tools/list')result={tools:options.tools.map(tool=>({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}))};
       else if(method==='tools/call'){
        const name=typeof params.name==='string'?params.name:'';
-       try{result={content:toolContent(await options.tool(name,params.arguments??{}))};}
+       if(!options.tools.some(tool=>tool.name===name)){result={content:[{type:'text',text:'This tool is not available in this mode.'}],isError:true};}
+       else try{result={content:toolContent(await options.tool(name,params.arguments??{}))};}
        catch(error){result={content:[{type:'text',text:error instanceof Error?error.message:String(error)}],isError:true};}
       }
      }finally{
