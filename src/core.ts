@@ -214,13 +214,13 @@ export function formatTranscription(text:string):string {
 export function displayMarkdown(text:string):string {
  const nonce=Math.random().toString(36).slice(2);
  let out=text.replace(/!\[/g,'[');
- // Prevent backticks inside HTML tags from shielding attributes.
+ // Prevent backticks inside HTML tags from shielding attributes, restoring them in stashed code.
  out=out.replace(/<[^>]*>/g,m=>m.replace(/`/g,String.fromCharCode(1)));
  // Preserve code samples: sanitize only outside fenced and inline code.
  const fences:string[]=[];
- out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m);return '@@FENCE'+nonce+(fences.length-1)+'@@';});
+ out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m.replace(new RegExp(String.fromCharCode(1),'g'),'`'));return '@@FENCE'+nonce+(fences.length-1)+'@@';});
  const inlines:string[]=[];
- out=out.replace(/`[^`\n]*`/g,m=>{inlines.push(m);return '@@INLINE'+nonce+(inlines.length-1)+'@@';});
+ out=out.replace(/`[^`\n]*`/g,m=>{inlines.push(m.replace(new RegExp(String.fromCharCode(1),'g'),'`'));return '@@INLINE'+nonce+(inlines.length-1)+'@@';});
  out=out.replace(new RegExp(String.fromCharCode(1),'g'),'`');
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,'');
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');

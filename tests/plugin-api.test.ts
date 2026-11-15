@@ -49,6 +49,13 @@ test('approval rechecks provider identity, vault permissions and the prior optio
  assert.equal(f.writes,0);
 });
 
+test('a trusted installed plugin API is used and spoofed responders are ignored',()=>{
+ const f=fixture();
+ const workspace={app:{plugins:{enabledPlugins:new Set(['pinup']),getPlugin:()=>({api:f.provider})}},trigger:(event:string,reply:(api:unknown)=>void)=>{if(event==='pilafdob:pinup:api:v1')reply({version:2});}} as unknown as Workspace;
+ const turn=new PluginTurn(workspace,()=>true,()=>true);
+ assert.deepEqual(turn.specs.map(spec=>spec.name),[inspect,propose]);
+});
+
 test('unavailable, duplicated and malformed plugin APIs cannot advertise tools',()=>{
  const f=fixture();
  f.replies.push(f.provider);
