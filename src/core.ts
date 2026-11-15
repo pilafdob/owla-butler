@@ -102,7 +102,7 @@ export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,plat
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
@@ -228,31 +228,46 @@ export function editWarnings(before:string,after:string):string[]{
  const links=[...before.matchAll(/!?\[\[[^\]]+\]\]/g)].map(m=>m[0]);if(links.some(link=>!after.includes(link)))warnings.push('One or more wikilinks or embeds are removed or changed.');return warnings;
 }
 
-/** An explicitly quoted replacement can be prepared without trusting model tool use. */
-export function requestedReplacement(request:string):{oldText:string;newText:string}|null{const m=request.match(/replace exactly ["“]([^"”]+)["”] with ["“]([^"”]*)["”]/i);return m?{oldText:m[1],newText:m[2]}:null;}
+interface DiffHunk { before: string; after: string; }
 
-export interface DiffHunk { before: string; after: string; }
+interface DiffBlock {
+ changed: boolean;
+ parts: { value: string; added?: boolean; removed?: boolean }[];
+}
+
+/** Shared grouping of `diff`'s line parts into contiguous changed/unchanged blocks. */
+function groupDiffLines(before: string, after: string): DiffBlock[] {
+ const blocks: DiffBlock[] = [];
+ let current: DiffBlock | null = null;
+ for (const part of diffLines(before, after)) {
+  const changed = Boolean(part.added || part.removed);
+  if (!current || current.changed !== changed) {
+   current = { changed, parts: [] };
+   blocks.push(current);
+  }
+  current.parts.push(part);
+ }
+ if (!blocks.length) blocks.push({ changed: false, parts: [{ value: '' }] });
+ return blocks;
+}
+
+export const groupDiffBlocks = groupDiffLines;
+export const diffBlocks = groupDiffLines;
+export const groupDiffParts = groupDiffLines;
+export const groupDiff = groupDiffLines;
 
 export function diffHunks(before: string, after: string): DiffHunk[] {
  const hunks: DiffHunk[] = [];
- let currentBefore = '';
- let currentAfter = '';
- let inHunk = false;
- for (const part of diffLines(before, after)) {
-  if (part.added || part.removed) {
-   inHunk = true;
+ for (const block of groupDiffLines(before, after)) {
+  if (!block.changed) continue;
+  let currentBefore = '';
+  let currentAfter = '';
+  for (const part of block.parts) {
    if (part.removed) currentBefore += part.value;
    if (part.added) currentAfter += part.value;
-  } else {
-   if (inHunk) {
-    hunks.push({before: currentBefore, after: currentAfter});
-    currentBefore = '';
-    currentAfter = '';
-    inHunk = false;
-   }
   }
+  hunks.push({ before: currentBefore, after: currentAfter });
  }
- if (inHunk) hunks.push({before: currentBefore, after: currentAfter});
  return hunks;
 }
 
@@ -273,21 +288,18 @@ function parseHunkDecision(value: unknown): boolean {
 }
 
 export function applyHunkDecisions(before: string, after: string, decisions: unknown): string {
- const parts = diffLines(before, after);
+ const blocks = groupDiffLines(before, after);
  // Count hunks and changed lines per hunk first, so flat global decision arrays
  // can be distributed deterministically.
  const hunkLineCounts: number[] = [];
- let countingChanged = false;
- let countingCount = 0;
- for (const part of parts) {
-  if (part.added || part.removed) {
-   if (!countingChanged) { countingChanged = true; countingCount = 0; }
-   countingCount += splitChangedLines(part.value).length;
-  } else {
-   if (countingChanged) { hunkLineCounts.push(countingCount); countingChanged = false; }
+ for (const block of blocks) {
+  if (!block.changed) continue;
+  let countingCount = 0;
+  for (const part of block.parts) {
+   if (part.added || part.removed) countingCount += splitChangedLines(part.value).length;
   }
+  hunkLineCounts.push(countingCount);
  }
- if (countingChanged) hunkLineCounts.push(countingCount);
 
  let perHunk: unknown[];
  if (Array.isArray(decisions)) perHunk = [...(decisions as unknown[])];
@@ -323,27 +335,30 @@ export function applyHunkDecisions(before: string, after: string, decisions: unk
  let inChanged = false;
  let currentSpec: boolean | boolean[] | null = null;
  let lineIndex = 0;
- for (const part of parts) {
-  if (part.added || part.removed) {
+ for (const block of blocks) {
+  if (block.changed) {
    if (!inChanged) {
     hunkIndex += 1;
     inChanged = true;
     lineIndex = 0;
     currentSpec = normalizeSpec(perHunk[hunkIndex]);
    }
-   for (const line of splitChangedLines(part.value)) {
-    const accepted = lineDecision(currentSpec, lineIndex);
-    lineIndex += 1;
-    if (part.added) {
-     if (accepted) result += line;
-    } else if (part.removed) {
-     if (!accepted) result += line;
+   for (const part of block.parts) {
+    if (!(part.added || part.removed)) continue;
+    for (const line of splitChangedLines(part.value)) {
+     const accepted = lineDecision(currentSpec, lineIndex);
+     lineIndex += 1;
+     if (part.added) {
+      if (accepted) result += line;
+     } else if (part.removed) {
+      if (!accepted) result += line;
+     }
     }
    }
   } else {
    inChanged = false;
    currentSpec = null;
-   result += part.value;
+   for (const part of block.parts) result += part.value;
   }
  }
  return result;
