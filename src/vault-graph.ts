@@ -14,7 +14,7 @@ export type GraphSource={
  allowed:(path:string)=>boolean;
 };
 
-export type GraphQuery={
+type GraphQuery={
  path?:string;
  tag?:string;
  property?:string;
@@ -46,7 +46,7 @@ function valueMatches(actual:unknown,expected:string|undefined):boolean{
 }
 
 /** Links of one note: outgoing, unresolved, backlinks, and its tags and properties. */
-export function noteGraph(source:GraphSource,path:string){
+function noteGraph(source:GraphSource,path:string){
  if(!source.allowed(path))throw Error('Choose an existing, allowed Markdown note.');
  const outgoing=Object.keys(source.resolvedLinks[path]??{}).filter(source.allowed).sort();
  const unresolved=Object.keys(source.unresolvedLinks[path]??{}).sort();

@@ -25,7 +25,7 @@ export type ChatMessage = {
   sourcePath?: string;
 };
 
-export type ReasoningEffort = { reasoningEffort: string; description: string };
+type ReasoningEffort = { reasoningEffort: string; description: string };
 
 export type ProviderModel = {
   id: string;

@@ -30,7 +30,7 @@ import {list,record} from './validation';
 import {RecordSplitter} from './stream';
 import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 
-export const CLAUDE_MCP_SERVER='owla';
+const CLAUDE_MCP_SERVER='owla';
 export const CLAUDE_TOOL_PREFIX='mcp__'+CLAUDE_MCP_SERVER+'__';
 /** Models without an effort parameter carry this placeholder effort. */
 export const CLAUDE_NO_EFFORT='default';

@@ -439,8 +439,8 @@ export default class Butler extends Plugin {
  ownModal(modal:Modal){this.ownedModals.add(modal);const close=modal.onClose.bind(modal);modal.onClose=()=>{this.ownedModals.delete(modal);close();};}
  async selection(editor:Editor,file:TFile|null){if(!file||!editor.getSelection())return;const v=await this.open();v.selections.push({path:file.path,text:clip(editor.getSelection(),3000)});v.renderAttachments();v.composer.focus();}
  capture():Captured|null {
-  const views=this.indexMarkdownViews();
   const leaves=this.markdownLeaves;
+  this.indexMarkdownViews();
   const current=this.app.workspace.getActiveViewOfType(MarkdownView);if(current)this.last=current;
   if(this.last&&!leaves.some(l=>l.view===this.last))this.last=null;
   if(!this.last){const active=this.app.workspace.getActiveFile();this.last=(leaves.map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===active?.path) as MarkdownView|undefined)??null;}

@@ -16,7 +16,7 @@ import {PROVIDER_IDS} from './provider';
 import {TASK_KINDS,type TaskKind} from './model-profiles';
 import {record} from './validation';
 
-export type TaskOutcomeStats={success:number;fail:number;latencyMs:number[]};
+type TaskOutcomeStats={success:number;fail:number;latencyMs:number[]};
 export type RoutingHistoryData=Partial<Record<ProviderId,Record<string,Partial<Record<TaskKind,TaskOutcomeStats>>>>>;
 
 const HISTORY_FILE='routing-history.json';
@@ -123,7 +123,7 @@ export function personalizationScore(
 }
 
 /** Rolling median (p50) latency in ms for a (provider, model) across recorded kinds. */
-export function modelP50Latency(
+function modelP50Latency(
  history:RoutingHistoryData|undefined,
  provider:ProviderId,
  model:string

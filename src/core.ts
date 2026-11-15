@@ -230,13 +230,13 @@ export function editWarnings(before:string,after:string):string[]{
 
 interface DiffHunk { before: string; after: string; }
 
-interface DiffBlock {
+export interface DiffBlock {
  changed: boolean;
  parts: { value: string; added?: boolean; removed?: boolean }[];
 }
 
 /** Shared grouping of `diff`'s line parts into contiguous changed/unchanged blocks. */
-function groupDiffLines(before: string, after: string): DiffBlock[] {
+export function groupDiffLines(before: string, after: string): DiffBlock[] {
  const blocks: DiffBlock[] = [];
  let current: DiffBlock | null = null;
  for (const part of diffLines(before, after)) {
