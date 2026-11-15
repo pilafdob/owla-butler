@@ -347,6 +347,10 @@ export const en = {
   'availability.usageLimit': 'usage limit reached',
   'availability.auth': 'sign-in refused',
   'availability.goUsage': 'OpenCode Go usage limit reached',
+  'notice.webSearchConsent': 'This turn includes note content and web search is on. Allow web search for this turn?',
+  'button.allowOnce': 'Allow once',
+  'button.allowForChat': 'Always for this chat',
+  'button.dontSearch': "Don't search",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -575,6 +579,10 @@ export const de: { [K in MessageKey]: string } = {
   'availability.usageLimit': 'Nutzungslimit erreicht',
   'availability.auth': 'Anmeldung abgelehnt',
   'availability.goUsage': 'OpenCode Go-Nutzungslimit erreicht',
+  'notice.webSearchConsent': 'Diese Runde enthält Notizinhalt und Websuche ist aktiv. Websuche für diese Runde erlauben?',
+  'button.allowOnce': 'Einmal erlauben',
+  'button.allowForChat': 'Für diesen Chat immer',
+  'button.dontSearch': 'Nicht suchen',
 };
 
 export const messages = { en, de } as const;

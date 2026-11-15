@@ -45,7 +45,11 @@ function discover(workspace:Workspace,id:string):Provider|undefined {
  receiving=false;
  if(replies.length!==1)return;
  const api=record(replies[0]);
- if(api.version===1&&typeof api.read==='function'&&typeof api.prepare==='function')return api as unknown as Provider;
+ if(!(api.version===1&&typeof api.read==='function'&&typeof api.prepare==='function'))return;
+ const manifest=record(api.manifest);
+ const identityCandidates=[api.id,api.plugin,api.pluginId,api.manifestId,manifest.id,manifest.pluginId];
+ if(identityCandidates.some(value=>value!==undefined&&value!==id))return;
+ return api as unknown as Provider;
 }
 
 function display(feature:Feature,value:Value):string {
