@@ -16,6 +16,7 @@ test('Unicode case folds do not bypass an excluded folder',()=>{
 test('invalid path segments are rejected',()=>{
  for(const p of ['a\u0000b.md','a:b.md','a\u0001b.md','~/x.md'])assert.equal(allowedPath(p),false,p);
  assert.equal(allowedPath('Notes/x.md'),true);
+ assert.equal(allowedPath('Notes/a@@b/x.md'),true);
 });
 test('vault containment follows Windows case-insensitive path semantics',()=>{assert.equal(isPathInside('C:\\Vault','c:\\vault\\Notes\\A.md','win32'),true);assert.equal(isPathInside('C:\\Vault','C:\\Vault\\..\\Outside.md','win32'),false);assert.equal(isPathInside('C:\\Vault','C:\\Vault','win32'),false);});
 test('Apple-only automatic selection settings are cleared on other platforms',()=>{const settings={...DEFAULTS,automaticProvider:true,automaticRouting:true};assert.deepEqual(disableAutomaticSelectionOutsideMac(settings,'win32'),{...settings,automaticProvider:false,automaticRouting:false});assert.equal(disableAutomaticSelectionOutsideMac(settings,'darwin'),settings);});

@@ -160,7 +160,7 @@ export default class Butler extends Plugin {
    if(file instanceof TFolder&&this.allowedVaultFile(file.path)){
     this.addAttachmentMenu(menu,t('menu.addFolderToOwla'),[file]);
    } else if(file instanceof TFile&&this.allowedVaultFile(file.path)){
-    const title=this.allowedNote(file.path)?t('menu.addNoteToOwla'):this.allowedPdf(file.path)?t('menu.addPdfToOwla'):'Add file to OWLA chat';
+    const title=this.allowedNote(file.path)?t('menu.addNoteToOwla'):this.allowedPdf(file.path)?t('menu.addPdfToOwla'):t('menu.addFileToOwla');
     this.addAttachmentMenu(menu,title,[file]);
    }
   }));
@@ -934,6 +934,7 @@ class ButlerView extends ItemView {
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
   const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:t('button.attach'),cls:'owla-small-button'});setTooltip(attach,t('tooltip.attachFiles'));attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:t('button.addNote'),cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:t('button.chooseModel'),cls:'owla-model',attr:{'aria-label':t('button.chooseModel')}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':t('label.reasoningEffort')}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:t('button.send'),cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
+  this.providerIndicator=toolbar.createSpan({text:t('label.automaticSelection'),cls:'owla-provider-indicator'});this.providerIndicator.onclick=()=>void this.chooseNextRoute();
   this.automaticLabel=toolbar.createEl('button',{text:t('label.automaticSelection'),cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
   setTooltip(this.automaticLabel,t('tooltip.overrideModelEffort'));
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
@@ -1239,7 +1240,8 @@ class ButlerView extends ItemView {
    }
    if(tag==='a'){
     const href=el.getAttribute('href')??'';
-    if(href&&!/^(https?:|obsidian:|mailto:|#)/i.test(href))el.removeAttribute('href');
+    const internal=el.classList.contains('internal-link')||el.hasAttribute('data-href');
+    if(href&&!internal&&!/^(https?:|obsidian:|mailto:|#)/i.test(href))el.removeAttribute('href');
    }
   }
  }
@@ -2009,7 +2011,7 @@ class ButlerView extends ItemView {
  this.annotationDrafts.clear();
  const {specs,pluginTurn}=this.butler.buildToolSpecs();
  this.offeredToolNames=new Set(specs.map(spec=>spec.name));
- if(!choosesProvider){this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();}
+ if(!choosesProvider){if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider));this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();}
  let context='';if(captured){context+='\n<<<DATA:ACTIVE_NOTE path='+captured.path+'>>>\n'+clip(captured.text,20000)+'\n<<<END DATA>>>\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.addVaultSource('Current note: '+captured.path,captured.path);}
  const attachedStart=context.length;
  for(const selection of selected){context+='\n<<<DATA:SELECTION path='+selection.path+'>>>\n'+selection.text+'\n<<<END DATA>>>';this.addVaultSource('Selection: '+selection.path,selection.path);}
@@ -2080,10 +2082,11 @@ class ButlerView extends ItemView {
   await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();
   route={model:override.model,effort:override.effort};
   this.automaticLabel.setText('Override · '+route.model+' · '+route.effort);
+  if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider)+' · '+route.model);
   activity.createDiv({text:t('notice.oneMessageOverride')+route.model+' · '+route.effort,cls:'owla-activity'});
  }else if(choosesProvider){
-  this.automaticLabel.setText('Selecting provider, model and reasoning effort…');
-  this.status.setText('Selecting locally…');
+  this.automaticLabel.setText(t('status.selectingProvider'));
+  this.status.setText(t('status.selectingLocally'));
   const {offers,failed}=await this.butler.automaticOffers(specs,this.effectiveWebSearch());
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:t('notice.automaticSelectionSkipped')+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
@@ -2126,11 +2129,12 @@ class ButlerView extends ItemView {
   route={model:choice.model,effort:choice.effort,provider};
   activity.createDiv({text:t('notice.automaticSelection')+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
   this.automaticLabel.setText('Auto · '+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort);
+  if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider)+' · '+route.model);
   this.lastAutomaticRoute=route;
   if(autoTask)this.lastAutomaticTaskKind=autoTask.kind;
  }else if(automatic){
   this.automaticLabel.setText('Selecting model and reasoning effort…');
-  this.status.setText('Selecting locally…');
+  this.status.setText(t('status.selectingLocally'));
   const needsImg=!!(inputImages.length||this.pdfAttachments.size);
   const selectable=bridge.selectableModels.filter(m=>this.butler.sessionAvailability.available(provider,modelKey(provider,m)));
   let candidates=routingModels(currentModels(provider,selectable,undefined,routingContext.estimatedTokens),needsImg,routingContext.estimatedTokens);
