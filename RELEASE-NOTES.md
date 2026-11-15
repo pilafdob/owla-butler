@@ -1,3 +1,7 @@
+# OWLA Butler (Unreleased)
+
+- Language support: the plugin follows the language set in Obsidian. Interface strings are available in English and German (other languages fall back to English). AI replies default to Obsidian's language. Dates use Obsidian's language.
+
 # OWLA Butler 3.2.0
 
 - Split diff view now lets you accept or decline individual changed hunks, and individual lines within a hunk, with floating check and X icons.

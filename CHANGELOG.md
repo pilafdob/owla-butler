@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Language support: the plugin now follows the language configured in Obsidian. The plugin interface (commands, settings, chat, review controls, notices) ships in English and German; other languages fall back to English. AI replies default to Obsidian's language unless you write in or ask for another. Dates use Obsidian's language.
+
 ## 3.2.0
 
 - Split diff view now supports accepting or declining individual changed hunks, and individual lines within a hunk, with floating check and X icons; partial accepts merge into the accepted note text.

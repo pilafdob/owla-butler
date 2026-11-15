@@ -56,6 +56,7 @@ OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or 
 - Change properties as a reviewed edit that leaves the note body untouched. Proposed links that would not resolve are caught before you review them, and cited blocks (`[[note#^id]]`) can be read exactly.
 - Switch between Codex, OpenCode and Claude Code, with the same features, skills and review flow on all of them.
 - Keep the same chat while the backend automatically stops between replies.
+- Follow the language set in Obsidian: the interface ships in English and German (other languages fall back to English), AI replies default to Obsidian's language, and dates use Obsidian's language instead of the system setting.
 
 ## Setup
 
