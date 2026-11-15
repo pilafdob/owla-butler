@@ -17,7 +17,7 @@ import {usageWindows} from './usage';
 import {searchScore} from './search';
 import {ChatStore,SavedChat} from './chats';
 import {join,relative} from 'node:path';
-import {existsSync,lstatSync,realpathSync,statSync} from 'node:fs';
+import {existsSync,lstatSync,realpathSync,statSync,readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {shell,webUtils} from 'electron';
 import {backupEdit,loadPendingEdits,savePendingEdits} from './recovery';
@@ -92,7 +92,18 @@ export default class Butler extends Plugin {
 
  get pendingEdits():readonly EditBatch[] { return this.pending; }
  async clearPendingEdits(){
+  if(!window.confirm('Clear the pending edit record? Provisional edits to allowed notes will be restored; excluded notes will not be changed.'))return;
   const {rmSync}=await import('node:fs');
+  let records:unknown[]=[];
+  try{const parsed:unknown=JSON.parse(readFileSync(join(this.vaultStorage(),'pending-edits.json'),'utf8'));if(Array.isArray(parsed))records=parsed;}catch{/* ignore */}
+  for(const value of records){
+   try{
+    const edit=record(value).edit; const path=record(edit).path;
+    if(typeof path!=='string'||!allowedPath(path,this.prefs.excludedFolders))continue;
+    const proposal={path,before:record(edit).after,after:record(edit).before,reason:'Restore OWLA Butler edit'} as Proposal;
+    await this.restoreEdit(proposal);
+   }catch{/* ignore */}
+  }
   try{rmSync(join(this.vaultStorage(),'pending-edits.json'),{force:true});}catch{/* ignore */}
   this.pending=[];this.pendingLoadError='';
  }
@@ -1230,18 +1241,34 @@ class ButlerView extends ItemView {
   content.on('auxclick', 'a.internal-link', openNote, true);
  }
  private sanitizeRenderedReply(root:HTMLElement){
-  const blocked=new Set(['script','style','svg','math','input','picture','iframe','object','embed','video','audio','source','link']);
+  const blocked=new Set(['script','style','iframe','object','embed','video','audio','source','link']);
   for(const el of Array.from(root.querySelectorAll('*'))){
    const tag=el.tagName.toLowerCase();
-   if(blocked.has(tag)||tag==='img'){el.remove();continue;}
+   if(tag==='input'){
+    const allowed=el.getAttribute('type')==='checkbox'&&el.classList.contains('task-list-item-checkbox')&&el.hasAttribute('disabled');
+    if(!allowed){el.remove();continue;}
+   } else if(tag==='svg'){
+    const allowed=el.classList.contains('svg-icon')||!!el.closest('.mermaid')||el.classList.contains('mermaid');
+    if(!allowed){el.remove();continue;}
+   } else if(tag==='picture'){el.remove();continue;}
+   else if(blocked.has(tag)){el.remove();continue;}
    for(const attr of Array.from(el.attributes)){
     const name=attr.name.toLowerCase();
-    if(name==='style'||name.startsWith('on')||['src','srcset','poster','background','ping','action','formaction'].includes(name))el.removeAttribute(attr.name);
+    if(name.startsWith('on')){el.removeAttribute(attr.name);continue;}
+    if(['srcset','poster','background','ping','action','formaction'].includes(name)){el.removeAttribute(attr.name);continue;}
+    if(name==='style'){
+     const value=attr.value;
+     if(/url\s*\(|expression\s*\(|@import|javascript:/i.test(value))el.removeAttribute(attr.name);
+    }
    }
    if(tag==='a'){
     const href=el.getAttribute('href')??'';
     const internal=el.classList.contains('internal-link')||el.hasAttribute('data-href');
-    if(href&&!internal&&!/^(https?:|obsidian:|mailto:|#)/i.test(href))el.removeAttribute('href');
+    if(internal){
+     if(/^[a-z][a-z0-9+.-]*:/i.test(href))el.removeAttribute('href');
+    } else if(href&&!/^(https?:|obsidian:|mailto:|#)/i.test(href)){
+     el.removeAttribute('href');
+    }
    }
   }
  }
@@ -1249,7 +1276,7 @@ class ButlerView extends ItemView {
  private restoreDraft(draft:Draft){this.composer.value=draft.text;this.images=draft.images;this.pdfs=draft.pdfs;this.selections=draft.selections;this.notes=new Set(draft.notes);this.folders=new Set(draft.folders);this.renderAttachments();}
  private chatStore(){return new ChatStore(this.butler.vaultStorage());}
  saveChat(afterSave?:()=>void){if(this.controller){new Notice(t('notice.waitBeforeSaving'));return;}if(!this.history.length){new Notice(t('notice.sendBeforeSaving'));return;}new ChatNameModal(this.app,this.butler,this.history.find(m=>m.role==='user')?.content.slice(0,60)||'Chat',title=>{try{this.chatStore().save(title,this.history);new Notice(t('notice.chatSaved'));afterSave?.();}catch(e){new Notice((e as Error).message);}}).open();}
- openSavedChat(remove=false){if(this.controller){new Notice(t('notice.finishReplyFirst'));return;}try{const store=this.chatStore(),chats=store.list();if(!chats.length){new Notice(t('notice.noSavedChats'));return;}new SavedChatPicker(this.app,this.butler,chats,async chat=>{if(remove){new ChatDeleteModal(this.app,this.butler,chat.title,()=>{try{store.remove(chat.id);new Notice(t('notice.savedChatDeleted'));}catch(e){new Notice((e as Error).message);}}).open();return;}if(!this.newChat())return;this.webSearchChatConsent=null;this.webSearchTurnConsent=false;this.history=chat.messages.map(m=>({...m}));this.feed.empty();const epoch=this.attachmentEpoch;for(const message of this.history){if(epoch!==this.attachmentEpoch)return;if(message.role==='user')this.userMessage(message.content);else{const row=this.feed.createDiv('owla-assistant');this.replyHeading(row);await this.renderReply(row.createDiv('owla-message-content'),message.content,message.sourcePath);this.copyButton(row.createDiv('owla-reply-footer'),stripFence(message.content),t('button.copyMarkdown'));}}this.status.setText('Saved chat · attachments were not restored; your current note supplies new context');}).open();}catch(e){new Notice((e as Error).message);}}
+ openSavedChat(remove=false){if(this.controller){new Notice(t('notice.finishReplyFirst'));return;}try{const store=this.chatStore(),chats=store.list();if(!chats.length){new Notice(t('notice.noSavedChats'));return;}new SavedChatPicker(this.app,this.butler,chats,async chat=>{if(remove){new ChatDeleteModal(this.app,this.butler,chat.title,()=>{try{store.remove(chat.id);new Notice(t('notice.savedChatDeleted'));}catch(e){new Notice((e as Error).message);}}).open();return;}if(!this.newChat())return;this.webSearchChatConsent=null;this.webSearchTurnConsent=false;this.history=chat.messages.map(m=>({...m}));this.feed.empty();const epoch=this.attachmentEpoch;for(const message of this.history){if(epoch!==this.attachmentEpoch)return;if(message.role==='user')this.userMessage(message.content);else{const row=this.feed.createDiv('owla-assistant');this.replyHeading(row);await this.renderReply(row.createDiv('owla-message-content'),message.content,message.sourcePath);this.copyButton(row.createDiv('owla-reply-footer'),stripFence(message.content),t('button.copyMarkdown'));}}this.status.setText(t('status.savedChat'));}).open();}catch(e){new Notice((e as Error).message);}}
  refreshModel(){
   const automaticModels=this.butler.automaticModels;
   this.modelLabel?.toggleClass('owla-hidden',automaticModels);
@@ -1300,7 +1327,7 @@ class ButlerView extends ItemView {
    for(const entry of files){
     if(epoch!==this.attachmentEpoch)return;
     const name=entry instanceof TFile?entry.path:entry.name;
-    this.status.setText('Preparing '+name+'…');
+    this.status.setText(t('status.preparing',{name}));
     try {
      if(entry instanceof TFile&&!this.butler.allowedVaultFile(entry.path))continue;
      if(entry instanceof TFile&&this.butler.allowedNote(entry.path)){
@@ -1345,7 +1372,7 @@ class ButlerView extends ItemView {
   this.conversionQueue=work.catch(()=>{});
   try {await work;} finally {
    this.converting--;this.renderAttachments();this.renderPendingEdits();
-   if(!this.converting)this.status.setText('Attachments ready');
+   if(!this.converting)this.status.setText(t('status.attachmentsReady'));
   }
  }
  private attachmentName(name:string){
@@ -1914,8 +1941,8 @@ class ButlerView extends ItemView {
   try{
    await change.apply();
    this.pluginDrafts.delete(change);
-   update('Plugin change applied',null);
-   if(!this.awaitingReview)this.status.setText('Plugin change applied');
+   update(t('status.pluginChangeApplied'),null);
+   if(!this.awaitingReview)this.status.setText(t('status.pluginChangeApplied'));
   }catch(e){new Notice(friendlyError(e));}
   finally{
    this.applyingPluginChange=false;
@@ -2011,7 +2038,7 @@ class ButlerView extends ItemView {
  this.annotationDrafts.clear();
  const {specs,pluginTurn}=this.butler.buildToolSpecs();
  this.offeredToolNames=new Set(specs.map(spec=>spec.name));
- if(!choosesProvider){if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider));this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();}
+ if(!choosesProvider){if(this.providerIndicator)this.providerIndicator.setText(this.butler.providerName(provider));this.status.setText(t('status.connectingTo',{provider:this.butler.providerName(provider)}));await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();}
  let context='';if(captured){context+='\n<<<DATA:ACTIVE_NOTE path='+captured.path+'>>>\n'+clip(captured.text,20000)+'\n<<<END DATA>>>\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.addVaultSource('Current note: '+captured.path,captured.path);}
  const attachedStart=context.length;
  for(const selection of selected){context+='\n<<<DATA:SELECTION path='+selection.path+'>>>\n'+selection.text+'\n<<<END DATA>>>';this.addVaultSource('Selection: '+selection.path,selection.path);}
@@ -2078,7 +2105,7 @@ class ButlerView extends ItemView {
    releaseReply=bridge.hold();this.releaseReply=releaseReply;
    instructions=instructions.replace('powered by '+previous+'.','powered by '+this.butler.providerName(provider)+'.');
   }
-  this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');
+  this.status.setText(t('status.connectingTo',{provider:this.butler.providerName(provider)}));
   await this.butler.connect({keepAlive:true,automatic,provider,tools:specs,web});signal.throwIfAborted();
   route={model:override.model,effort:override.effort};
   this.automaticLabel.setText('Override · '+route.model+' · '+route.effort);
@@ -2124,7 +2151,7 @@ class ButlerView extends ItemView {
    instructions=instructions.replace('powered by '+previous+'.','powered by '+this.butler.providerName(provider)+'.');
   }
   this.butler.autoProvider=provider;
-  this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');
+  this.status.setText(t('status.connectingTo',{provider:this.butler.providerName(provider)}));
   await this.butler.connect({keepAlive:true,automatic:true,provider,tools:specs,web});signal.throwIfAborted();
   route={model:choice.model,effort:choice.effort,provider};
   activity.createDiv({text:t('notice.automaticSelection')+this.butler.providerName(provider)+' · '+route.model+' · '+route.effort+' · '+choice.reason,cls:'owla-activity'});
@@ -2410,8 +2437,8 @@ class ButlerView extends ItemView {
  if(switched&&switched!==this.butler.prefs.provider)this.switchNotice(content,switched);
  else if(current.exhausted)this.exhaustionNotice(content,states.length>1?states:[current],states.length>1);
  content.createDiv({text:message,cls:'owla-error'});
- if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText('Draft restored · '+message);}
- else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:t('chat.restoreDraft')});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice(t('notice.clearDraftBeforeRestore'));return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
+ if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText(t('status.draftRestoredMessage',{message}));}
+ else{this.status.setText(t('status.earlierDraftAvailable',{message}));const restore=actions.createEl('button',{text:t('chat.restoreDraft')});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice(t('notice.clearDraftBeforeRestore'));return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
  finally{heading.removeClass('is-working');summary.setText(t('label.sourcesAndActivity'));if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.offeredToolNames=null;this.webSearchTurnConsent=false;this.renderWebSearchConsent();this.sendBtn.setText(t('action.send'));if(override)this.automaticLabel.setText(t('label.automaticSelection'));this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
  }
  private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
@@ -2902,12 +2929,12 @@ class OrganizationDiff extends Modal {
    actions.createEl('button',{text:t('button.cancel')}).onclick=()=>this.close();
    const accept=actions.createEl('button',{text:t('button.accept'),cls:'mod-cta'});
    if(!this.butler.automaticLinksEnabled()){
-    status.setText('Turn on automatic internal link updates in Obsidian settings, then reopen this review.');
+    status.setText(t('status.turnOnLinkUpdates'));
     accept.disabled=true;
    }
    accept.onclick=async()=>{
     accept.disabled=true;
-    status.setText('Applying organization…');
+    status.setText(t('status.applyingOrganization'));
     try{
      await organization.accept(review);
      this.butler.view?.organizationDecided('Organization accepted',review,'accepted');

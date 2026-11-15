@@ -214,8 +214,38 @@ export function formatTranscription(text:string):string {
 export function displayMarkdown(text:string):string {
  const nonce=Math.random().toString(36).slice(2);
  let out=text.replace(/!\[/g,'[');
- // Prevent backticks inside HTML tags from shielding attributes, restoring them in stashed code.
- out=out.replace(/<[^>]*>/g,m=>m.replace(/`/g,String.fromCharCode(1)));
+ // Prevent backticks inside real HTML tags from shielding attributes. A lone '<'
+ // in prose is not a tag and must not corrupt following code samples (N2).
+ const neutralizeTags=(input:string)=>{
+  let result='',i=0;
+  while(i<input.length){
+   if(input[i]==='<'){
+    let j=i+1;
+    // A tag name must start with a letter.
+    if(j<input.length&&/[A-Za-z]/.test(input[j])){
+     j++;
+     while(j<input.length&&/[\w-]/.test(input[j]))j++;
+     // Consume attributes, honouring single and double quotes.
+     let inQuote: string | null=null;
+     while(j<input.length){
+      const ch=input[j];
+      if(inQuote){if(ch===inQuote)inQuote=null;}
+      else if(ch==='"'||ch==="'")inQuote=ch;
+      else if(ch==='>')break;
+      else if(ch==='<' )break;
+      j++;
+     }
+     if(j<input.length&&input[j]==='>'){
+      const tag=input.slice(i,j+1).replace(/`/g,String.fromCharCode(1));
+      result+=tag;i=j+1;continue;
+     }
+    }
+   }
+   result+=input[i++];
+  }
+  return result;
+ };
+ out=neutralizeTags(out);
  // Preserve code samples: sanitize only outside fenced and inline code.
  const fences:string[]=[];
  out=out.replace(/```[\s\S]*?```/g,m=>{fences.push(m.replace(new RegExp(String.fromCharCode(1),'g'),'`'));return '@@FENCE'+nonce+(fences.length-1)+'@@';});
@@ -225,30 +255,62 @@ export function displayMarkdown(text:string):string {
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,'');
  out=out.replace(/<(script|style|svg|math|input|picture)\b[^>]*\/?>/gi,'');
  out=out.replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');
- out=out.replace(/<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g,(_m:string,tag:string,attrs:string)=>{
-  const name=tag.toLowerCase();
-  let a=attrs;
+ const sanitizeTag=(tag:string)=>{
+  const nameMatch=tag.match(/^<\s*([A-Za-z][\w-]*)/);
+  if(!nameMatch)return tag;
+  const name=nameMatch[1];
+  const lower=name.toLowerCase();
+  let attrs=tag.slice(nameMatch[0].length,tag.endsWith('/>')?tag.length-2:tag.length-1);
+  const trailingSlash=/\/\s*$/.test(attrs)?'/':'';
+  attrs=attrs.replace(/\/\s*$/,'');
   const removeAttr=(attr:string)=>{
    const re=new RegExp('(?<=[\\s/"\x27])'+attr+'\\s*=\\s*("[^"]*"|\x27[^\x27]*\x27|[^\\s>]+)','gi');
-   a=a.replace(re,'');
+   attrs=attrs.replace(re,'');
   };
   removeAttr('style');
-  removeAttr('on[a-z]+'.replace('on[a-z]+','on[a-zA-Z]+')? 'on[a-zA-Z]+' : 'on[a-zA-Z]+');
-  // remove on* via regex
-  a=a.replace(/(?<=[\s/"\x27])on[a-zA-Z]+\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,'');
-  const forbidden=name==='a'
+  attrs=attrs.replace(/(?<=[\s/"\x27])on[a-zA-Z]+\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,'');
+  const forbidden=lower==='a'
    ?['src','srcset','poster','background','ping','action','formaction']
    :['src','href','srcset','poster','background','ping','action','formaction'];
   for(const attr of forbidden) removeAttr(attr);
-  if(name==='a'){
-   a=a.replace(/(?<=[\s/"\x27])href\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,(mm:string)=>{
+  if(lower==='a'){
+   attrs=attrs.replace(/(?<=[\s/"\x27])href\s*=\s*("[^"]*"|\x27[^\x27]*\x27|[^\s>]+)/gi,(mm:string)=>{
     const value=mm.match(/=(.*)/)?.[1]?.replace(/^['"]|['"]$/g,'').trim()??'';
-    if(/^https?:/i.test(value)||/^obsidian:/i.test(value)||/^mailto:/i.test(value)||/^#/i.test(value))return mm;
+    const internal=(tag.includes('class="internal-link"')||tag.includes("class='internal-link'")||tag.includes('data-href'));
+    if(internal&&!/^[a-z][a-z0-9+.-]*:/i.test(value))return mm;
+    if(!internal&&(/^https?:/i.test(value)||/^obsidian:/i.test(value)||/^mailto:/i.test(value)||/^#/i.test(value)))return mm;
     return '';
    });
   }
-  return '<'+tag+a+'>';
- });
+  return '<'+name+attrs+(trailingSlash?' /':'')+'>';
+ };
+ const sanitizeTags=(input:string)=>{
+  let result='',i=0;
+  while(i<input.length){
+   if(input[i]==='<'){
+    let j=i+1;
+    if(j<input.length&&/[A-Za-z]/.test(input[j])){
+     j++;
+     while(j<input.length&&/[\w-]/.test(input[j]))j++;
+     let inQuote:string|null=null;
+     while(j<input.length){
+      const ch=input[j];
+      if(inQuote){if(ch===inQuote)inQuote=null;}
+      else if(ch==='"'||ch==="'")inQuote=ch;
+      else if(ch==='>'||ch==='<')break;
+      j++;
+     }
+     if(j<input.length&&input[j]==='>'){
+      result+=sanitizeTag(input.slice(i,j+1));
+      i=j+1;continue;
+     }
+    }
+   }
+   result+=input[i++];
+  }
+  return result;
+ };
+ out=sanitizeTags(out);
  out=out.replace(new RegExp('@@FENCE'+nonce+'(\\d+)@@','g'),(_m:string,i:string)=>fences[Number(i)]);
  out=out.replace(new RegExp('@@INLINE'+nonce+'(\\d+)@@','g'),(_m:string,i:string)=>inlines[Number(i)]);
  return out;

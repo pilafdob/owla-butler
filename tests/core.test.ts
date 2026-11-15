@@ -41,6 +41,15 @@ test('rendered replies sanitize dangerous markup and links',()=>{
  assert.equal(displayMarkdown('<a href="obsidian://open">x</a>'),'<a href="obsidian://open">x</a>');
 });
 
+test('displayMarkdown keeps code samples after a lone less-than',()=>{
+ assert.match(displayMarkdown('If x < y then `a < b` and c > d'),/`a < b`/);
+ assert.match(displayMarkdown('x < y and `<p style="m:0">` z > w'),/`<p style="m:0">`/);
+});
+test('displayMarkdown blocks attribute separators and internal-link spoofing',()=>{
+ assert.doesNotMatch(displayMarkdown('<p title="a>`" style="background:url(https://evil/e)" y="`">x</p>'),/style=/);
+ assert.doesNotMatch(displayMarkdown('<a title="a>`" href="javascript:alert(1)" y="`">x</a>'),/href=/);
+});
+
 test('displayMarkdown preserves code samples and blocks attribute separators',()=>{
  assert.match(displayMarkdown('```html\n<div style="color:red" onclick="x()">hi</div>\n```'),/style="color:red"/);
  for(const payload of ['<p/style="background:url(https://evil/b)">x</p>','<a title="x"href="javascript:alert(1)">x</a>','<div/onmouseover="alert(1)">x</div>']){
