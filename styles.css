@@ -327,3 +327,11 @@ button.owla-source-link:hover,
 .owla-hunk-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; z-index: 1; }
 .owla-hunk-button { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 2px 4px; color: var(--text-muted); cursor: pointer; line-height: 1; }
 .owla-hunk-button:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+
+.owla-diff-line { position: relative; margin: 0; }
+.owla-diff-line .owla-line-actions { position: absolute; top: 2px; right: 4px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease; z-index: 1; }
+.owla-diff-line:hover .owla-line-actions { opacity: .9; }
+.owla-line-button { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 3px; padding: 1px 3px; color: var(--text-muted); cursor: pointer; line-height: 1; font-size: 11px; }
+.owla-line-button:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.owla-line-accepted { box-shadow: inset 0 0 0 1px var(--color-green); }
+.owla-line-declined { box-shadow: inset 0 0 0 1px var(--color-red); }
