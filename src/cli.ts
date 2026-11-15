@@ -69,7 +69,7 @@ type CliSpawnOptions={cwd?:string;env?:NodeJS.ProcessEnv;detached?:boolean};
  * certificate bundles stay, because enterprise setups need them to reach the
  * provider at all.
  */
-export const UNSAFE_EXECUTION_ENV=[
+const UNSAFE_EXECUTION_ENV=[
  'NODE_OPTIONS','NODE_TLS_REJECT_UNAUTHORIZED','ELECTRON_RUN_AS_NODE',
  'DYLD_INSERT_LIBRARIES','LD_PRELOAD',
 ];
@@ -81,7 +81,7 @@ export const UNSAFE_EXECUTION_ENV=[
  * other than the provider the user chose. OpenCode is the exception: it reads
  * provider keys from the environment by design, so it keeps them.
  */
-export const UNSAFE_CREDENTIAL_ENV=[
+const UNSAFE_CREDENTIAL_ENV=[
  'OPENAI_API_KEY','CODEX_API_KEY','AZURE_OPENAI_API_KEY',
  'OPENAI_BASE_URL','OPENAI_API_BASE','OPENAI_ORGANIZATION',
  'ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','ANTHROPIC_BASE_URL',
@@ -175,13 +175,17 @@ export function runCli(file:string,args:string[],options:CliSpawnOptions&{
  return new Promise((resolve,reject)=>{
   const {signal,timeout,maxBuffer,...spawnOptions}=options;
   const child=spawnCli(file,args,spawnOptions);
-  let stdout='',stderr='',settled=false;
+  const stdoutChunks:string[]=[];
+  const stderrChunks:string[]=[];
+  let stdoutBytes=0;
+  let stderrBytes=0;
+  let settled=false;
   const finish=(error?:Error)=>{
    if(settled)return;
    settled=true;
    cancelTimeout(timer);
    signal?.removeEventListener('abort',abort);
-   error?reject(error):resolve(stdout);
+   error?reject(error):resolve(stdoutChunks.join(''));
   };
   const abort=()=>{
    terminateProcessTree(child,'SIGKILL');
@@ -191,21 +195,32 @@ export function runCli(file:string,args:string[],options:CliSpawnOptions&{
    terminateProcessTree(child,'SIGKILL');
    finish(Error('The command timed out after '+timeout+' ms.'));
   },timeout);
-  const collect=(current:string,chunk:Buffer|string)=>{
-   const next=current+chunk.toString();
-   if(Buffer.byteLength(next)>maxBuffer){
+  child.stdout.on('data',(chunk:Buffer|string)=>{
+   const text=chunk.toString();
+   const nextBytes=stdoutBytes+Buffer.byteLength(text);
+   if(nextBytes>maxBuffer){
     terminateProcessTree(child,'SIGKILL');
     finish(Error('Command output exceeded the '+maxBuffer+' byte limit.'));
-    return current;
+    return;
    }
-   return next;
-  };
-  child.stdout.on('data',(chunk:Buffer|string)=>{stdout=collect(stdout,chunk);});
-  child.stderr.on('data',(chunk:Buffer|string)=>{stderr=collect(stderr,chunk);});
+   stdoutChunks.push(text);
+   stdoutBytes=nextBytes;
+  });
+  child.stderr.on('data',(chunk:Buffer|string)=>{
+   const text=chunk.toString();
+   const nextBytes=stderrBytes+Buffer.byteLength(text);
+   if(nextBytes>maxBuffer){
+    terminateProcessTree(child,'SIGKILL');
+    finish(Error('Command output exceeded the '+maxBuffer+' byte limit.'));
+    return;
+   }
+   stderrChunks.push(text);
+   stderrBytes=nextBytes;
+  });
   child.on('error',error=>finish(error));
   child.on('close',(code,signal)=>{
    if(code===0)finish();
-   else finish(Error(stderr.trim()||'The command exited '+(signal?'after '+signal:'with code '+String(code))+'.'));
+   else finish(Error(stderrChunks.join('').trim()||'The command exited '+(signal?'after '+signal:'with code '+String(code))+'.'));
   });
   if(signal?.aborted)abort();
   else signal?.addEventListener('abort',abort,{once:true});
