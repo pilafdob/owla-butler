@@ -1,7 +1,7 @@
 import {unzip} from 'fflate';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,writeFile,readFile,rm,readdir,copyFile,access} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,readdir,copyFile,access,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,extname} from 'node:path';
 
@@ -60,7 +60,7 @@ async function iworkOffice(file:File,sourcePath:string,signal?:AbortSignal):Prom
  const directory=await mkdtemp(join(tmpdir(),'owla-iwork-'));
  try {
   const input=join(directory,'attachment'+extension);
-  if(sourcePath)await copyFile(sourcePath,input);else await writeFile(input,new Uint8Array(await file.arrayBuffer()));
+  if(sourcePath){await copyFile(sourcePath,input);await chmod(input,0o600);}else await writeFile(input,new Uint8Array(await file.arrayBuffer()),{mode:0o600});
   const output=join(directory,extension==='.pages'?'export.docx':extension==='.key'?'export.pptx':'export.xlsx');
   const format=extension==='.pages'?'Microsoft Word':extension==='.key'?'Microsoft PowerPoint':'Microsoft Excel';
   const script='function run(args){const app=Application(args[0]);const doc=app.open(Path(args[1]));try{app.export(doc,{to:Path(args[2]),as:args[3]});}finally{app.close(doc,{saving:"no"});}}';
@@ -119,8 +119,7 @@ export async function convertFile(file:File,sourcePath:string,parse:(xml:string)
  const directory = await mkdtemp(join(tmpdir(),'owla-convert-'));
  try {
   const input = join(directory,'attachment'+extension);
-  if (sourcePath) await copyFile(sourcePath,input);
-  else await writeFile(input,new Uint8Array(await file.arrayBuffer()));
+  if (sourcePath){await copyFile(sourcePath,input);await chmod(input,0o600);}else await writeFile(input,new Uint8Array(await file.arrayBuffer()),{mode:0o600});
   if (/^\.(doc|rtf|rtfd|html?)$/.test(extension)) {
    const result = await execute('/usr/bin/textutil',['-convert','txt','-stdout',input],{signal,timeout:60000,maxBuffer:4*1024*1024});
    return {text:bounded(result.stdout)};
