@@ -7,7 +7,8 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {Workspace} from 'obsidian';
-import {CodexBridge} from '../src/codex';
+import {CodexBridge,isolationReport} from '../src/codex';
+import {PROBE_0169_CONFIG,PROBE_0169_FEATURES_330_OVERRIDES,PROBE_0169_FEATURES_FINAL} from './helpers/codex-probe';
 import {PluginTurn} from '../src/plugin-api';
 import {loadPendingEdits,savePendingEdits} from '../src/recovery';
 import type {ToolSpec} from '../src/provider';
@@ -87,6 +88,50 @@ test('R3: a dynamicToolCall for a tool that was not offered is rejected',async()
  // A read-only turn that offers no tools cannot run any tool.
  const none=await turnWithItem({type:'dynamicToolCall',tool:'read_note'},{tools:[]});
  await assert.rejects(none.result,/outside OWLA tools/);
+});
+
+// ---------------------------------------------------------------- U2: Codex feature isolation (3.3.1)
+
+/** Runs one Codex turn whose per-turn `config/read` returns `config`; reports whether thread/start was reached. */
+async function turnWithConfig(config:Record<string,unknown>){
+ const b=new CodexBridge() as any;
+ b.connect=async()=>{};
+ b.child={stdin:{write:()=>{},end:()=>{}},kill:()=>{},exitCode:0,signalCode:null,once:()=>{}};
+ b.initialized=true;
+ b.models=[{model:'test',supportedReasoningEfforts:[{reasoningEffort:'low'}]}];
+ let threadStarted=false;
+ b.request=async(method:string)=>{
+  if(method==='config/read')return {config};
+  if(method==='account/read')return {account:{type:'chatgpt',planType:'plus'}};
+  if(method==='thread/start'){threadStarted=true;return {thread:{id:'t'}};}
+  if(method==='turn/start'){queueMicrotask(()=>b.receive({method:'turn/completed',params:{threadId:'t',turn:{status:'completed'}}}));return {turn:{id:'turn'}};}
+  return {};
+ };
+ const result=b.run({executable:'',cwd:'/private/tmp',model:'test',effort:'low',instructions:'',text:'q',images:[],tools:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},tool:async()=>''});
+ return {result,bridge:b,started:()=>threadStarted};
+}
+
+test('U2: the stock Codex 0.169.0 config/read result (true defaults, nulls, hooks: null) passes start and every turn',async()=>{
+ assert.equal(isolationReport({...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_330_OVERRIDES}).fatal,undefined);
+ assert.deepEqual(isolationReport({...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_FINAL},'turn'),{disableFeatures:[]});
+ const {result,started}=await turnWithConfig({...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_FINAL});
+ await assert.doesNotReject(result);
+ assert.equal(started(),true);
+});
+
+test('U2: a feature turned on, a non-boolean value or an unsafe key mid-session stops the turn before thread/start',async()=>{
+ const cases:[Record<string,unknown>,RegExp][]=[
+  [{fast_mode:true},/feature fast_mode was turned on while Codex was running\. Reconnect Codex/],
+  [{multi_agent_v2:{x:1}},/feature multi_agent_v2 has an unsupported value/],
+  [{'features.x':true},/feature name .* is not supported/],
+ ];
+ for(const [extra,message] of cases){
+  const {result,bridge,started}=await turnWithConfig({...PROBE_0169_CONFIG,features:{...PROBE_0169_FEATURES_FINAL,...extra}});
+  await assert.rejects(result,message,JSON.stringify(extra));
+  assert.equal(started(),false,JSON.stringify(extra));
+  // The process is stopped so that Reconnect probes the configuration again.
+  assert.equal(bridge.child,null,JSON.stringify(extra));
+ }
 });
 
 // ---------------------------------------------------------------- M5: companion plugin discovery
