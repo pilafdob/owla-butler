@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.5.1
+
+### Selection visibility
+
+- An added text selection now stays in the composer as a chip and is listed on the sent message as a card with the excerpt it carries, so it is visible that the selection went with the prompt instead of silently disappearing.
+- A selection added while a reply is still running is marked **next message** and waits for the message after that, and the chips are re-rendered when a turn ends so the marker does not go stale.
+
+### Automatic mode: OpenCode models from all connected providers
+
+- **OpenCode data home:** OWLA's isolated OpenCode server now reads the data store the user's OpenCode desktop app signs into. It prefers an explicit `XDG_DATA_HOME`, otherwise falls back to `~/.local/share/opencode-v2-home` (the v2 desktop service's data home) when its `opencode/opencode.db` exists, else OpenCode's default. Previously OWLA inherited Obsidian's environment, which rarely sets `XDG_DATA_HOME`, so it read the CLI default store and only saw the OpenCode/Zen+Go models (47), missing the user's other connected providers (google, groq, nvidia, openrouter).
+- **Automatic selection shortlist:** the OpenCode model pool now draws from every connected OpenCode source (opencode, openrouter, opencode-go, google, nvidia, groq), so one source — openrouter's hundreds of models — can no longer swamp the six-slot shortlist. Sources take turns, each in its own free-then-capable order, and slots a small source cannot fill go to the others, so the shortlist stays full.
+- **Canvas / Excalidraw / Bases awareness (3.5.0 features):** automatic routing now treats editing a canvas, Excalidraw drawing or Bases base as structural edit work (`read_canvas`/`read_excalidraw`/`read_base` to read, `propose_canvas`/`propose_excalidraw`/`propose_base` to change), and the one-message override offers only image-capable models when a canvas or drawing is the active file.
+
 ## 3.5.0
 
 ### Canvas, Bases and Excalidraw (under Plugin Interconnectivity)

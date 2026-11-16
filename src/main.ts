@@ -2,7 +2,7 @@ import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:t
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
 import {EditorView} from '@codemirror/view';
-import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,diffLineMap,type DiffLine,EDITABLE_FILE,allowedEditablePath} from './core';
+import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,diffLineMap,sentCards,type DiffLine,type SentCard,EDITABLE_FILE,allowedEditablePath} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
@@ -1005,7 +1005,8 @@ export class ButlerView extends ItemView {
   this.selectingRoute=true;
   try{
    const needsImage=!!(this.images.length||this.pdfAttachments.size||this.pdfs.some(item=>'file' in item)
-    ||replayHistory(this.history).messages.some(message=>message.images?.length));
+    ||replayHistory(this.history).messages.some(message=>message.images?.length)
+    ||this.activeCanvasOrDrawingNeedsImage());
    let items:{provider:ProviderId;model:CodexModel}[];
    let initial:CodexRoute;
    let skipped:{provider:ProviderId;message:string}[]=[];
@@ -1145,17 +1146,19 @@ export class ButlerView extends ItemView {
    }
   })();
  }
- private userMessage(text:string,images:Attachment[]=[],files:{label:string;icon:string}[]=[]){
+ private userMessage(text:string,images:Attachment[]=[],files:SentCard[]=[]){
   const row = this.feed.createDiv('owla-user');
   const line = row.createDiv('owla-user-line');
   line.createDiv({text,cls:'owla-user-text'});
   this.copyButton(line, text, 'Copy sent message');
   if(files.length){
    const attachments=row.createDiv('owla-sent-attachments');
-   for(const {label,icon} of files){
+   for(const {label,icon,detail,tooltip} of files){
     const file=attachments.createDiv('owla-sent-attachment');
     setIcon(file.createSpan(),icon);
-    file.createSpan({text:label});
+    file.createSpan({text:label,cls:'owla-sent-attachment-label'});
+    if(detail)file.createSpan({text:detail,cls:'owla-sent-attachment-detail'});
+    if(tooltip)setTooltip(file,tooltip);
    }
   }
   for (const image of images) row.createEl('img', {cls:'owla-message-image',attr:{src:image.url,alt:image.name}});
@@ -1394,15 +1397,18 @@ export class ButlerView extends ItemView {
  renderAttachments(){
   if(!this.chips)return;
   this.chips.empty();
-  const chip=(label:string,remove:()=>void,icon:string,image?:string)=>{
+  // A chip added while a reply is running waits for the next message; it says so.
+  const waiting=!!this.controller;
+  const chip=(label:string,remove:()=>void,icon:string,image?:string,pending=false)=>{
    const e=this.chips.createDiv('owla-chip');
    if(image)e.createEl('img',{attr:{src:image,alt:label}});
    else setIcon(e.createSpan({cls:'owla-attachment-icon'}),icon);
    e.createSpan({text:label});
+   if(pending&&waiting)e.createSpan({text:'next message',cls:'owla-chip-pending'});
    const b=e.createEl('button',{text:'×',attr:{'aria-label':'Remove '+label}});
    b.onclick=()=>{remove();this.renderAttachments();};
   };
-  this.selections.forEach((s,i)=>chip('Selection · '+s.path,()=>this.selections.splice(i,1),'text-select'));
+  this.selections.forEach((s,i)=>chip('Selection · '+s.path,()=>this.selections.splice(i,1),'text-select',undefined,true));
   for(const path of this.notes)chip(path,()=>this.notes.delete(path),'file-text');
   for(const path of this.folders)chip(path,()=>this.folders.delete(path),'folder');
   this.pdfs.forEach((file,i)=>chip(file.source,()=>this.pdfs.splice(i,1),'file-text'));
@@ -1450,11 +1456,24 @@ export class ButlerView extends ItemView {
  }
 
  /**
-  * Context for Canvas, Bases and Excalidraw files: the file open in the
-  * workspace and attached ones, each with the tool that reads it. A drawing is
-  * never sent as raw text. `needsImage` asks automatic selection for a model
-  * that can read the pictures these tools return.
-  */
+ * Whether the active (most recent) canvas or Excalidraw drawing is open and
+ * readable, so the one-message override offers only image-capable models.
+ * Mirrors the canvas/drawing part of `visualContext` without its side effects.
+ */
+ private activeCanvasOrDrawingNeedsImage():boolean{
+  const features=this.butler.visualFeatures();
+  if(!features.canvas&&!features.excalidraw)return false;
+  const kindOf=(path:string)=>path.toLowerCase().endsWith('.canvas')?(features.canvas?'canvas':null):isExcalidrawPath(path)?(features.excalidraw?'excalidraw':null):null;
+  const recent=(this.app.workspace.getMostRecentLeaf()?.view as {file?:TFile}|undefined)?.file?.path;
+  return !!recent&&!!kindOf(recent)&&this.butler.allowedEditable(recent);
+ }
+
+ /**
+ * Context for Canvas, Bases and Excalidraw files: the file open in the
+ * workspace and attached ones, each with the tool that reads it. A drawing is
+ * never sent as raw text. `needsImage` asks automatic selection for a model
+ * that can read the pictures these tools return.
+ */
  private visualContext(capturedPath:string|undefined,notes:string[]):{context:string;attached:string[];needsImage:boolean}{
   const features=this.butler.visualFeatures();
   const kindOf=(path:string)=>path.toLowerCase().endsWith('.canvas')?(features.canvas?'canvas':null):path.toLowerCase().endsWith('.base')?(features.bases?'base':null):isExcalidrawPath(path)?(features.excalidraw?'excalidraw':null):null;
@@ -2098,10 +2117,7 @@ export class ButlerView extends ItemView {
  }
  if(request===undefined||this.composer.value===draftText)this.composer.value='';
  this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();
- this.userMessage(prompt,images,[
-  ...folders.map(label=>({label,icon:'folder'})),
-  ...[...notes,...pdfs.map(file=>file.source)].map(label=>({label,icon:'file-text'}))
- ]);
+ this.userMessage(prompt,images,sentCards(selected,folders,[...notes,...pdfs.map(file=>file.source)]));
  const answer=this.feed.createDiv('owla-assistant');
  const heading=this.replyHeading(answer,true);
  const disclosure=answer.createEl('details',{cls:'owla-working'});
@@ -2528,7 +2544,7 @@ export class ButlerView extends ItemView {
  content.createDiv({text:message,cls:'owla-error'});
  if(this.canRestoreDraft()){this.restoreDraft(draft);this.status.setText('Draft restored · '+message);}
  else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:'Restore draft'});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice('Send or clear the current draft before restoring this one.');return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
- finally{this.offeredToolNames=null;heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.butler.view?.renderPendingEdits();}
+ finally{this.offeredToolNames=null;heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.renderAttachments();this.butler.view?.renderPendingEdits();}
  }
  private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
   const {provider,choosesProvider,task,home,needsImage,failed}=opts;

@@ -1,5 +1,5 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {createServer,IncomingMessage,Server,request as httpRequest} from 'node:http';
 import {createServer as createSocketServer} from 'node:net';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
@@ -38,6 +38,25 @@ export const OPENCODE_TOOL_NAMESPACE='owla_';
  * Provider API keys stay, because OpenCode reads them from the environment by
  * design; only variables that change how the process executes are dropped.
  */
+/**
+ * The OpenCode data home OWLA's isolated server should read. Provider sign-ins
+ * (and therefore the model catalogue) live there.
+ *
+ * Resolution, in order:
+ *  - an explicit `XDG_DATA_HOME`;
+ *  - the OpenCode v2 desktop app's home `~/.local/share/opencode-v2-home` when
+ *    its `opencode/opencode.db` exists (the desktop service runs with that data
+ *    home, so OWLA started from Obsidian — which rarely sets `XDG_DATA_HOME` —
+ *    must read it to see the user's connected providers);
+ *  - otherwise null, leaving OpenCode's own default in place.
+ */
+export function opencodeDataHome(env:NodeJS.ProcessEnv=process.env,home=homedir()):string|null{
+  if(env.XDG_DATA_HOME)return env.XDG_DATA_HOME;
+  const desktopHome=join(home,'.local','share','opencode-v2-home');
+  if(existsSync(join(desktopHome,'opencode','opencode.db')))return desktopHome;
+  return null;
+}
+
 export function isolatedOpencodeEnv(env:NodeJS.ProcessEnv,directory:string):NodeJS.ProcessEnv{
  const result:NodeJS.ProcessEnv={...sanitizedEnv(env,{keepCredentials:true}),
   XDG_CONFIG_HOME:join(directory,'config'),
@@ -48,6 +67,9 @@ export function isolatedOpencodeEnv(env:NodeJS.ProcessEnv,directory:string):Node
   OPENCODE_DISABLE_CLAUDE_CODE_SKILLS:'1',
   OPENCODE_DISABLE_AUTOUPDATE:'1',
  };
+ // Read the data store the user's OpenCode desktop app actually signs into.
+ const dataHome=opencodeDataHome(env);
+ if(dataHome)result.XDG_DATA_HOME=dataHome;
  for(const key of ['OPENCODE_CONFIG','OPENCODE_CONFIG_DIR','OPENCODE_CONFIG_CONTENT','OPENCODE_CLI_CONFIG_CONTENT','OPENCODE_PERMISSION'])delete result[key];
  return result;
 }

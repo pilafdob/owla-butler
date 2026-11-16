@@ -1,3 +1,12 @@
+# OWLA Butler 3.5.1
+
+- A text selection you add now stays in the composer as a chip and is shown on the sent message as a card with the excerpt it carries, so you can see that it went with the prompt.
+- A selection added while a reply is still running is marked **next message** and waits for the message after that.
+- Automatic mode now lists OpenCode models from all connected providers, not only the CLI default store, and the selection shortlist no longer lets one source with hundreds of models crowd out the others.
+- Automatic routing knows about the 3.5.0 Canvas, Excalidraw and Bases features: reading and editing them is treated as structural work, and the one-message override offers only image-capable models when a canvas or drawing is open.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.
+
 # OWLA Butler 3.5.0
 
 - Canvas, Bases and Excalidraw under **Plugin Interconnectivity**. OWLA can read, see and change canvases, bases and Excalidraw drawings, and create new ones. Every change is a proposal you accept or decline in chat.

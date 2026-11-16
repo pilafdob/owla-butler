@@ -160,10 +160,33 @@ export function currentModels(provider:ProviderId,models:ProviderModel[],limit=p
    return [...seen.values()];
   };
   const unique=dedupe(eligible);
-  const free=unique.filter(isFree).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability);
-  const paid=unique.filter(m=>!isFree(m)).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability||((a.cost?.input??0)+(a.cost?.output??0))-((b.cost?.input??0)+(b.cost?.output??0)));
-  const freeCap=paid.length?Math.ceil(limit/2):limit;
-  result=[...free.slice(0,freeCap),...paid.slice(0,limit-freeCap)];
+  // Pick from every connected OpenCode source so one source (openrouter's
+  // hundreds of models) cannot swamp the shortlist; each source keeps its
+  // free-then-capable ordering and free models stay half of each source's slice.
+  const bySource=new Map<string,ProviderModel[]>();
+  for(const model of unique){
+   const source=model.providerID??'opencode';
+   const list=bySource.get(source)??[];
+   list.push(model);
+   bySource.set(source,list);
+  }
+  const sources=[...bySource.keys()];
+  const perSource=Math.max(1,Math.floor(limit/sources.length));
+  // Each source's own order: its free models up to half its share, then paid, then the
+  // rest of its free models. Sources take turns, so a source with few models leaves its
+  // unused slots to the others instead of shrinking the shortlist.
+  const queues=sources.map(source=>{
+   const list=bySource.get(source)??[];
+   const free=list.filter(isFree).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability);
+   const paid=list.filter(m=>!isFree(m)).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability||((a.cost?.input??0)+(a.cost?.output??0))-((b.cost?.input??0)+(b.cost?.output??0)));
+   const freeCap=paid.length?Math.ceil(perSource/2):perSource;
+   return [...free.slice(0,freeCap),...paid,...free.slice(freeCap)];
+  });
+  const picked:ProviderModel[]=[];
+  for(let round=0;picked.length<limit&&queues.some(queue=>round<queue.length);round++){
+   for(const queue of queues)if(round<queue.length&&picked.length<limit)picked.push(queue[round]);
+  }
+  result=picked;
  }
  return result.slice(0,limit);
 }

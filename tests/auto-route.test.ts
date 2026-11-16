@@ -497,6 +497,16 @@ test('heuristic sends image questions to vision and talk scripts to writing',asy
  assert.equal(heuristicTaskClass('Write a script that renames every file in a folder.')?.kind,'coding');
 });
 
+test('heuristic treats canvas, Excalidraw and Bases editing as structural edit work',async()=>{
+  const {heuristicTaskClass}=await import('../src/auto-route');
+  assert.equal(heuristicTaskClass('edit the canvas on the home page')?.kind,'edit');
+  assert.equal(heuristicTaskClass('propose_excalidraw add an arrow to the drawing')?.kind,'edit');
+  assert.equal(heuristicTaskClass('update the base formula and views')?.kind,'edit');
+  assert.equal(heuristicTaskClass('create a new canvas with a group node')?.kind,'edit');
+  // Reading plain text is not caught by this rule.
+  assert.equal(heuristicTaskClass('explain the base concept')?.kind,'lookup');
+});
+
 test('a short answer to a simple question is not escalated',async()=>{
  const {shouldEscalateQuality}=await import('../src/auto-route');
  assert.equal(shouldEscalateQuality({text:'4',toolsUsed:false,difficulty:1}),false);
@@ -636,4 +646,15 @@ test('a German edit of a large active note is not routed to a free or tool-unpro
  // The size of the note itself weighs against free models for edits.
  const freeScore=(chars:number)=>scoreEntries(entries,list,edit,'codex',now,ctx(chars) as any).find(item=>item.profile.cost===0)!.score;
  assert.ok(freeScore(61_376)>=freeScore(3_000)+3);
+});
+
+test('the OpenCode shortlist takes turns across sources and fills slots a small source leaves free',()=>{
+ const m=(id:string,providerID:string,free:boolean)=>({id,model:id,displayName:id,providerID,isDefault:false,defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'medium',description:''}],cost:free?{input:0,output:0}:{input:1,output:2}});
+ const models=[m('small/a-free','small',true),...Array.from({length:10},(_,i)=>m('big/model-'+i,'big',i<3))];
+ const picked=currentModels('opencode',models as never,6);
+ assert.equal(picked.length,6,'no slot is wasted');
+ assert.ok(picked.some(model=>model.id==='small/a-free'),'every source is represented');
+ assert.equal(picked.filter(model=>model.id.startsWith('big/')).length,5);
+ const single=currentModels('opencode',models.filter(model=>model.providerID==='big') as never,6);
+ assert.equal(single.length,6);
 });

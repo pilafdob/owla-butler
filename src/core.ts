@@ -160,6 +160,25 @@ export function isPathInside(root:string,file:string,platform=process.platform):
  return !!relativePath&&relativePath!=='..'&&!relativePath.startsWith('..'+path.sep)&&!path.isAbsolute(relativePath);
 }
 export function clip(text:string,max:number):string {return text.length<=max?text:text.slice(0,max)+'\n[Context shortened. Read a specific passage if needed.]';}
+/** One-line preview of selected text, so a sent selection reads as the excerpt it carries. */
+export function selectionExcerpt(text:string,max=140):string {
+ const one=text.replace(/\s+/g,' ').trim();
+ if(!one)return '';
+ return one.length<=max?one:one.slice(0,max).trimEnd()+'…';
+}
+export interface SentCard {label:string;icon:string;detail?:string;tooltip?:string;}
+/**
+ * The cards a sent message shows. A selection is listed like an attached
+ * file, with the excerpt it carries, so it is visible that it went with the
+ * prompt instead of only living in the composer.
+ */
+export function sentCards(selections:readonly {path:string;text:string}[],folders:readonly string[],files:readonly string[]):SentCard[] {
+ return [
+  ...selections.map(selection=>({label:'Selection · '+selection.path,icon:'text-select',detail:selectionExcerpt(selection.text),tooltip:selectionExcerpt(selection.text,600)})),
+  ...folders.map(path=>({label:path,icon:'folder'})),
+  ...files.map(path=>({label:path,icon:'file-text'})),
+ ];
+}
 export interface Proposal {path:string;before:string;after:string;reason:string;create?:true;}
 export function proposal(path:string,before:string,oldText:string,newText:string,reason:string,excluded=''):Proposal {
  if(!allowedEditablePath(path,excluded))throw Error('This note is outside the allowed Markdown context.');

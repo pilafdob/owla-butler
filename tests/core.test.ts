@@ -105,6 +105,27 @@ test('unknown inline title setting protects the existing top title while allowin
  assert.doesNotThrow(() => assertNoteTitle({...edit,before:'## Section',after:'## Details'},undefined));
 });
 
+test('a sent selection reads as an attachment card that carries its excerpt',async()=>{
+ const {sentCards,selectionExcerpt}=await import('../src/core');
+ const cards=sentCards([{path:'Latin/studying/Studying.md',text:'den Ebenfalls\n\nund mehr'}],[],['Latin/studying/Studying.md']);
+ assert.equal(cards.length,2);
+ assert.deepEqual(cards[0],{label:'Selection · Latin/studying/Studying.md',icon:'text-select',detail:'den Ebenfalls und mehr',tooltip:'den Ebenfalls und mehr'});
+ assert.deepEqual(cards[1],{label:'Latin/studying/Studying.md',icon:'file-text'});
+ // A folder keeps its own card, and an empty selection adds nothing.
+ const folders=sentCards([],['Archive'],[]);
+ assert.deepEqual(folders,[{label:'Archive',icon:'folder'}]);
+ assert.equal(sentCards([{path:'A.md',text:'   '}],[],[])[0].detail,'');
+});
+
+test('a selection preview collapses whitespace and is clipped',async()=>{
+ const {selectionExcerpt}=await import('../src/core');
+ assert.equal(selectionExcerpt('  one\n\ntwo   three '),'one two three');
+ assert.equal(selectionExcerpt(''),'');
+ assert.equal(selectionExcerpt('word '.repeat(100)).length,140);
+ assert.ok(selectionExcerpt('word '.repeat(100)).endsWith('…'));
+ assert.equal(selectionExcerpt('short',600),'short');
+});
+
 test('diff view settings preserve the legacy toggle and validate selector values',async()=>{
  const {migrateSettings}=await import('../src/core');
  assert.equal(migrateSettings({editingViewDiff:true}).diffView,'highlights');

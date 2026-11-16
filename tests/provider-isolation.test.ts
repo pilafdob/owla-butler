@@ -1,8 +1,8 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {join} from 'node:path';import {tmpdir} from 'node:os';
+import {join} from 'node:path';import {tmpdir,homedir} from 'node:os';
 import {claudeArguments} from '../src/claude';
 import {integrationOverrides,assertSessionPrivacy} from '../src/codex';
-import {adaptSkillContent,isolatedOpencodeEnv,opencodeConfigPath} from '../src/opencode';
+import {adaptSkillContent,isolatedOpencodeEnv,opencodeConfigPath,opencodeDataHome} from '../src/opencode';
 import {sanitizedEnv} from '../src/cli';
 import {OPENCODE_PLUGIN_SOURCE} from '../src/opencode-plugin';
 import {PROVIDER_IDS,prefixToolNames,toolName} from '../src/provider';
@@ -44,6 +44,30 @@ test('OpenCode: the user’s global config, Claude Code skills and config overri
  assert.equal(env.PATH,'/bin');
  for(const tool of ['shell','write','edit','read','glob','grep','webfetch','subagent'])assert.ok(OPENCODE_PLUGIN_SOURCE.includes('"'+tool+'"'),tool);
  assert.match(OPENCODE_PLUGIN_SOURCE,/ctx\.mcp\.transform/);
+});
+
+test('opencodeDataHome keeps an explicit XDG_DATA_HOME',()=>{
+  assert.equal(opencodeDataHome({XDG_DATA_HOME:'/custom/data'}),'/custom/data');
+});
+
+test('opencodeDataHome uses the OpenCode v2 desktop home only when its database exists',async()=>{
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
+  const home=mkdtempSync(join(tmpdir(),'owla-oc-home-'));
+  try{
+   assert.equal(opencodeDataHome({},home),null,'no desktop app: OpenCode keeps its default');
+   const desktopHome=join(home,'.local','share','opencode-v2-home');
+   mkdirSync(join(desktopHome,'opencode'),{recursive:true});
+   assert.equal(opencodeDataHome({},home),null,'an empty folder is not a desktop home');
+   writeFileSync(join(desktopHome,'opencode','opencode.db'),'');
+   assert.equal(opencodeDataHome({},home),desktopHome);
+   assert.equal(opencodeDataHome({XDG_DATA_HOME:'/custom/data'},home),'/custom/data','an explicit setting wins');
+  }finally{rmSync(home,{recursive:true,force:true});}
+});
+
+test('isolatedOpencodeEnv passes the data home on, so OWLA sees the providers the user connected',()=>{
+  const env=isolatedOpencodeEnv({PATH:'/bin',HOME:homedir(),XDG_DATA_HOME:'/custom/data'},join(tmpdir(),'owla','session'));
+  assert.equal(env.XDG_DATA_HOME,'/custom/data');
+  assert.notEqual(env.XDG_CONFIG_HOME,undefined,'configuration stays isolated');
 });
 
 test('skill text names the tools each provider actually exposes',()=>{

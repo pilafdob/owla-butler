@@ -1,5 +1,14 @@
 # OWLA Butler verification
 
+## Selection attachment card — 2026-11-16
+
+- **What changed.** A text selection added to the chat now appears under the sent message as an attachment card, like an attached note: the text-select icon, the vault path and the excerpt it carries. Before this, the selection only existed as a composer chip and vanished on send, so it was impossible to tell that it went with the prompt. A selection added while a reply is still running is marked **next message**, because it waits for the message after the running one.
+- **Unit tests.** Two tests in `tests/core.test.ts` cover `sentCards` and `selectionExcerpt` in `src/core.ts`: the card list keeps the selection first with the `text-select` icon, the label `Selection · <path>` and the collapsed excerpt, and the preview collapses whitespace, clips at 140 characters and ends with an ellipsis.
+- **Live check (macOS, School vault).** An isolated bundle was built from release 3.5.0 plus only this change (`git archive HEAD` plus the patch, so another agent's in-flight work stayed out), installed in the School vault and the plugin reloaded. With every provider bridge stubbed (`bridge.run` returned a fixture answer) and the visible feed swapped for a detached node, one send produced exactly one `.owla-sent-attachment` card: label `Selection · Latin/studying/Studying for Latin Exam 1-26.md`, excerpt `den Ebenfalls und mehr`, icon present. The request the bridge received contained `SELECTED TEXT from Latin/studying/Studying for Latin Exam 1-26.md` and the excerpt, the composer and selection list were cleared after the send, and the turn was recorded in the chat history. The composer chip read `Selection · …next message` while a turn was running and `Selection · …` when idle. The visible chat was restored afterwards: feed, composer, selections, history and the automatic-selection preferences are back to their earlier values.
+- **Layout.** The card was rendered with the plugin's own `styles.css` in a headless browser: the icon sits on the label's line, the excerpt wraps under the label in faint italic, and the attached-note card is unchanged.
+- **Gates.** `npm run check`, `npm run lint`, `npm test` (294 pass, 0 fail at the time of the run) and `npm run build` pass. `npm run check:release` failed only because another agent had bumped `package.json` to 3.5.1 without updating `package-lock.json`; that release work was left untouched.
+- **Not verified.** No real provider turn was made with the card (the bridge was stubbed), and the tooltip with the longer excerpt was not exercised live.
+
 ## Windows parity hardening — 2026-11-13
 
 All verification ran on macOS; no Windows machine was available this session and no real Windows CLI was spawned. Nothing touched a vault.
