@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.3.2
+
+- Restoration release: the exact 3.2.0 code after the broken, withdrawn 3.3.0 and 3.3.1 updates. Only the version metadata changes, so installs stuck on 3.3.0 or 3.3.1 receive it as an update and return to normal.
+
 ## 3.2.0
 
 - Split diff view now supports accepting or declining individual changed hunks, and individual lines within a hunk, with floating check and X icons; partial accepts merge into the accepted note text.

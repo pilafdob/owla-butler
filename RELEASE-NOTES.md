@@ -1,3 +1,10 @@
+# OWLA Butler 3.3.2
+
+- Restores the working 3.2.0 build exactly. The 3.3.0 and 3.3.1 updates were broken and have been withdrawn from the release channel.
+- The only change from 3.2.0 is the version number, so Obsidian offers this release as an update and returns installs stuck on 3.3.0 or 3.3.1 to normal.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.
+
 # OWLA Butler 3.2.0
 
 - Split diff view now lets you accept or decline individual changed hunks, and individual lines within a hunk, with floating check and X icons.
