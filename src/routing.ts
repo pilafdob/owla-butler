@@ -544,7 +544,7 @@ export function buildRoutingContext(input:BuildRoutingContextInput):RoutingConte
   attachedDocuments:counts.document,
   attachedImages:counts.image,
   ...(outline?{activeNoteOutline:outline}:{}),
-  ...(includeRawNotePreview?{activeNotePreview:activeNoteText!.slice(0,600)}:{}),
+  ...(includeRawNotePreview?{activeNotePreview:activeNoteText.slice(0,600)}:{}),
   ...(includeRawRecentPreview?{recentMessagePreview:recentMessages.slice(-3).map(m=>m.role+': '+m.content).join('\n').slice(0,1200)}:{}),
   ...(recentTopics?.length?{recentTopics}:{}),
   ...(previousProvider?{previousProvider}:{}),

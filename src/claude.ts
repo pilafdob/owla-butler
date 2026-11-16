@@ -316,10 +316,10 @@ export class ClaudeBridge implements ProviderBridge{
      }
      if(type==='assistant'){
       const content=list(record(message.message).content).map(record);
-      const text=content.filter(block=>block.type==='text').map(block=>String(block.text??'')).join('');
+      const text=content.filter(block=>block.type==='text').map(block=>typeof block.text==='string'?block.text:'').join('');
       if(text)lastAssistant=text;
       for(const block of content)if(block.type==='tool_use'||block.type==='server_tool_use'){
-       const name=String(block.name??'').replace(CLAUDE_TOOL_PREFIX,'');
+       const name=(typeof block.name==='string'?block.name:'').replace(CLAUDE_TOOL_PREFIX,'');
        if(name==='WebSearch'||name==='web_search'){usedWeb=true;const query=record(block.input).query;options.onActivity('Searched the web'+(typeof query==='string'?': '+query:''));}
       }
       return;

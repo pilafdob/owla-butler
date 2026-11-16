@@ -11,7 +11,7 @@ export interface SkillDefinition {id:string;name:string;description:string;conte
 
 // The bundled Obsidian skills and the OWLA guides. Codex reads them through
 // read_reference; OpenCode registers them as native skills with the same IDs.
-const SKILL_IDS=['obsidian-markdown','obsidian-bases','json-canvas','owla-formatting','owla-math','owla-mermaid','owla-ocr','owla-pdf'];
+const SKILL_IDS=['obsidian-markdown','obsidian-bases','json-canvas','owla-formatting','owla-math','owla-mermaid','owla-ocr','owla-pdf','owla-excalidraw','owla-canvas','owla-bases'];
 const SKILL_FALLBACK:Record<string,{name:string;description:string}>={
  'owla-formatting':{name:'OWLA formatting',description:'Native Obsidian Markdown formatting, including coloured highlights and list conventions.'},
  'owla-math':{name:'OWLA math',description:'MathJax-compatible LaTeX for Obsidian notes, with transcription and solving rules.'},

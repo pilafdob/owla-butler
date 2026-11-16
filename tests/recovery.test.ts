@@ -57,7 +57,7 @@ test('clearing an unloadable record restores allowed applied edits and keeps fai
    const butler=Object.create(Butler.prototype);
    const restored:unknown[]=[];
    Object.assign(butler,{prefs:{excludedFolders:'Private'},pending:[],pendingLoadError:'bad',applyingEdit:false,vaultStorage:()=>root,
-    allowedNote:(path:string)=>!path.startsWith('Private/'),currentText:async(path:string)=>texts[path],
+    allowedNote:(path:string)=>!path.startsWith('Private/'),allowedEditable:(path:string)=>!path.startsWith('Private/'),currentText:async(path:string)=>texts[path],
     restoreEdit:async(edit:{path:string}&Record<string,string>)=>{if(failing.has(edit.path))throw Error('stale');restored.push(edit);}});
    return {butler,restored};
   };

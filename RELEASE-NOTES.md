@@ -1,3 +1,14 @@
+# OWLA Butler 3.5.0
+
+- Canvas, Bases and Excalidraw under **Plugin Interconnectivity**. OWLA can read, see and change canvases, bases and Excalidraw drawings, and create new ones. Every change is a proposal you accept or decline in chat.
+- Canvas: OWLA looks at a canvas as Obsidian draws it, using a quick background screenshot noted in Sources & activity. Turn **Background screenshots** off to keep Canvas text-only.
+- Bases: Obsidian's own Bases engine checks every base OWLA reads or proposes and shows the rows it will list. Bases with errors are never staged.
+- Excalidraw: OWLA reads shapes, text and arrows, sees the drawing as Excalidraw renders it, and builds new elements with Excalidraw's own scripting API. Changes stay correct while a drawing is open, and Decline restores it.
+- Automatic selection picks a model that can read images for canvases and drawings.
+- Fixes for the Obsidian Community review findings.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.
+
 # OWLA Butler 3.4.0
 
 - Security and vault-confinement fixes on top of the working 3.2.0 code. Chat, toolbar and web-search behaviour are unchanged: the **Allow web search** setting is still the only switch.

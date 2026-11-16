@@ -165,6 +165,16 @@ Turn on **Automatically update internal links** in Obsidian’s Files and links 
 
 For reviewed deletions, set **Deleted files** in Obsidian’s Files and links settings to a trash option. OWLA follows that choice and requires recoverable trash.
 
+### Canvas, Bases and Excalidraw
+
+With **Plugin Interconnectivity** on, OWLA works with Obsidian's **Canvas** and **Bases** core plugins and the **Excalidraw** community plugin when they are enabled in the vault. It can read, see and change canvases (`.canvas`), bases (`.base`) and Excalidraw drawings (`.excalidraw.md`), and create new ones. Every change is a proposal you accept or decline in chat, like a note edit; the split diff shows a drawing's changes as a list of shapes, texts and arrows.
+
+- **Canvas** — OWLA reads every card, group and connection, and can look at the canvas as Obsidian draws it. For that picture the canvas is shown over the window for under a second and captured, which works even when Obsidian is in the background; Sources & activity notes each one. Turn **Background screenshots** off in settings to keep Canvas text-only.
+- **Bases** — Obsidian's own Bases engine checks every base OWLA reads or proposes, reports formula and view errors, and shows the rows the base will list. A proposal with an error is not staged.
+- **Excalidraw** — OWLA reads shapes, text, arrows and frames, and sees the drawing as Excalidraw renders it. New shapes, texts, arrows and frames are created by Excalidraw's own scripting API.
+
+Pictures go to the selected provider like an attached image; automatic selection picks a model that can read images.
+
 ### Companion plugins
 
 Turn on **Plugin Interconnectivity** in OWLA settings to use **Nicons 1.4.6+**, **Pinup 1.0.5+**, and **Folder and Graphs Plus 4.4.4+** enabled in the same vault. The setting starts off and is saved per vault. Ask OWLA to find an icon and change or clear a file or folder icon override, pin or unpin a file or folder, or configure supported options in the bundled Folder2Graph graph. Graph options include folder and heading visibility, descendant weighting, and default node colours. OWLA stages changes for your review before applying them.

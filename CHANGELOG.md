@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.5.0
+
+### Canvas, Bases and Excalidraw (under Plugin Interconnectivity)
+
+- **Canvas:** `read_canvas` lists cards, groups and edges, and with `visual=true` returns a picture of the canvas as Obsidian draws it, taken in the background (also when the window is covered) and noted in Sources & activity. `propose_canvas` stages structural operations, validated against JSON Canvas 1.0, for review; new canvases can be created.
+- **Bases:** `read_base` and `propose_base` run every base through Obsidian's own Bases engine. Formula and view errors are reported, a proposal with errors is refused, and the rows the view will list are shown.
+- **Excalidraw:** `read_excalidraw` summarises shapes, text, arrows (with what they connect), frames and images, and with `visual=true` returns Excalidraw's own rendering. `propose_excalidraw` stages operations, building new elements with Excalidraw's scripting API, for review; new drawings can be created. Diffs show elements instead of drawing data, and text edits to a drawing are refused.
+- New **Background screenshots** setting (on by default) controls canvas pictures. The **Plugin Interconnectivity** description now covers these features.
+- The review pipeline accepts `.canvas`, `.base` and `.excalidraw.md` files with format-specific validation, and the open canvas, base or drawing is named in the message context. Automatic selection requires an image-capable model when a canvas or drawing is involved.
+- New bundled guides: `owla-canvas`, `owla-bases`, `owla-excalidraw`.
+
+### Community review fixes
+
+- Lint findings from the Obsidian Community review: described lint directives, bound method references, unnecessary type assertions removed, and safe text conversion of Claude Code message blocks.
+- Excalidraw edits are safe while a drawing is open in Excalidraw: changed elements are written with a version that wins Excalidraw's merge with its own copy, and Decline or Undo writes a version-aware revert (original elements re-stamped, added elements marked deleted), so an open editor arrives at the original drawing instead of keeping the declined change.
+
 ## 3.4.0
 
 Security and vault-confinement fixes ported onto the working 3.2.0/3.3.2 code in small steps, without the 3.3.0/3.3.1 UI changes. No web-search consent bar and no second toolbar indicator; the **Allow web search** setting stays the only switch.

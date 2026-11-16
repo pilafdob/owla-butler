@@ -8,7 +8,7 @@ import spawn from 'cross-spawn';
 const windowsExtensions=['.com','.exe','.bat','.cmd'];
 
 export function isCliExecutable(file:string,platform:NodeJS.Platform=process.platform):boolean{
- const absolute=platform==='win32'?win32.isAbsolute:isAbsolute;
+ const absolute=(value:string)=>platform==='win32'?win32.isAbsolute(value):isAbsolute(value);
  if(!absolute(file))return false;
  if(platform==='win32'&&!windowsExtensions.includes(win32.extname(file).toLowerCase()))return false;
  try{
@@ -22,7 +22,7 @@ export function findCliExecutable(name:string,path:string,directories:string[]=[
  // Windows PATH entries are ';'-separated and absolute with a drive letter. The
  // platform is a parameter so the Windows rules can be tested from any host.
  const separator=platform==='win32'?';':delimiter;
- const absolute=platform==='win32'?win32.isAbsolute:isAbsolute;
+ const absolute=(value:string)=>platform==='win32'?win32.isAbsolute(value):isAbsolute(value);
  const paths=[...new Set([...directories,...path.split(separator).map(value=>value.trim().replace(/^"(.*)"$/,'$1'))])]
   .filter(absolute);
  const extensions=platform==='win32'

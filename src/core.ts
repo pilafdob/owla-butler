@@ -27,6 +27,8 @@ export interface ButlerSettings {
  showRoutingDetails:boolean;
  webSearch:boolean;
  pluginInterconnectivity:boolean;
+ /** Canvas pictures are taken by laying the canvas over the window for a moment; off keeps Canvas text-only. */
+ visualScreenshots:boolean;
  diffView:DiffView;
  storageRoot:string;
  excludedFolders:string;
@@ -50,6 +52,7 @@ export const DEFAULTS:ButlerSettings={
  showRoutingDetails:false,
  webSearch:true,
  pluginInterconnectivity:false,
+ visualScreenshots:true,
  diffView:'none',
  storageRoot:'',
  excludedFolders:''
@@ -70,6 +73,7 @@ export function migrateSettings(value:unknown):ButlerSettings{
   diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',
   storageRoot:string('storageRoot'),
   excludedFolders:string('excludedFolders'),
+  visualScreenshots:data.visualScreenshots!==false,
   provider,
   routingMode,
   routingPrivacyMode:data.routingPrivacyMode===true,
@@ -131,7 +135,7 @@ const excludedCache=new Map<string,string[]>();
  * character or a `~` segment. Trailing dots and spaces are refused only on
  * Windows, where the filesystem drops them; `Dr.` is a valid folder elsewhere.
  */
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- control characters must be detected in a vault path so the path can be refused
 const CONTROL=/[\u0000-\u001f\u007f]/;
 export function allowedPath(path:string,excluded='',extension:string|null='md',platform:string=process.platform):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.includes(':') || CONTROL.test(path))return false;
@@ -146,6 +150,10 @@ export function allowedPath(path:string,excluded='',extension:string|null='md',p
  }
  return !roots.some(root=>target===root||target.startsWith(root+'/'));
 }
+/** File types OWLA can propose, review and apply: Markdown (including Excalidraw drawings), Canvas and Bases. */
+export const EDITABLE_FILE=/\.(md|canvas|base)$/i;
+/** A vault path OWLA may propose an edit to: an allowed path with an editable extension. */
+export function allowedEditablePath(path:string,excluded=''):boolean{return EDITABLE_FILE.test(path)&&allowedPath(path,excluded,null);}
 export function isPathInside(root:string,file:string,platform=process.platform):boolean {
  const path=platform==='win32'?win32:{relative,isAbsolute,sep};
  const relativePath=path.relative(root,file);
@@ -154,7 +162,7 @@ export function isPathInside(root:string,file:string,platform=process.platform):
 export function clip(text:string,max:number):string {return text.length<=max?text:text.slice(0,max)+'\n[Context shortened. Read a specific passage if needed.]';}
 export interface Proposal {path:string;before:string;after:string;reason:string;create?:true;}
 export function proposal(path:string,before:string,oldText:string,newText:string,reason:string,excluded=''):Proposal {
- if(!allowedPath(path,excluded))throw Error('This note is outside the allowed Markdown context.');
+ if(!allowedEditablePath(path,excluded))throw Error('This note is outside the allowed Markdown context.');
  if(newText.length>24000)throw Error('The proposed edit is too large. Make a smaller edit.');
  if(!oldText)return {path,before,after:before+(before.endsWith('\n')?'':'\n')+'\n'+newText,reason};
  const index=before.indexOf(oldText);

@@ -2,7 +2,7 @@ import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:t
 import {App,Plugin,ItemView,WorkspaceLeaf,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,PluginSettingTab,SettingTab,Setting,SettingDefinitionItem,ButtonComponent,Notice,Modal,FuzzySuggestModal,MarkdownRenderer,Editor,setIcon,setTooltip,addIcon,loadPdfJs,Menu,parseLinktext,parseYaml,resolveSubpath} from 'obsidian';
 import {diffLines} from 'diff';
 import {EditorView} from '@codemirror/view';
-import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,diffLineMap,type DiffLine} from './core';
+import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,diffLineMap,type DiffLine,EDITABLE_FILE,allowedEditablePath} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
@@ -34,6 +34,10 @@ import {Organization,OrganizationReview,RemovalReview,decodeMoves} from './organ
 import {getAllTags,stringifyYaml} from 'obsidian';
 import {brokenLinks,findBlock,findSection,headingOutline,linkWarning,noteChunk,textHasSubpath,updateProperties} from './note-tools';
 import {sanitizeRenderedReply} from './render-sanitize';
+import {applyCanvasOperations,canvasProblems,parseCanvas,serializeCanvas,summarizeCanvas} from './canvas';
+import {baseProblems,parseBase,summarizeBase} from './bases';
+import {applyExcalidrawOperations,isExcalidrawPath,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,revertExcalidraw,serializeExcalidraw,summarizeExcalidraw} from './excalidraw';
+import {basesAvailable,canvasAvailable,captureCanvas,excalidrawAvailable,excalidrawDecoder,excalidrawImage,excalidrawSceneImage,inspectBase,withExcalidrawFactory} from './visual';
 import {MAX_TOOL_CALLS_HARD,ToolGuard} from './tool-guard';
 import {VAULT_GRAPH_TOOL,decodeGraphQuery,queryGraph,type GraphSource} from './vault-graph';
 const VIEW='owla-butler-chat';
@@ -226,7 +230,7 @@ export default class Butler extends Plugin {
  }
  /** The tools OWLA offers to the assistant. Codex receives them directly; OpenCode registers them in its own process. */
  private baseSpecsCache:ToolSpec[]|null=null;
- baseToolSpecs():ToolSpec[]{if(!this.baseSpecsCache)this.baseSpecsCache=[{type:'function',name:'propose_note',description:'Draft a new Markdown note for review. Use a bare filename for the Obsidian default folder, a vault-relative path for an explicit folder, or vaultRoot=true for an explicitly requested vault root.',inputSchema:{type:'object',properties:{path:{type:'string'},content:{type:'string'},reason:{type:'string'},vaultRoot:{type:'boolean'}},required:['path','content','reason'],additionalProperties:false}},{type:'function',name:'read_pdf',description:'Read an attached or allowed vault PDF. Set query to find a phrase in its text layer, page and endPage for a range, or page and visual for a scanned page. Follow returned continuation parameters. Accepts [[file.pdf#page=3]].',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},endPage:{type:'integer'},offset:{type:'integer'},visual:{type:'boolean'},query:{type:'string'}},required:['path'],additionalProperties:false}},{type:'function',name:'propose_pdf_annotation',description:'Prepare a PDF sticky-note comment for user review. Saves a separate annotated copy only after confirmation.',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},text:{type:'string'}},required:['path','page','text'],additionalProperties:false}},{type:'function',name:'read_note',description:'Read an allowed Markdown note by exact vault-relative path. A long note or section is returned in parts: follow the returned continuation offset. The first part lists every heading with its size. Read one section with heading (nested: Parent#Child), or a block by its ID (for [[note#^id]]). After a proposal, reads show the staged preview.',inputSchema:{type:'object',properties:{path:{type:'string'},heading:{type:'string'},block:{type:'string'},offset:{type:'integer'}},required:['path'],additionalProperties:false}},{type:'function',name:'search_vault',description:'Search allowed Markdown notes and read up to two top matches. Set folder to search only within that vault folder and its descendants.',inputSchema:{type:'object',properties:{query:{type:'string'},folder:{type:'string'}},required:['query'],additionalProperties:false}},{type:'function',name:'read_reference',description:'Read bundled Obsidian syntax/skills. Names: obsidian-markdown, obsidian-bases, json-canvas, owla-pdf, owla-math, owla-ocr, owla-formatting, owla-mermaid.',inputSchema:{type:'object',properties:{name:{type:'string'},offset:{type:'integer'}},required:['name'],additionalProperties:false}},{type:'function',name:'propose_edit',description:'Stage an exact change for provisional application after this reply. The note must have a known snapshot. Further changes apply to the staged preview. Empty oldText appends.',inputSchema:{type:'object',properties:{path:{type:'string'},oldText:{type:'string'},newText:{type:'string'},reason:{type:'string'}},required:['path','oldText','newText','reason'],additionalProperties:false}}];return this.baseSpecsCache!;
+ baseToolSpecs():ToolSpec[]{if(!this.baseSpecsCache)this.baseSpecsCache=[{type:'function',name:'propose_note',description:'Draft a new Markdown note for review. Use a bare filename for the Obsidian default folder, a vault-relative path for an explicit folder, or vaultRoot=true for an explicitly requested vault root.',inputSchema:{type:'object',properties:{path:{type:'string'},content:{type:'string'},reason:{type:'string'},vaultRoot:{type:'boolean'}},required:['path','content','reason'],additionalProperties:false}},{type:'function',name:'read_pdf',description:'Read an attached or allowed vault PDF. Set query to find a phrase in its text layer, page and endPage for a range, or page and visual for a scanned page. Follow returned continuation parameters. Accepts [[file.pdf#page=3]].',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},endPage:{type:'integer'},offset:{type:'integer'},visual:{type:'boolean'},query:{type:'string'}},required:['path'],additionalProperties:false}},{type:'function',name:'propose_pdf_annotation',description:'Prepare a PDF sticky-note comment for user review. Saves a separate annotated copy only after confirmation.',inputSchema:{type:'object',properties:{path:{type:'string'},page:{type:'integer'},text:{type:'string'}},required:['path','page','text'],additionalProperties:false}},{type:'function',name:'read_note',description:'Read an allowed Markdown note by exact vault-relative path. A long note or section is returned in parts: follow the returned continuation offset. The first part lists every heading with its size. Read one section with heading (nested: Parent#Child), or a block by its ID (for [[note#^id]]). After a proposal, reads show the staged preview.',inputSchema:{type:'object',properties:{path:{type:'string'},heading:{type:'string'},block:{type:'string'},offset:{type:'integer'}},required:['path'],additionalProperties:false}},{type:'function',name:'search_vault',description:'Search allowed Markdown notes and read up to two top matches. Set folder to search only within that vault folder and its descendants.',inputSchema:{type:'object',properties:{query:{type:'string'},folder:{type:'string'}},required:['query'],additionalProperties:false}},{type:'function',name:'read_reference',description:'Read bundled Obsidian syntax/skills. Names: obsidian-markdown, obsidian-bases, json-canvas, owla-pdf, owla-math, owla-ocr, owla-formatting, owla-mermaid, owla-excalidraw, owla-canvas, owla-bases.',inputSchema:{type:'object',properties:{name:{type:'string'},offset:{type:'integer'}},required:['name'],additionalProperties:false}},{type:'function',name:'propose_edit',description:'Stage an exact change for provisional application after this reply. The note must have a known snapshot. Further changes apply to the staged preview. Empty oldText appends.',inputSchema:{type:'object',properties:{path:{type:'string'},oldText:{type:'string'},newText:{type:'string'},reason:{type:'string'}},required:['path','oldText','newText','reason'],additionalProperties:false}}];return this.baseSpecsCache;
  }
  buildToolSpecs():{specs:ToolSpec[];pluginTurn:PluginTurn}{
   const pluginTurn=this.startPluginTurn();
@@ -238,6 +242,7 @@ export default class Butler extends Plugin {
    {type:'function',name:'list_vault_paths',description:'List allowed files and folders directly inside a vault folder. Omit folder to list the root. Follow nextOffset for more entries.',inputSchema:{type:'object',properties:{folder:{type:'string'},offset:{type:'integer'}},required:['folder'],additionalProperties:false}},
    {type:'function',name:'propose_organization',description:'Stage a single batch of vault file and folder moves or renames for review. Include missing folders in destination paths. No paths change before acceptance.',inputSchema:{type:'object',properties:{reason:{type:'string'},moves:{type:'array',items:{type:'object',properties:{from:{type:'string'},to:{type:'string'}},required:['from','to'],additionalProperties:false}}},required:['reason','moves'],additionalProperties:false}}
   );
+  specs.push(...visualToolSpecs(this.visualFeatures()));
   return {specs,pluginTurn};
  }
  async setPluginInterconnectivity(enabled:boolean){
@@ -341,7 +346,7 @@ export default class Butler extends Plugin {
     // A usage read can block OpenCode Go's paid models; offer what is left.
     const remaining=(provider==='opencode'?bridge.selectableModels:offeredModels).filter(m=>this.sessionAvailability.available(provider,modelKey(provider,m)));
     if(!remaining.length)throw Error('Every model is out of usage or unavailable on your plans.');
-    return {offer:{provider,models:remaining,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})} as ProviderOffer};
+    return {offer:{provider,models:remaining,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})}};
    }catch(error){return {failed:{provider,message:friendlyError(error)}};}
    finally{await release();}
   }));
@@ -448,6 +453,16 @@ export default class Butler extends Plugin {
  onunload(){for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
+ /** A file OWLA can propose edits to: Markdown (including Excalidraw drawings), Canvas or Bases. */
+ allowedEditable(path:string){return EDITABLE_FILE.test(path)&&this.allowedVaultFile(path);}
+ /**
+  * Canvas, Bases and Excalidraw tools are part of Plugin interconnectivity and
+  * are offered only while the matching Obsidian plugin is enabled.
+  */
+ visualFeatures(){
+  const on=this.prefs.pluginInterconnectivity;
+  return {canvas:on&&canvasAvailable(this.app),bases:on&&basesAvailable(this.app),excalidraw:on&&excalidrawAvailable(this.app)};
+ }
  allowedPdf(path:string){return this.allowedVaultFile(path,'pdf');}
  /**
  * The resolved vault root, cached by its unresolved path. Every vault check
@@ -483,7 +498,22 @@ export default class Butler extends Plugin {
    return isPathInside(root,file)&&allowedPath(relative(root,file).split(/[\\]/).join('/'),this.prefs.excludedFolders,extension);
   }catch{return false;}
  }
- async currentText(path:string){if(!this.allowedNote(path))throw Error('This Markdown note is excluded.');const view=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;if(view)return view.editor.getValue();const f=this.app.vault.getAbstractFileByPath(path);if(!(f instanceof TFile)||!this.allowedNote(path))throw Error('This Markdown note is not available.');return this.app.vault.cachedRead(f);}
+ async currentText(path:string){
+  if(!this.allowedEditable(path))throw Error('This file is excluded.');
+  const views=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view);
+  const view=views.find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;
+  if(view)return view.editor.getValue();
+  const f=this.app.vault.getAbstractFileByPath(path);
+  if(!(f instanceof TFile)||!this.allowedEditable(path))throw Error('This file is not available.');
+  // An open Canvas or Bases view may hold changes not yet saved; Excalidraw saves its own scene, so its file is read.
+  if(!isExcalidrawPath(path)){
+   for(const leaf of this.app.workspace.getLeavesOfType(path.endsWith('.canvas')?'canvas':'bases')){
+    const other=leaf.view as unknown as {file?:TFile;getViewData?:()=>string};
+    if(other.file?.path===path&&typeof other.getViewData==='function')return other.getViewData();
+   }
+  }
+  return this.app.vault.read(f);
+ }
  /** Optional per-vault calibration override, kept in OWLA's private storage beside the routing history. */
  routingCalibrationPath(){return join(this.vaultStorage(),'routing-calibration.json');}
  vaultStorage(){return join(this.prefs.storageRoot||DEFAULT_STORAGE,'vaults',vaultStorageKey(this.vaultBasePath()||this.app.vault.getName()));}
@@ -507,6 +537,10 @@ export default class Butler extends Plugin {
   }
  }
  private validateNoteEdit(edit:Proposal){
+  // Canvas, Bases and Excalidraw files are checked against their own format, not as notes.
+  if(edit.path.toLowerCase().endsWith('.canvas')){const problems=canvasProblems(parseCanvas(edit.after));if(problems.length)throw Error('The canvas is invalid: '+problems.slice(0,5).join('; '));return;}
+  if(edit.path.toLowerCase().endsWith('.base')){const problems=baseProblems(parseBase(edit.after,parseYaml));if(problems.length)throw Error('The base is invalid: '+problems.slice(0,5).join('; '));return;}
+  if(isExcalidrawPath(edit.path)&&isExcalidrawText(edit.after)){parseExcalidraw(edit.after,excalidrawDecoder());return;}
   assertNoteTitle(edit,this.inlineTitle());
   const pattern=/^---\r?\n((?:[^\n]*\n)*?)---(?:\r?\n|$)/;
   const frontmatter=edit.after.match(pattern);
@@ -526,7 +560,7 @@ export default class Butler extends Plugin {
  }
 
  private async writeEdit(edit:Proposal, beforeWrite?:()=>void) {
-  if (!this.allowedNote(edit.path)) throw Error('This note is excluded from OWLA Butler.');
+  if (!this.allowedEditable(edit.path)) throw Error('This file is excluded from OWLA Butler.');
   const file = this.app.vault.getAbstractFileByPath(edit.path);
   if (!(file instanceof TFile)) throw Error('The target note no longer exists.');
   const view = this.app.workspace.getLeavesOfType('markdown').map(leaf => leaf.view)
@@ -550,7 +584,7 @@ export default class Butler extends Plugin {
  }
 
  newNotePath(path:string,sourcePath:string,vaultRoot:boolean){
-  if(!allowedPath(path))throw Error('Provide a vault-relative Markdown path.');
+  if(!allowedEditablePath(path))throw Error('Provide a vault-relative Markdown, Canvas or Bases path.');
   if(path.includes('/')||vaultRoot)return path;
   const folder=this.app.fileManager.getNewFileParent(sourcePath,path);
   return folder.isRoot()?path:folder.path+'/'+path;
@@ -558,7 +592,7 @@ export default class Butler extends Plugin {
 
  private assertNewNoteDestination(path:string){
   const base=this.vaultBasePath();
-  if(!allowedPath(path,this.prefs.excludedFolders)||!base)throw Error('Choose an allowed vault-relative Markdown path.');
+  if(!allowedEditablePath(path,this.prefs.excludedFolders)||!base)throw Error('Choose an allowed vault-relative Markdown, Canvas or Bases path.');
   const slash=path.lastIndexOf('/');
   if(slash>=0){
    const folder=path.slice(0,slash);
@@ -597,7 +631,12 @@ export default class Butler extends Plugin {
  }
 
  async restoreEdit(edit:Proposal) {
-  await this.writeEdit({...edit,before:edit.after,after:edit.before,reason:'Restore OWLA Butler edit'});
+  await this.writeEdit({...edit,before:edit.after,after:this.restoredText(edit),reason:'Restore OWLA Butler edit'});
+ }
+ /** The text that undoes an edit: the original, except for drawings, which need a version-aware revert. */
+ private restoredText(edit:Proposal){
+  if(!isExcalidrawPath(edit.path)||!isExcalidrawText(edit.before)||!isExcalidrawText(edit.after))return edit.before;
+  try{return revertExcalidraw(edit.before,edit.after,excalidrawDecoder());}catch{return edit.before;}
  }
 
  /**
@@ -618,7 +657,7 @@ export default class Butler extends Plugin {
    for (const value of readPendingRecord(root)) {
     const entry=record(value),edit=record(entry.edit),{path,before,after}=edit;
     if (entry.deferred===true||edit.create===true) { untouched.push(value); continue; }
-    if (typeof path!=='string'||typeof before!=='string'||typeof after!=='string'||!this.allowedNote(path)) { skipped++; continue; }
+    if (typeof path!=='string'||typeof before!=='string'||typeof after!=='string'||!this.allowedEditable(path)) { skipped++; continue; }
     try {
      // restoreEdit swaps before and after itself; a note already at its original text is left alone.
      if (await this.currentText(path)!==before) await this.restoreEdit({path,before,after,reason:'Restore OWLA Butler edit'});
@@ -650,7 +689,7 @@ export default class Butler extends Plugin {
      if(await this.app.vault.adapter.exists(edit.path)){
       // An identical note can be present if the previous acceptance wrote it
       // before the pending record could be updated.
-      if(!this.allowedNote(edit.path)||await this.currentText(edit.path)!==edit.after)throw Error('A different file now exists at this path. Decline and choose a new name.');
+      if(!this.allowedEditable(edit.path)||await this.currentText(edit.path)!==edit.after)throw Error('A different file now exists at this path. Decline and choose a new name.');
      }else await this.app.vault.create(edit.path,edit.after);
     }
    }else if(batch.deferred){
@@ -667,6 +706,36 @@ export default class Butler extends Plugin {
   }
  }
 
+}
+const STYLE_SCHEMA={type:'object',properties:{strokeColor:{type:'string'},backgroundColor:{type:'string'},fillStyle:{type:'string'},strokeWidth:{type:'number'},strokeStyle:{type:'string'},roughness:{type:'number'},opacity:{type:'number'},fontSize:{type:'number'},fontFamily:{type:'number'},textAlign:{type:'string'}}};
+/** Canvas, Bases and Excalidraw tools, for the features enabled under Plugin interconnectivity. */
+function visualToolSpecs(features:{canvas:boolean;bases:boolean;excalidraw:boolean}):ToolSpec[]{
+ const specs:ToolSpec[]=[];
+ if(features.canvas)specs.push(
+  {type:'function',name:'read_canvas',description:'Read an Obsidian canvas (.canvas): every node with its id, type, position, size, colour, group and text/file/url, and every edge with its ends and label. Set visual=true to also see the canvas as Obsidian draws it (a background screenshot). After a proposal, reads show the staged version. Follow the continuation offset for large canvases.',inputSchema:{type:'object',properties:{path:{type:'string'},offset:{type:'integer'},visual:{type:'boolean'}},required:['path'],additionalProperties:false}},
+  {type:'function',name:'propose_canvas',description:'Stage changes to a canvas for the user to accept or decline, or create a new .canvas. Read it first with read_canvas. Operations apply in order: add_node {node}, update_node {id, changes} (null removes a field), remove_node {id} (removes its edges), add_edge {edge}, update_edge {id, changes}, remove_edge {id}. Node types: text {text}, file {file, subpath?}, link {url}, group {label?}; all need x, y, width, height; colour "1"–"6" or hex. Edges: fromNode, toNode, fromSide/toSide (top/right/bottom/left), toEnd none|arrow, label. Ids are created when omitted.',inputSchema:{type:'object',properties:{path:{type:'string'},reason:{type:'string'},operations:{type:'array',items:{type:'object',properties:{op:{type:'string',enum:['add_node','update_node','remove_node','add_edge','update_edge','remove_edge']},id:{type:'string'},node:{type:'object'},edge:{type:'object'},changes:{type:'object'}},required:['op']}}},required:['path','reason','operations'],additionalProperties:false}},
+ );
+ if(features.bases)specs.push(
+  {type:'function',name:'read_base',description:'Read an Obsidian base (.base): its filters, formulas and views, checked by Obsidian\'s Bases engine, with the result count and the first rows of the shown view. After a proposal, reads show the staged version.',inputSchema:{type:'object',properties:{path:{type:'string'},offset:{type:'integer'}},required:['path'],additionalProperties:false}},
+  {type:'function',name:'propose_base',description:'Stage the complete YAML of a base (.base) for the user to accept or decline, or create a new one. Consult read_reference obsidian-bases for syntax. The YAML is checked by Obsidian\'s Bases engine first; fix any reported error and propose again. The result shows the rows the base will list.',inputSchema:{type:'object',properties:{path:{type:'string'},content:{type:'string'},reason:{type:'string'}},required:['path','content','reason'],additionalProperties:false}},
+ );
+ if(features.excalidraw)specs.push(
+  {type:'function',name:'read_excalidraw',description:'Read an Excalidraw drawing (.excalidraw.md): every shape, text, arrow (with what it connects), frame, image and link, with ids, positions and colours. Set visual=true to also see the drawing as Excalidraw renders it. After a proposal, reads show the staged version. Consult read_reference owla-excalidraw before editing.',inputSchema:{type:'object',properties:{path:{type:'string'},offset:{type:'integer'},visual:{type:'boolean'}},required:['path'],additionalProperties:false}},
+  {type:'function',name:'propose_excalidraw',description:'Stage changes to an Excalidraw drawing for the user to accept or decline, or create a new .excalidraw.md. Read it first with read_excalidraw. Operations apply in order: add_shape {shape rectangle|ellipse|diamond, x, y, width, height, text?, style?}, add_text {x, y, text, style?}, add_arrow {from, to, label?, style?} (element ids), add_frame {x, y, width, height, name, contains?}, update_text {id, text} (a text or a shape with text), move {id, x,y or dx,dy}, resize {id, width, height}, set_style {id, style}, delete {id}. style: strokeColor, backgroundColor, fillStyle, strokeWidth, strokeStyle, roughness, opacity, fontSize, fontFamily, textAlign.',inputSchema:{type:'object',properties:{path:{type:'string'},reason:{type:'string'},operations:{type:'array',items:{type:'object',properties:{op:{type:'string',enum:['add_shape','add_text','add_arrow','add_frame','update_text','move','resize','set_style','delete']},id:{type:'string'},shape:{type:'string',enum:['rectangle','ellipse','diamond']},x:{type:'number'},y:{type:'number'},dx:{type:'number'},dy:{type:'number'},width:{type:'number'},height:{type:'number'},text:{type:'string'},from:{type:'string'},to:{type:'string'},label:{type:'string'},name:{type:'string'},contains:{type:'array',items:{type:'string'}},style:STYLE_SCHEMA},required:['op']}}},required:['path','reason','operations'],additionalProperties:false}},
+ );
+ return specs;
+}
+/** What the Bases engine reported for a base, for the model. */
+function baseReport(problems:string[],check:{errors:string[];views:string[];view:string;results:number|null;columns:string[];rows:string[][]}):string{
+ const lines=[''];
+ if(problems.length)lines.push('Structure problems: '+problems.join('; '));
+ lines.push(check.errors.length?'Bases engine errors: '+check.errors.join('; '):'Bases engine: no errors.');
+ if(check.views.length)lines.push('Views: '+check.views.join(', ')+(check.view?' (shown: '+check.view+')':''));
+ if(check.results!==null){
+  lines.push('Results in the shown view: '+check.results+(check.rows.length<check.results?' (first '+check.rows.length+' below)':''));
+  if(check.rows.length)lines.push('| '+check.columns.join(' | ')+' |',...check.rows.map(row=>'| '+row.join(' | ')+' |'));
+ }
+ return lines.join('\n');
 }
 /** Characters of the active note sent with a message; the rest is read with read_note. */
 const ACTIVE_NOTE_CHARS=20_000;
@@ -721,6 +790,8 @@ class TurnRouteModal extends Modal {
  }
  onClose(){this.contentEl.empty();}
 }
+/** The text shown in a diff: an Excalidraw drawing as one line per element instead of its JSON block. */
+function reviewText(path:string,text:string){return isExcalidrawPath(path)?readableExcalidraw(text,excalidrawDecoder()):text;}
 function renderSourceDiff(container:HTMLElement,batch:EditBatch) {
  const {edit,reasons}=batch;
  container.empty();
@@ -730,7 +801,7 @@ function renderSourceDiff(container:HTMLElement,batch:EditBatch) {
  for(const warning of editWarnings(edit.before,edit.after))container.createEl('p',{text:warning,cls:'owla-review-warning'});
  const diff=container.createDiv('owla-diff');
  let firstChange:HTMLElement|undefined;
- for(const part of diffLines(edit.before,edit.after)){
+ for(const part of diffLines(reviewText(edit.path,edit.before),reviewText(edit.path,edit.after))){
   const block=diff.createEl('pre',{text:part.value,cls:part.added?'owla-added':part.removed?'owla-removed':'owla-unchanged'});
   if(!firstChange&&(part.added||part.removed))firstChange=block;
  }
@@ -764,7 +835,7 @@ class SplitDiffView extends ItemView {
   for(const warning of editWarnings(batch.edit.before,batch.edit.after))this.contentEl.createEl('p',{text:warning,cls:'owla-review-warning'});
   const diff=this.contentEl.createDiv('owla-diff owla-split-diff-content');
   let firstChange=false,firstLine:DiffLine|undefined;
-  for(const line of diffLineMap(batch.edit.before,batch.edit.after)){
+  for(const line of diffLineMap(reviewText(batch.edit.path,batch.edit.before),reviewText(batch.edit.path,batch.edit.after))){
    const pre=diff.createEl('pre',{text:line.text,cls:'owla-'+line.kind+' owla-diff-line'});
    pre.onclick=()=>this.revealInNote(batch,line,true);
    if(!firstChange&&line.kind!=='unchanged'){firstChange=true;firstLine=line;}
@@ -1249,7 +1320,7 @@ export class ButlerView extends ItemView {
     this.status.setText('Preparing '+name+'…');
     try {
      if(entry instanceof TFile&&!this.butler.allowedVaultFile(entry.path))continue;
-     if(entry instanceof TFile&&this.butler.allowedNote(entry.path)){
+     if(entry instanceof TFile&&(this.butler.allowedNote(entry.path)||(/\.(canvas|base)$/i.test(entry.path)&&this.butler.prefs.pluginInterconnectivity&&this.butler.allowedEditable(entry.path)))){
       this.notes.add(entry.path);
       this.renderAttachments();
       continue;
@@ -1378,6 +1449,25 @@ export class ButlerView extends ItemView {
   },this.controller?.signal);
  }
 
+ /**
+  * Context for Canvas, Bases and Excalidraw files: the file open in the
+  * workspace and attached ones, each with the tool that reads it. A drawing is
+  * never sent as raw text. `needsImage` asks automatic selection for a model
+  * that can read the pictures these tools return.
+  */
+ private visualContext(capturedPath:string|undefined,notes:string[]):{context:string;attached:string[];needsImage:boolean}{
+  const features=this.butler.visualFeatures();
+  const kindOf=(path:string)=>path.toLowerCase().endsWith('.canvas')?(features.canvas?'canvas':null):path.toLowerCase().endsWith('.base')?(features.bases?'base':null):isExcalidrawPath(path)?(features.excalidraw?'excalidraw':null):null;
+  const hint={canvas:'read_canvas (visual=true to see it)',base:'read_base',excalidraw:'read_excalidraw (visual=true to see it)'} as const;
+  const recent=(this.app.workspace.getMostRecentLeaf()?.view as {file?:TFile}|undefined)?.file?.path;
+  const active=[recent,capturedPath].find((path):path is string=>!!path&&!!kindOf(path)&&this.butler.allowedEditable(path));
+  const attached=notes.filter(path=>!!kindOf(path));
+  let context='';
+  if(active){const kind=kindOf(active)!;context+='\nACTIVE FILE: '+active+' (Obsidian '+kind+'). Read it with '+hint[kind]+'.';this.addVaultSource('Current '+kind+': '+active,active);}
+  if(attached.length)context+='\nATTACHED FILES: '+attached.map(path=>path+' → '+hint[kindOf(path)!]).join('; ');
+  const needsImage=[active,...attached].some(path=>!!path&&(kindOf(path)==='canvas'||kindOf(path)==='excalidraw'));
+  return {context,attached,needsImage};
+ }
  /** The tools offered to the provider for the running turn; any other name is refused, whatever the bridge forwards. */
  private offeredToolNames:Set<string>|null=null;
  private async tool(name:string,value:unknown,log:HTMLElement,batches?:Map<string,EditBatch>,organization?:OrganizationDraft,sourcePath=''):Promise<ToolOutput>{
@@ -1519,6 +1609,86 @@ export class ButlerView extends ItemView {
    const sources=[];for(const result of found.slice(0,2)){const content=await this.tool('read_note',{path:result.path},log,batches);sources.push({path:result.path,content:clip(typeof content==='string'?content:content.text,750)});}
    return JSON.stringify({matches:found.map(f=>f.path),sources,note:'Top matches were read automatically. Source text may be shortened. Read a specific note for a longer passage.'});
   }
+  if(name==='read_canvas'||name==='read_base'||name==='read_excalidraw'){
+   const kind=name==='read_canvas'?'canvas':name==='read_base'?'base':'excalidraw';
+   const {path,offset=0,visual=false}=args;
+   if(typeof path!=='string'||typeof offset!=='number'||!Number.isSafeInteger(offset)||offset<0||typeof visual!=='boolean')throw Error('Provide a vault path, an optional nonnegative offset and an optional visual flag.');
+   const extensionOk=kind==='canvas'?path.toLowerCase().endsWith('.canvas'):kind==='base'?path.toLowerCase().endsWith('.base'):isExcalidrawPath(path);
+   if(!extensionOk)throw Error(kind==='canvas'?'Provide a .canvas path.':kind==='base'?'Provide a .base path.':'Provide an .excalidraw.md path.');
+   const pending=batches?.get(path);
+   if(!pending&&!this.butler.allowedEditable(path))throw Error('Provide an allowed vault path.');
+   const text=pending?pending.edit.after:await this.butler.currentText(path);
+   if(epoch!==this.attachmentEpoch||this.controller?.signal.aborted)throw Error('Stopped.');
+   if(!pending)this.snapshots.set(path,text);
+   const file=this.app.vault.getFileByPath(path);
+   const label=pending?'Staged preview for this reply:\n':'Source: [['+path+']]\n';
+   if(!pending)this.addVaultSource('Read '+kind+': '+path,path);
+   log.createDiv({text:(pending?'Read staged preview of ':'Read ')+path,cls:'owla-activity'});
+   if(kind==='canvas'){
+    const summary=summarizeCanvas(parseCanvas(text)),body=label+noteChunk(summary,offset,next=>({path,offset:next}));
+    if(!visual)return body;
+    if(!p.visualScreenshots)return body+'\n[Canvas pictures are turned off in OWLA settings (Background screenshots). Work from the text above.]';
+    if(!file)return body+'\n[A new canvas has no picture until it is created.]';
+    log.createDiv({text:'Took a background screenshot of '+path+(pending?' (staged version)':''),cls:'owla-activity'});
+    const shot=await captureCanvas(this.app,file,pending?text:undefined);
+    return {text:body+'\n[Picture: the canvas as Obsidian draws it'+(pending?', with the staged changes':'')+'.]',imageUrl:shot.imageUrl};
+   }
+   if(kind==='base'){
+    const data=parseBase(text,parseYaml),problems=baseProblems(data);
+    log.createDiv({text:'Checked '+path+' with Obsidian’s Bases engine',cls:'owla-activity'});
+    const check=await inspectBase(this.app,pending?.edit.create?null:file,text);
+    return label+noteChunk(summarizeBase(data)+baseReport(problems,check),offset,next=>({path,offset:next}));
+   }
+   const drawing=parseExcalidraw(text,excalidrawDecoder());
+   const body=label+noteChunk(summarizeExcalidraw(drawing),offset,next=>({path,offset:next}));
+   if(!visual)return body;
+   log.createDiv({text:'Rendered '+path+' with Excalidraw'+(pending?' (staged version)':''),cls:'owla-activity'});
+   const image=pending||!file?await excalidrawSceneImage(drawing.scene.elements):await excalidrawImage(file);
+   return {text:body+'\n[Picture: the drawing as Excalidraw renders it'+(pending?', with the staged changes':'')+'.]',imageUrl:image};
+  }
+  if(name==='propose_canvas'||name==='propose_base'||name==='propose_excalidraw'){
+   if(!batches)throw Error('No active request permits proposals.');
+   const kind=name==='propose_canvas'?'canvas':name==='propose_base'?'base':'excalidraw';
+   const {path,reason}=args;
+   if(typeof path!=='string'||typeof reason!=='string'||!reason.trim())throw Error('Provide the vault path and a reason.');
+   const extensionOk=kind==='canvas'?path.toLowerCase().endsWith('.canvas'):kind==='base'?path.toLowerCase().endsWith('.base'):isExcalidrawPath(path);
+   if(!extensionOk)throw Error(kind==='canvas'?'Provide a .canvas path.':kind==='base'?'Provide a .base path.':'Provide an .excalidraw.md path.');
+   if(!allowedEditablePath(path,p.excludedFolders))throw Error('Provide an allowed vault-relative path.');
+   const pending=batches.get(path),exists=!!this.app.vault.getAbstractFileByPath(path);
+   if(pending?.edit.create===undefined&&pending===undefined&&exists&&this.snapshots.get(path)===undefined)throw Error('Read this file first ('+(kind==='canvas'?'read_canvas':kind==='base'?'read_base':'read_excalidraw')+').');
+   const create=pending?.edit.create===true||(!pending&&!exists);
+   const before=pending?pending.edit.before:create?'':this.snapshots.get(path)!;
+   const current=pending?pending.edit.after:before;
+   let after:string,note='';
+   if(kind==='canvas'){
+    const next=applyCanvasOperations(parseCanvas(current),args.operations);
+    after=serializeCanvas(next,current);
+    const missing=next.nodes.filter(node=>node.type==='file'&&typeof node.file==='string'&&!this.app.vault.getAbstractFileByPath(node.file)).map(node=>node.file);
+    if(missing.length)note=' Warning: these file cards point to paths that do not exist: '+missing.slice(0,5).join(', ')+'.';
+   }else if(kind==='base'){
+    if(typeof args.content!=='string'||!args.content.trim()||args.content.length>24000)throw Error('Provide the complete base YAML (up to 24,000 characters).');
+    after=args.content.endsWith('\n')?args.content:args.content+'\n';
+    const problems=baseProblems(parseBase(after,parseYaml));
+    if(problems.length)throw Error('The base is invalid: '+problems.slice(0,8).join('; ')+'. Fix it and propose again.');
+    log.createDiv({text:'Checked the proposed base with Obsidian’s Bases engine',cls:'owla-activity'});
+    const check=await inspectBase(this.app,create?null:this.app.vault.getFileByPath(path),after);
+    if(check.errors.length)throw Error('Obsidian’s Bases engine reports: '+check.errors.slice(0,6).join('; ')+'. Fix it and propose again.');
+    note=baseReport([],check);
+   }else{
+    // A new drawing starts from the plugin's empty file format.
+    const base=current||newExcalidrawFile();
+    const scene=parseExcalidraw(base,excalidrawDecoder()).scene;
+    const next=await withExcalidrawFactory(factory=>applyExcalidrawOperations(scene,args.operations,factory));
+    after=serializeExcalidraw(base,next);
+   }
+   if(epoch!==this.attachmentEpoch||this.controller?.signal.aborted)throw Error('Stopped.');
+   if(after===before&&!create){batches.delete(path);return 'The staged changes cancel out. No proposal remains for this file.';}
+   const edit:Proposal={path,before,after,reason,...(create?{create:true as const}:{})};
+   if(create)await this.butler.validateNewNote(edit);
+   batches.set(path,{edit,reasons:[...(pending?.reasons??[]),reason]});
+   const check=kind==='canvas'?' Check the layout with read_canvas visual=true.':kind==='excalidraw'?' Check it with read_excalidraw visual=true.':'';
+   return (create?'New '+kind+' staged for review at '+path+'. It is created when the user accepts it.':'Change staged for '+path+'. The user accepts or declines it after this reply.')+note+check;
+  }
   if (name==='read_note') {
    const {path,heading,block,offset=0} = args;
    if(heading!==undefined&&(typeof heading!=='string'||!heading.trim()))throw Error('Provide an exact heading name.');
@@ -1565,6 +1735,7 @@ export class ButlerView extends ItemView {
    if(!batches)throw Error('No active request permits note proposals.');
    const {path:requestedPath,content,reason,vaultRoot=false}=args;
    if(typeof requestedPath!=='string'||typeof vaultRoot!=='boolean'||typeof content!=='string'||typeof reason!=='string'||!content.trim()||content.length>24000)throw Error('Provide a Markdown path, a reason, and up to 24,000 characters of note content.');
+   if(isExcalidrawPath(requestedPath)||/\.(canvas|base)$/i.test(requestedPath))throw Error('Create canvases, bases and drawings with propose_canvas, propose_base or propose_excalidraw.');
    const path=this.butler.newNotePath(requestedPath,sourcePath,vaultRoot);
    if(batches.has(path)&&!batches.get(path)?.edit.create)throw Error('An edit is already staged for this path.');
    const edit:Proposal={path,before:'',after:content,reason,create:true};
@@ -1595,6 +1766,7 @@ export class ButlerView extends ItemView {
    if (typeof path !== 'string' || typeof oldText !== 'string' || typeof newText !== 'string' || typeof reason !== 'string') {
     throw Error('Provide path, oldText, newText and reason as strings.');
    }
+   if (isExcalidrawPath(path)) throw Error('Change Excalidraw drawings with propose_excalidraw; a text edit would damage the drawing.');
    const snapshot = this.snapshots.get(path);
    if (snapshot===undefined) throw Error('Read this note before proposing an edit.');
    const pending = stageProposal(snapshot, {path,oldText,newText,reason}, batches.get(path), p.excludedFolders);
@@ -1945,10 +2117,12 @@ export class ButlerView extends ItemView {
  const {specs,pluginTurn}=this.butler.buildToolSpecs();
  this.offeredToolNames=new Set(specs.map(spec=>spec.name));
  if(!choosesProvider){this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});signal.throwIfAborted();}
- let context='';if(captured){context+='\nACTIVE NOTE: '+captured.path+'\n'+activeNoteContext(captured.path,captured.text)+'\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.addVaultSource('Current note: '+captured.path,captured.path);}
+ const visual=this.visualContext(captured?.path,notes);
+ let context=visual.context;if(captured&&!isExcalidrawPath(captured.path)){context+='\nACTIVE NOTE: '+captured.path+'\n'+activeNoteContext(captured.path,captured.text)+'\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.addVaultSource('Current note: '+captured.path,captured.path);}
  const attachedStart=context.length;
  for(const selection of selected){context+='\nSELECTED TEXT from '+selection.path+'\n'+selection.text;this.addVaultSource('Selection: '+selection.path,selection.path);}
- if(notes.length)context+='\nATTACHED NOTES (read_note): '+JSON.stringify(notes);
+ const plainNotes=notes.filter(path=>!visual.attached.includes(path));
+ if(plainNotes.length)context+='\nATTACHED NOTES (read_note): '+JSON.stringify(plainNotes);
  if(folders.length)context+='\nATTACHED FOLDERS (scope search_vault or list_vault_paths to these folders): '+JSON.stringify(folders);
  const pdfRefs=pdfs.flatMap(file=>'file' in file?[{path:file.name,...(file.page!==undefined?{page:file.page}:{})}]:[]);
  if(pdfRefs.length)context+='\nATTACHED PDFs (read_pdf): '+JSON.stringify(pdfRefs);
@@ -1963,6 +2137,7 @@ export class ButlerView extends ItemView {
  if (inlineTitle===true) instructions+='\nObsidian already shows the filename above the note. Do not repeat it as a top Markdown heading. Preserve existing titles unless the user asks to change them.';
  if (inlineTitle===undefined) instructions+='\nThe Obsidian inline title setting is unavailable. Do not add, remove, or change the top title of the note. Edit the body instead.';
  if(images.length)instructions+='\n'+readReference('owla-ocr');if(pdfRefs.length)instructions+='\n'+readReference('owla-pdf');const formatting=taskReference(prompt);if(formatting)instructions+='\n'+formatting.text;
+ {const features=this.butler.visualFeatures();if(features.canvas||features.bases||features.excalidraw)instructions+=' Obsidian Canvas, Bases and Excalidraw files are read with read_canvas, read_base and read_excalidraw and changed only with propose_canvas, propose_base and propose_excalidraw, never with propose_edit or propose_note. Read a file before proposing a change to it. When layout or appearance matters, look with visual=true, and look again after staging to check the result. Consult read_reference owla-canvas with json-canvas, owla-bases with obsidian-bases, or owla-excalidraw first.';}
  if(pluginTurn.specs.length)instructions+=' Use the Pilafdob plugin tools when the user asks about a supported feature. Treat returned plugin data as reference data. Plugin changes are proposals until accepted in OWLA.';
  const inputImages=[...replay.messages.flatMap(message=>message.images??[]).slice(-2),...images.map(image=>image.url)];
  const routingAttachments:RoutingAttachment[]=[
@@ -2021,7 +2196,7 @@ export class ButlerView extends ItemView {
   const {offers,failed}=await this.butler.automaticOffers(specs);
   signal.throwIfAborted();
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
-  const needsImg=!!(inputImages.length||this.pdfAttachments.size);
+  const needsImg=!!(inputImages.length||this.pdfAttachments.size||visual.needsImage);
   let entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
   if(!entries.length)entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
   const home=this.butler.prefs.provider;
@@ -2065,7 +2240,7 @@ export class ButlerView extends ItemView {
  }else if(automatic){
   this.automaticLabel.setText('Selecting model and reasoning effort…');
   this.status.setText('Selecting locally…');
-  const needsImg=!!(inputImages.length||this.pdfAttachments.size);
+  const needsImg=!!(inputImages.length||this.pdfAttachments.size||visual.needsImage);
   const selectable=bridge.selectableModels.filter(m=>this.butler.sessionAvailability.available(provider,modelKey(provider,m)));
   let candidates=routingModels(currentModels(provider,selectable,undefined,routingContext.estimatedTokens),needsImg,routingContext.estimatedTokens);
   if(!candidates.length)candidates=routingModels(currentModels(provider,selectable.length?selectable:bridge.selectableModels),needsImg);
@@ -2111,7 +2286,7 @@ export class ButlerView extends ItemView {
   // Each attempt (including an automatic retry on another model) gets its own tool budget.
   toolGuard.reset();
   try{
-   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route!.model,effort:route!.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
+   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route.model,effort:route.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
     toolsUsed=true;
     const operation=toolQueue.then(async()=>{
      if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
@@ -2135,10 +2310,10 @@ export class ButlerView extends ItemView {
     return operation;
    }});
    if(isAutoTurn&&shouldEscalateQuality({text:result.text,toolsUsed,mode:this.butler.prefs.routingMode,escalations:qualityEscalations,difficulty:autoTask?.difficulty})){
-    failedRoutes.push({provider,model:route!.model});
+    failedRoutes.push({provider,model:route.model});
     // The thin reply counts against the model that gave it, not the one that replaces it.
-    if(autoTask)this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{provider,model:route!.model,kind:autoTask.kind,success:false,latencyMs:Date.now()-turnStartMs});
-    const needsImg=!!(inputImages.length||this.pdfAttachments.size);
+    if(autoTask)this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{provider,model:route.model,kind:autoTask.kind,success:false,latencyMs:Date.now()-turnStartMs});
+    const needsImg=!!(inputImages.length||this.pdfAttachments.size||visual.needsImage);
     const escalated:AutoRoute|null=choosesProvider&&autoTask
      ?pickEscalationRoute({
       entries:autoEntries(autoOffers,needsImg,routingContext.estimatedTokens).filter(e=>!this.butler.recordExhaustion(e.provider).exhausted),
@@ -2150,7 +2325,7 @@ export class ButlerView extends ItemView {
       mode:this.butler.prefs.routingMode,
       history:this.butler.routingHistory,
      })
-     :await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
+     :await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
     if(escalated){
      qualityEscalations++;
      if(escalated.provider!==provider){
@@ -2180,12 +2355,12 @@ export class ButlerView extends ItemView {
    }
    break;
   }catch(error){
-   failedRoutes.push({provider,model:route!.model});
-   this.butler.recordModelRefusal(provider,route!.model,friendlyError(error));
+   failedRoutes.push({provider,model:route.model});
+   this.butler.recordModelRefusal(provider,route.model,friendlyError(error));
    if(isAutoTurn&&autoTask){
     this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{
      provider,
-     model:route!.model,
+     model:route.model,
      kind:autoTask.kind,
      success:false,
     });
@@ -2198,10 +2373,10 @@ export class ButlerView extends ItemView {
    // unexplained error. Work that already used tools or streamed text is not
    // repeated, so nothing runs twice.
    const retryable=isAuto&&!signal.aborted&&autoAttempts<MAX_AUTO_RETRIES&&!toolsUsed&&!text.trim();
-   const failedModel=route!.model,failureReason=provider==='opencode'&&this.butler.opencodeFailure?.reason?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
+   const failedModel=route.model,failureReason=provider==='opencode'&&this.butler.opencodeFailure?.reason?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
    let next:AutoRoute|null=null;
    if(retryable){
-    next=await this.pickRetryRoute({provider,route:route!,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
+    next=await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
    }
    if(!next)throw error;
    autoAttempts++;
@@ -2235,7 +2410,7 @@ export class ButlerView extends ItemView {
   const outcomeKind=autoTask?.kind??heuristicTaskClass(prompt,routingContext,true)?.kind??'lookup';
   this.butler.routingHistory=recordRoutingOutcome(this.butler.routingHistory,{
    provider,
-   model:route!.model,
+   model:route.model,
    kind:outcomeKind,
    // Earlier failed or thin attempts were recorded against their own models; this one answered.
    success:true,
@@ -2243,7 +2418,7 @@ export class ButlerView extends ItemView {
   });
   try{saveRoutingHistory(this.butler.vaultStorage(),this.butler.routingHistory);}catch{/* Ignore non-critical history write errors. */}
  }
- text=result!.text;
+ text=result.text;
  if(signal.aborted||epoch!==this.attachmentEpoch||this.closing)throw Error('Stopped.');
  if(streamTimer){clearNodeTimeout(streamTimer);streamTimer=undefined;}
  content.empty();
@@ -2792,11 +2967,14 @@ class ButlerSettingsTab extends PluginSettingTab {
    }));
   }},
   {name:'Allow web search',desc:'The assistant can search the web when needed. Search queries may be based on the context you provide.',render:setting=>{setting.addToggle(t=>t.setValue(this.butler.prefs.webSearch).onChange(async value=>{this.butler.view?.clearWarmup();this.butler.prefs.webSearch=value;await this.butler.save();}));}},
-  {name:'Plugin Interconnectivity',desc:'Let OWLA use the Pilafdob plugins enabled in this vault. It can look up and propose changes to Nicons icons, Pinup pins, and Folder and Graphs Plus graph options. You review each change before it is applied.',render:setting=>{
+  {name:'Plugin Interconnectivity',desc:'Let OWLA work with other plugins enabled in this vault. With Canvas, Bases and Excalidraw it can read, see and propose changes to canvases, bases and drawings, and create new ones. With the Pilafdob plugins it can look up and propose changes to Nicons icons, Pinup pins, and Folder and Graphs Plus graph options. You review each change before it is applied.',render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.pluginInterconnectivity).onChange(async enabled=>{
     try{await this.butler.setPluginInterconnectivity(enabled);}
     catch(e){new Notice(friendlyError(e));}
    }));
+  }},
+  {name:'Background screenshots',desc:'With Plugin Interconnectivity on, OWLA can look at a canvas as Obsidian draws it. The canvas is shown over the window for under a second while the picture is taken, and Sources & activity notes each picture. Turn off to work from canvas text only. Excalidraw drawings are rendered by Excalidraw itself and are not affected.',render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.visualScreenshots).onChange(async value=>{this.butler.prefs.visualScreenshots=value;await this.butler.save();}));
   }},
   {name:'Diff view',desc:'Choose how pending Markdown edits are displayed. Accept or decline changes in chat.',render:setting=>{setting.addDropdown(dropdown=>dropdown.addOption('highlights','Highlights in editor').addOption('none','None').addOption('split','Split diff view').setValue(this.butler.prefs.diffView).onChange(async value=>{this.butler.prefs.diffView=value as DiffView;refreshEditorDiff();this.butler.syncSplitDiff();await this.butler.save();}));}},
   {name:'Excluded folders',desc:'Vault-relative paths, one per line. Hidden/configuration files are always excluded.',render:setting=>{setting.addTextArea(t=>t.setValue(this.butler.prefs.excludedFolders).onChange(async v=>{this.butler.prefs.excludedFolders=v;await this.butler.save();}));}},
