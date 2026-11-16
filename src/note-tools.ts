@@ -83,3 +83,83 @@ export function textHasSubpath(text:string,subpath:string){
  const wanted=subpath.replace(/^#/,'').split('#').pop()!.trim().toLowerCase();
  return [...text.matchAll(/^#{1,6}[ \t]+(.+?)[ \t#]*$/gm)].some(match=>match[1].trim().toLowerCase()===wanted);
 }
+
+/** A Markdown heading found in note text, with the character range of its section. */
+export type NoteHeading={level:number;title:string;start:number;end:number};
+
+/**
+ * ATX headings of a note and the range of each section (up to the next heading
+ * of the same or a higher level). Fenced code and frontmatter are skipped.
+ * Works on any text — the saved note, unsaved editor text or a staged preview —
+ * so a section can be read even when Obsidian's cache describes another version.
+ */
+export function noteHeadings(text:string):NoteHeading[]{
+ const headings:{level:number;title:string;start:number}[]=[];
+ let offset=frontmatterBlock(text).length,fence:string|null=null;
+ for(const line of text.slice(offset).split('\n')){
+  const marker=line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+  if(fence){if(marker&&marker[0]===fence[0]&&marker.length>=fence.length)fence=null;}
+  else if(marker)fence=marker;
+  else{
+   const heading=line.match(/^ {0,3}(#{1,6})[ \t]+(.*?)[ \t]*(?:[ \t]#+[ \t]*)?\r?$/);
+   if(heading)headings.push({level:heading[1].length,title:heading[2].trim(),start:offset});
+  }
+  offset+=line.length+1;
+ }
+ return headings.map((item,index)=>{
+  const next=headings.slice(index+1).find(other=>other.level<=item.level);
+  return {...item,end:next?next.start:text.length};
+ });
+}
+
+const normalizeHeading=(value:string)=>value.replace(/^#+\s*/,'').trim().replace(/\s+/g,' ').normalize('NFC').toLowerCase();
+
+/**
+ * The section for a heading reference: an exact title, or a nested path such as
+ * `Vokabel#Vokabeln (Units 1–17)` as Obsidian links write it. Matching ignores
+ * case and repeated spaces. Returns null when no heading matches.
+ */
+export function findSection(text:string,reference:string):NoteHeading|null{
+ const parts=reference.split('#').map(normalizeHeading).filter(Boolean);
+ if(!parts.length)return null;
+ const headings=noteHeadings(text);
+ let range:{start:number;end:number}={start:0,end:text.length},found:NoteHeading|null=null;
+ for(const part of parts){
+  found=headings.find(item=>item.start>=range.start&&item.start<range.end&&normalizeHeading(item.title)===part)??null;
+  if(!found)return null;
+  range=found;
+ }
+ return found;
+}
+
+/** The paragraph that carries a block ID (`^id`), or null. */
+export function findBlock(text:string,id:string):{start:number;end:number}|null{
+ const name=id.trim().replace(/^\^/,'');
+ const match=new RegExp('(?:^|[ \\t])\\^'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'[ \\t]*$','m').exec(text);
+ if(!match)return null;
+ const before=text.lastIndexOf('\n\n',match.index),after=text.indexOf('\n\n',match.index);
+ return {start:before<0?0:before+2,end:after<0?text.length:after};
+}
+
+/** Characters returned by one note read; longer text continues with an offset. */
+export const NOTE_CHUNK=12_000;
+
+/**
+ * One window of a note or section, with a continuation the model can follow.
+ * `continueWith` names the exact arguments for the next read.
+ */
+export function noteChunk(text:string,offset:number,continueWith:(next:number)=>Record<string,unknown>,size=NOTE_CHUNK):string{
+ if(!Number.isSafeInteger(offset)||offset<0)throw Error('Provide a nonnegative integer offset.');
+ if(offset>0&&offset>=text.length)throw Error('The offset is past the end ('+text.length+' characters).');
+ const end=Math.min(text.length,offset+size);
+ const range=offset>0||end<text.length?'[Characters '+offset+'–'+end+' of '+text.length+'.]\n':'';
+ return range+text.slice(offset,end)+(end<text.length?'\n[Continue with read_note '+JSON.stringify(continueWith(end))+']':'');
+}
+
+/** Every heading as an indented outline, capped so a huge note still fits. */
+export function headingOutline(text:string,max=200):string{
+ const headings=noteHeadings(text);
+ if(!headings.length)return '';
+ const lines=headings.slice(0,max).map(item=>'  '.repeat(item.level-1)+'#'.repeat(item.level)+' '+item.title+' ('+(item.end-item.start)+' chars)');
+ return '[Headings — read one with read_note heading, or continue with offset:\n'+lines.join('\n')+(headings.length>max?'\n… '+(headings.length-max)+' more':'')+']';
+}

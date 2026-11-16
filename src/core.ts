@@ -123,11 +123,19 @@ export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platf
  * an exclusion the user set. Unicode is compared in the normalized form that
  * APFS stores, so `café` and `café` are one folder.
  */
-const foldPath=(value:string)=>value.normalize('NFC').toLowerCase();
+const foldPath=(value:string)=>value.normalize('NFC').toUpperCase().toLowerCase();
 export {foldPath};
 const excludedCache=new Map<string,string[]>();
-export function allowedPath(path:string,excluded='',extension:string|null='md'):boolean {
- if(!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith('.')))return false;
+/**
+ * A vault-relative path is refused when it contains a NUL, a colon, a control
+ * character or a `~` segment. Trailing dots and spaces are refused only on
+ * Windows, where the filesystem drops them; `Dr.` is a valid folder elsewhere.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL=/[\u0000-\u001f\u007f]/;
+export function allowedPath(path:string,excluded='',extension:string|null='md',platform:string=process.platform):boolean {
+ if(!path || path.startsWith('/') || path.includes('\\') || path.includes(':') || CONTROL.test(path))return false;
+ if(path.split('/').some(p=>!p||p==='.'||p==='..'||p==='~'||p.startsWith('.')||(platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')))))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
  const cacheKey=excluded;
@@ -211,7 +219,8 @@ export function formatTranscription(text:string):string {
   return (m[1]?m[1]+'\n\n':'')+'$$\n'+equation+'\n$$';
  }).join('\n');
 }
-export function displayMarkdown(text:string):string {return text.replace(/!\[/g,'[').replace(/<(?:img|iframe|video|audio|source|object|embed|link)\b[^>]*>/gi,'');}
+/** Raw HTML in a reply is sanitized on the rendered DOM; see render-sanitize.ts. */
+export {displayMarkdown} from './render-sanitize';
 export function insertion(path:string,before:string,content:string,start:number,end=start):Proposal {
  if(start<0||end<start||end>before.length)throw Error('The insertion position is no longer valid.');
  const frontmatter=before.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);if(frontmatter&&start<frontmatter[0].length)throw Error('Place the cursor in the note body, outside Properties, before inserting Markdown.');
@@ -362,3 +371,26 @@ export const mergeDecisions = applyHunkDecisions;
 export const resolveHunks = applyHunkDecisions;
 export const applyLineDecisions = applyHunkDecisions;
 export const computeMergedText = applyHunkDecisions;
+
+/** One displayed diff line and where it sits in the original (`before`) and proposed (`after`) text, as 0-based line numbers. */
+export interface DiffLine { text:string; kind:'added'|'removed'|'unchanged'; beforeLine:number; afterLine:number; }
+
+/**
+ * The diff as single lines, each mapped to a line in both versions, so a click
+ * in the diff can scroll the note to that place whichever version it shows.
+ * A removed line maps to the point in `after` where it was removed; an added
+ * line to the point in `before` where it is inserted.
+ */
+export function diffLineMap(before:string,after:string):DiffLine[]{
+ const lines:DiffLine[]=[];
+ let b=0,a=0;
+ for(const part of diffLines(before,after)){
+  const kind=part.added?'added':part.removed?'removed':'unchanged';
+  for(const text of part.value.match(/[^\n]*\n|[^\n]+/g)??[]){
+   lines.push({text,kind,beforeLine:b,afterLine:a});
+   if(kind!=='added')b++;
+   if(kind!=='removed')a++;
+  }
+ }
+ return lines;
+}

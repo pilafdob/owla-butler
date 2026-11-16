@@ -62,3 +62,16 @@ test('Codex and Claude Code: API keys, endpoint overrides and execution hooks ar
  for(const key of ['OPENAI_API_KEY','ANTHROPIC_API_KEY','OPENAI_BASE_URL','ANTHROPIC_BASE_URL','NODE_OPTIONS','LD_PRELOAD'])assert.equal(env[key],undefined,key);
  for(const key of ['PATH','HOME','HTTPS_PROXY','NODE_EXTRA_CA_CERTS'])assert.ok(env[key],key);
 });
+
+test('every provider drops module-resolution, preload and dynamic-library variables',async()=>{
+ const {UNSAFE_EXECUTION_ENV}=await import('../src/cli');
+ const {isolatedOpencodeEnv}=await import('../src/opencode');
+ const keys=['NODE_OPTIONS','NODE_PATH','NODE_MODULE_PATH','NODE_TLS_REJECT_UNAUTHORIZED','ELECTRON_RUN_AS_NODE','BUN_OPTIONS','BUN_INSTALL','DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH','LD_PRELOAD','LD_LIBRARY_PATH','PYTHONPATH','PERL5LIB'];
+ for(const key of keys)assert.ok(UNSAFE_EXECUTION_ENV.includes(key),key);
+ const input:NodeJS.ProcessEnv={PATH:'/bin',HOME:'/Users/u',OPENAI_API_KEY:'k',...Object.fromEntries(keys.map(key=>[key,'/x']))};
+ for(const [provider,env] of [['codex/claude',sanitizedEnv(input)],['opencode',isolatedOpencodeEnv(input,'/tmp/owla')]] as const){
+  for(const key of keys)assert.equal(env[key],undefined,provider+' '+key);
+  assert.equal(env.PATH,'/bin',provider);
+ }
+ assert.equal(isolatedOpencodeEnv(input,'/tmp/owla').OPENAI_API_KEY,'k');
+});

@@ -64,14 +64,17 @@ type CliSpawnOptions={cwd?:string;env?:NodeJS.ProcessEnv;detached?:boolean};
 
 /**
  * Variables that change how a spawned assistant executes before its own code
- * runs: module preload hooks, library injection and disabled TLS checks. No
+ * runs: module preload hooks and search paths (Node, Bun, Python, Perl),
+ * dynamic library injection and disabled TLS checks. No
  * assistant needs them, so every provider drops them. Proxies and custom
  * certificate bundles stay, because enterprise setups need them to reach the
  * provider at all.
  */
 export const UNSAFE_EXECUTION_ENV=[
- 'NODE_OPTIONS','NODE_TLS_REJECT_UNAUTHORIZED','ELECTRON_RUN_AS_NODE',
- 'DYLD_INSERT_LIBRARIES','LD_PRELOAD',
+ 'NODE_OPTIONS','NODE_PATH','NODE_MODULE_PATH','NODE_TLS_REJECT_UNAUTHORIZED',
+ 'ELECTRON_RUN_AS_NODE','BUN_OPTIONS','BUN_INSTALL',
+ 'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH',
+ 'LD_PRELOAD','LD_LIBRARY_PATH','PYTHONPATH','PERL5LIB',
 ];
 
 /**

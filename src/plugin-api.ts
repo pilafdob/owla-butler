@@ -38,13 +38,22 @@ export type PluginChange={
  apply:()=>Promise<void>;
 };
 
+/**
+ * Only a plugin Obsidian has enabled may answer for its ID, and an API that
+ * names itself with a string `id` or `pluginId` must name that same plugin.
+ * Any other plugin can trigger a workspace event, so this keeps a responder
+ * from speaking for a plugin that is off or not installed.
+ */
 function discover(workspace:Workspace,id:string):Provider|undefined {
+ const enabled=(workspace as {app?:{plugins?:{enabledPlugins?:unknown}}}).app?.plugins?.enabledPlugins;
+ if(enabled instanceof Set&&!enabled.has(id))return;
  const replies:unknown[]=[];
  let receiving=true;
  workspace.trigger('pilafdob:'+id+':api:v1',(reply:unknown)=>{if(receiving)replies.push(reply);});
  receiving=false;
  if(replies.length!==1)return;
  const api=record(replies[0]);
+ if((typeof api.id==='string'&&api.id!==id)||(typeof api.pluginId==='string'&&api.pluginId!==id))return;
  if(api.version===1&&typeof api.read==='function'&&typeof api.prepare==='function')return api as unknown as Provider;
 }
 

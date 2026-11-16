@@ -29,3 +29,49 @@ test('new-note drafts retain their creation action in the pending journal',async
   assert.deepEqual(loadPendingEdits(root),[draft]);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test('a pending edit record cannot point into an excluded or invalid path',async()=>{
+ const {loadPendingEdits,savePendingEdits}=await import('../src/recovery');
+ const {mkdtempSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const root=mkdtempSync(join(tmpdir(),'owla-pending-'));
+ try{
+  const entry=(path:string)=>({edit:{path,before:'a',after:'b',reason:'r'},reasons:['r']});
+  savePendingEdits(root,[entry('Notes/A.md'),entry('Private/B.md')]);
+  assert.equal(loadPendingEdits(root).length,2);
+  assert.throws(()=>loadPendingEdits(root,'Private'),/no longer allowed: Private\/B\.md/);
+  assert.throws(()=>loadPendingEdits(root,'private'),/no longer allowed/);
+  savePendingEdits(root,[entry('../outside.md')]);
+  assert.throws(()=>loadPendingEdits(root),/no longer allowed/);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('clearing an unloadable record restores allowed applied edits and keeps failures',async()=>{
+ const {loadMain}=await import('./helpers/load-main');
+ const {Butler}=await loadMain();
+ const {savePendingEdits,readPendingRecord}=await import('../src/recovery');
+ const {mkdtempSync,rmSync,existsSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const root=mkdtempSync(join(tmpdir(),'owla-clear-'));
+ try{
+  const entry=(path:string,extra:Record<string,unknown>={})=>({edit:{path,before:'old',after:'new',reason:'r'},reasons:['r'],...extra});
+  const make=(texts:Record<string,string>,failing=new Set<string>())=>{
+   const butler=Object.create(Butler.prototype);
+   const restored:unknown[]=[];
+   Object.assign(butler,{prefs:{excludedFolders:'Private'},pending:[],pendingLoadError:'bad',applyingEdit:false,vaultStorage:()=>root,
+    allowedNote:(path:string)=>!path.startsWith('Private/'),currentText:async(path:string)=>texts[path],
+    restoreEdit:async(edit:{path:string}&Record<string,string>)=>{if(failing.has(edit.path))throw Error('stale');restored.push(edit);}});
+   return {butler,restored};
+  };
+  savePendingEdits(root,[entry('Notes/A.md'),entry('Notes/Same.md'),entry('Private/B.md'),entry('Notes/D.md',{deferred:true}),{edit:{path:'Notes/N.md',before:'',after:'x',reason:'r',create:true},reasons:['r']}] as any);
+  const ok=make({'Notes/A.md':'new','Notes/Same.md':'old'});
+  assert.deepEqual(await ok.butler.clearPendingEdits(),{skipped:1});
+  // before and after are passed unswapped: restoreEdit swaps them itself.
+  assert.deepEqual(ok.restored,[{path:'Notes/A.md',before:'old',after:'new',reason:'Restore OWLA Butler edit'}]);
+  assert.equal(existsSync(join(root,'pending-edits.json')),false);
+  assert.equal(ok.butler.pendingLoadError,'');
+  savePendingEdits(root,[entry('Notes/A.md'),entry('Notes/C.md'),entry('Notes/D.md',{deferred:true})] as any);
+  const bad=make({'Notes/A.md':'new','Notes/C.md':'new'},new Set(['Notes/C.md']));
+  await bad.butler.clearPendingEdits();
+  assert.deepEqual(readPendingRecord(root).map((e:any)=>e.edit.path),['Notes/C.md','Notes/D.md']);
+  assert.match(bad.butler.pendingLoadError,/kept/);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

@@ -1,7 +1,7 @@
 import {mkdirSync,readFileSync,writeFileSync,readdirSync,statSync,unlinkSync,existsSync,renameSync} from 'node:fs';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {EditBatch,Proposal} from './core';
+import {EditBatch,Proposal,allowedPath} from './core';
 import {record} from './validation';
 export function backupEdit(root:string,edit:Proposal):void{
  const dir=join(root,'edit-backups');mkdirSync(dir,{recursive:true,mode:0o700});
@@ -15,7 +15,27 @@ export function rotateLog(path:string):void{if(existsSync(path)&&statSync(path).
 
 const MAX_PENDING_BYTES = 10_000_000;
 
-export function loadPendingEdits(root:string):EditBatch[] {
+/** The raw entries of the pending edit record, unvalidated; [] when it is missing or unreadable. */
+export function readPendingRecord(root:string):unknown[] {
+ const file = join(root, 'pending-edits.json');
+ try {
+  if (!existsSync(file) || statSync(file).size > MAX_PENDING_BYTES) return [];
+  const data:unknown = JSON.parse(readFileSync(file, 'utf8'));
+  return Array.isArray(data) ? data : [];
+ } catch { return []; }
+}
+
+export function removePendingRecord(root:string):void {
+ const file = join(root, 'pending-edits.json');
+ if (existsSync(file)) unlinkSync(file);
+}
+
+/**
+ * Loads the pending edit record. Every path is checked against the vault
+ * rules and the current excluded folders, so a record written before a folder
+ * was excluded (or edited by hand) cannot direct an edit into that folder.
+ */
+export function loadPendingEdits(root:string, excluded = ''):EditBatch[] {
  const file = join(root, 'pending-edits.json');
  if (!existsSync(file)) return [];
  if (statSync(file).size > MAX_PENDING_BYTES) throw Error('The pending edit record is too large.');
@@ -33,6 +53,7 @@ export function loadPendingEdits(root:string):EditBatch[] {
       paths.has(path) || (entry.deferred!==undefined&&entry.deferred!==true) || (create!==undefined&&(create!==true||before!==''))) {
    throw Error('The pending edit record is invalid.');
   }
+  if (!allowedPath(path, excluded)) throw Error('A pending edit path is no longer allowed: ' + path);
   paths.add(path);
   edits.push({edit:{path,before,after,reason,...(create===true?{create:true as const}:{})},reasons,...(entry.deferred===true?{deferred:true as const}:{})});
  }

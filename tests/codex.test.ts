@@ -1,6 +1,6 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {CodexBridge,assertSessionPrivacy,replayHistory,supportedVersion,friendlyError} from '../src/codex';import {migrateSettings} from '../src/core';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {CodexBridge,CodexIsolationError,CAPABILITY_FEATURES,MAX_FEATURE_OVERRIDES,assertSessionPrivacy,isolationReport,replayHistory,supportedVersion,friendlyError} from '../src/codex';import {PROBE_0169_CONFIG,PROBE_0169_FEATURES_330_OVERRIDES,PROBE_0169_FEATURES_FINAL} from './helpers/codex-probe';import {migrateSettings} from '../src/core';
 // The configuration a correctly isolated Codex session reports for every turn.
-const isolatedConfig={config:{features:{shell_tool:false,apps:false},analytics:{enabled:false},feedback:{enabled:false},otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'}}};
+const isolatedConfig={config:{notify:[],hooks:{},sandbox_mode:'read-only',approval_policy:'never',features:{shell_tool:false,apps:false,hooks:false,unified_exec:false,computer_use:false,browser_use:false,browser_use_full_cdp_access:false,in_app_browser:false,image_generation:false,tool_suggest:false,skill_search:false,sleep_tool:false,goals:false,memories:false,code_mode:false,js_repl:false,multi_agent:false,view_image:false,skill_mcp_dependency_install:false,plugins:false,remote_plugin:false,plugin_sharing:false,browser_use_external:false,browser_annotation_api:false,in_app_local_automation:false,workspace_dependencies:false,shell_snapshot:false,tool_call_mcp_elicitation:false,code_mode_host:false,api_key_model_discovery:false,api_key_cyber_access_programs:false,auth_elicitation:false,mentions_v2:false,network_proxy:null},analytics:{enabled:false},feedback:{enabled:false},otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'}}};
 test('migration removes inference configuration while preserving user work locations and exclusions',()=>{const s=migrateSettings({model:'qwen3:0.6b',executable:'/old/ollama',provider:'ollama',storageRoot:'/private/work',excludedFolders:'Private'});assert.equal(s.models.codex.model,'');assert.equal(s.storageRoot,'/private/work');assert.equal(s.excludedFolders,'Private');assert.equal('models' in s,true);assert.equal(s.provider,'codex');assert.equal(migrateSettings({...s,schemaVersion:3,models:{codex:{model:'selected',reasoning:'high'},opencode:{model:'',reasoning:''}}}).models.codex.model,'selected');});
 test('Codex version checks enforce the tested protocol baseline',()=>{assert.ok(supportedVersion('codex-cli 0.162.1'));assert.ok(supportedVersion('codex-cli 0.163.0'));assert.equal(supportedVersion('0.162.0'),false);assert.equal(supportedVersion('unknown'),false);});
 test('restart replay is bounded and never includes tool calls',()=>{const input=Array.from({length:20},(_,i)=>({role:'user' as const,content:'x'.repeat(6000)+i}));const r=replayHistory(input);assert.ok(r.shortened);assert.ok(r.messages.length<=12);assert.ok(r.messages.reduce((n,m)=>n+m.content.length,0)<=64000);assert.equal(r.messages.at(-1)?.content,input.at(-1)?.content);});
@@ -133,4 +133,303 @@ test('project instructions above the session folder are found, the home folder a
   writeFileSync(join(home,'shared','AGENTS.md'),'project');
   assert.deepEqual(inheritedInstructions(session,home),[join(home,'shared','AGENTS.md')]);
  }finally{rmSync(home,{recursive:true,force:true});}
+});
+
+// ---------------------------------------------------------------- U2: feature isolation without blocking stock Codex
+
+const report=(features:Record<string,unknown>,extra:Record<string,unknown>={})=>isolationReport({...isolatedConfig.config,features:{...isolatedConfig.config.features,...features},...extra});
+
+test('isolationReport: an all-false (or unset/null) feature set passes',()=>{
+ assert.deepEqual(isolationReport(isolatedConfig.config),{disableFeatures:[]});
+ assert.deepEqual(report({network_proxy:null,future_feature:null}),{disableFeatures:[]});
+});
+
+test('isolationReport: a feature set to true is turned off instead of blocking',()=>{
+ assert.deepEqual(report({fast_mode:true}),{disableFeatures:['fast_mode']});
+ assert.deepEqual(report({fast_mode:true,fancy_new_tool:true,network_proxy:null}).disableFeatures,['fast_mode','fancy_new_tool']);
+});
+
+test('isolationReport: non-boolean feature values and unsafe feature names are fatal',()=>{
+ for(const value of [{a:1},'on',1,0,[]]){const r=report({x:value});assert.match(r.fatal??'',/feature x has an unsupported value/,JSON.stringify(value));assert.deepEqual(r.disableFeatures,[]);}
+ for(const key of ['a.b','A','a-b','a b','"x"=true','']){const r=report({[key]:true});assert.match(r.fatal??'',/feature name .* is not supported/,key);}
+ // An unsafe name is fatal even when its value is false: it could not be passed back through -c.
+ assert.ok(report({'a.b':false}).fatal);
+ // The key is shown, but quoted and shortened.
+ assert.ok((report({['a.'+'x'.repeat(200)]:true}).fatal??'').length<400);
+});
+
+test('isolationReport: more than the cap of true features fails closed',()=>{
+ const many=(n:number)=>Object.fromEntries(Array.from({length:n},(_,i)=>['extra_'+i,true]));
+ assert.equal(report(many(MAX_FEATURE_OVERRIDES)).disableFeatures.length,64);
+ assert.match(report(many(MAX_FEATURE_OVERRIDES+1)).fatal??'',/more than 64 Codex features/);
+});
+
+test('isolationReport: every existing non-feature condition is still fatal',()=>{
+ const c=isolatedConfig.config;
+ const cases:Record<string,unknown>[]=[
+  {features:{...c.features,shell_tool:true}},{features:{...c.features,apps:true}},{features:{...c.features,shell_tool:undefined}},{features:{...c.features,apps:null}},
+  {mcp_servers:{fs:{enabled:true}}},{plugins:{'tool@vendor':{}}},{notify:['say']},{notify:'say'},{hooks:{pre:[{}]}},{hooks:[]},
+  {sandbox_mode:'workspace-write'},{approval_policy:'on-request'},{features:'all'},
+ ];
+ for(const extra of cases)assert.match(isolationReport({...c,...extra}).fatal??'',/could not isolate/,JSON.stringify(extra));
+ assert.match(isolationReport({...c,plugins:[{enabled:true}]}).fatal??'',/unsupported integration/);
+ for(const extra of [{analytics:{enabled:true}},{feedback:{}},{otel:{...c.otel,exporter:'otlp-http'}}])assert.match(isolationReport({...c,...extra}).fatal??'',/telemetry/,JSON.stringify(extra));
+ // null notify and hooks mean unset.
+ assert.deepEqual(isolationReport({...c,notify:null,hooks:null}),{disableFeatures:[]});
+ assert.match(isolationReport({...c,sandbox_mode:'danger-full-access'},'turn').fatal??'',/Reconnect to retry/);
+});
+
+test('isolation errors are shown verbatim, even when a key looks like a quota or sign-in word',()=>{
+ const e=new CodexIsolationError('Codex could not isolate OWLA tools: feature usage_limit_429 is enforced by managed Codex settings.');
+ assert.equal(friendlyError(e),e.message);
+});
+
+test('U2 regression: the stock Codex 0.169.0 config/read result is never blocked',()=>{
+ // With the 3.3.0 override list, the stock result has true defaults and nulls; all true keys are pre-disabled now.
+ const before=isolationReport({...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_330_OVERRIDES});
+ assert.equal(before.fatal,undefined);
+ assert.deepEqual(before.disableFeatures.sort(),['api_key_cyber_access_programs','api_key_model_discovery','auth_elicitation','mentions_v2','remote_plugin']);
+ for(const key of before.disableFeatures)assert.ok(CAPABILITY_FEATURES.includes(key),key);
+ // With the final override list, the real Codex response needs no restart.
+ assert.deepEqual(isolationReport({...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_FINAL}),{disableFeatures:[]});
+ assert.deepEqual(isolationReport({...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_FINAL},'turn'),{disableFeatures:[]});
+});
+
+test('the proactive list turns off the capability features that Codex enables by default',()=>{
+ for(const key of ['plugins','remote_plugin','plugin_sharing','browser_use_external','browser_annotation_api','in_app_local_automation','workspace_dependencies','shell_snapshot','tool_call_mcp_elicitation','code_mode_host','shell_tool','apps','hooks','unified_exec'])assert.ok(CAPABILITY_FEATURES.includes(key),key);
+ for(const [key,value] of Object.entries(PROBE_0169_FEATURES_330_OVERRIDES))if(value===true)assert.ok(CAPABILITY_FEATURES.includes(key),key);
+ assert.ok(CAPABILITY_FEATURES.every(key=>/^[a-z0-9_]+$/.test(key)));
+});
+
+// A fake `codex` (tests/fixtures/fake-codex.mjs) that applies -c feature overrides the way Codex 0.169.0 does.
+async function fakeCodex(scenario:{mcp_servers?:Record<string,unknown>;plugins?:Record<string,unknown>;defaults?:Record<string,unknown>;pinned?:Record<string,unknown>;hooks?:unknown;hookInventory?:unknown;hookInventoryError?:boolean}){
+ const {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');
+ const folder=mkdtempSync(join(tmpdir(),'owla-fake-codex-')),fixture=resolve('tests/fixtures/fake-codex.mjs');
+ const set=(next:typeof scenario)=>writeFileSync(join(folder,'scenario.json'),JSON.stringify(next));
+ set(scenario);
+ let file:string;
+ if(process.platform==='win32'){file=join(folder,'codex.cmd');writeFileSync(file,'@echo off\r\n"'+process.execPath+'" "'+fixture+'" "'+folder+'" %*\r\n');}
+ else{file=join(folder,'codex');writeFileSync(file,'#!/bin/sh\nexec "'+process.execPath+'" "'+fixture+'" "'+folder+'" "$@"\n',{mode:0o700});}
+ const spawns=()=>existsSync(join(folder,'spawns.jsonl'))?readFileSync(join(folder,'spawns.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line) as string[]):[];
+ const bridge=new CodexBridge();
+ const cwd=join(folder,'session');
+ const cleanup=async()=>{bridge.disconnect();await (bridge as any).closing;rmSync(folder,{recursive:true,force:true});};
+ const requests=()=>existsSync(join(folder,'requests.jsonl'))?readFileSync(join(folder,'requests.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line) as {method:string;params:any}):[];
+ return {file,cwd,bridge,set,spawns,requests,cleanup};
+}
+const disables=(argv:string[],key:string)=>argv.some((arg,i)=>argv[i-1]==='-c'&&arg==='features.'+key+'=false');
+
+test('U2: stock Codex 0.169.0 connects with one app-server start',async()=>{
+ const fake=await fakeCodex({defaults:PROBE_0169_FEATURES_330_OVERRIDES});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  assert.equal(fake.spawns().length,1);
+  assert.ok(disables(fake.spawns()[0],'api_key_model_discovery'));
+ }finally{await fake.cleanup();}
+});
+
+test('U2: a user-enabled feature is turned off with one restart, and the connect succeeds',async()=>{
+ const fake=await fakeCodex({defaults:{...PROBE_0169_FEATURES_330_OVERRIDES,fancy_new_tool:true}});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  const [first,second]=fake.spawns();
+  assert.equal(fake.spawns().length,2);
+  assert.equal(disables(first,'fancy_new_tool'),false);
+  assert.ok(disables(second,'fancy_new_tool'));
+ }finally{await fake.cleanup();}
+});
+
+test('U2: a feature that stays on after the restart is enforced by managed settings and fails closed',async()=>{
+ const fake=await fakeCodex({defaults:{fancy_new_tool:true},pinned:{fancy_new_tool:true}});
+ try{
+  await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/feature fancy_new_tool is enforced by managed Codex settings/);
+  assert.equal(fake.spawns().length,2);
+  assert.equal(fake.bridge.running,false);
+  assert.match(fake.bridge.status,/managed Codex settings/);
+ }finally{await fake.cleanup();}
+ // A pinned feature that OWLA already turned off fails without a pointless restart.
+ const pinned=await fakeCodex({pinned:{api_key_model_discovery:true}});
+ try{
+  await assert.rejects(pinned.bridge.connect(pinned.file,pinned.cwd),/feature api_key_model_discovery is enforced by managed/);
+  assert.equal(pinned.spawns().length,1);
+ }finally{await pinned.cleanup();}
+});
+
+test('U2: a non-boolean feature value fails closed on connect and names the key',async()=>{
+ const fake=await fakeCodex({defaults:{fancy_new_tool:{x:1}}});
+ try{
+  await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/feature fancy_new_tool has an unsupported value/);
+  assert.equal(fake.spawns().length,1);
+  assert.equal(fake.bridge.running,false);
+ }finally{await fake.cleanup();}
+});
+
+test('U2: a web re-key reuses the learned overrides; explicit Disconnect and Verify clear them',async()=>{
+ const fake=await fakeCodex({defaults:{fancy_new_tool:true}});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd,false);
+  assert.equal(fake.spawns().length,2);
+  await fake.bridge.connect(fake.file,fake.cwd,true);
+  assert.equal(fake.spawns().length,3,'one start, not two');
+  const third=fake.spawns()[2];
+  assert.ok(disables(third,'fancy_new_tool'));
+  assert.ok(third.includes('web_search="live"'));
+  // Explicit Disconnect, then Connect: a clean probe without the learned override.
+  fake.bridge.disconnect();await (fake.bridge as any).closing;
+  await fake.bridge.connect(fake.file,fake.cwd,false);
+  assert.equal(fake.spawns().length,5);
+  assert.equal(disables(fake.spawns()[3],'fancy_new_tool'),false);
+  // Verify (recheck) also forgets them; the user removed the flag, so no restart is needed.
+  fake.set({defaults:{}});
+  fake.bridge.recheck();
+  await fake.bridge.connect(fake.file,fake.cwd,true);
+  assert.equal(fake.spawns().length,6);
+  assert.equal(disables(fake.spawns()[5],'fancy_new_tool'),false);
+ }finally{await fake.cleanup();}
+});
+
+test('U2: a feature turned on mid-session stops the next turn before thread/start; reconnecting applies the isolation',async()=>{
+ const fake=await fakeCodex({defaults:PROBE_0169_FEATURES_330_OVERRIDES});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  fake.set({defaults:PROBE_0169_FEATURES_330_OVERRIDES,pinned:{fast_mode:true}});
+  // The fake rejects thread/start, so reaching it would fail with a different message.
+  await assert.rejects(fake.bridge.run({...options(),executable:fake.file,cwd:fake.cwd,model:'fake'}),/feature fast_mode was turned on while Codex was running\. Reconnect Codex to apply OWLA's isolation/);
+  assert.equal(fake.bridge.running,false,'the process rests after the stopped turn');
+  fake.set({defaults:{...PROBE_0169_FEATURES_330_OVERRIDES,fast_mode:true}});
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  assert.ok(disables(fake.spawns().at(-1)!,'fast_mode'));
+ }finally{await fake.cleanup();}
+});
+
+test('assertIsolation: a true feature mid-session stops the turn; a null feature does not',async()=>{
+ const b=mockBridge(),base=b.request;let started=false;
+ b.request=async(method:string)=>{if(method==='config/read')return {config:{...isolatedConfig.config,features:{...isolatedConfig.config.features,fancy_new_tool:true}}};if(method==='thread/start')started=true;return base(method);};
+ await assert.rejects(b.run(options()),/feature fancy_new_tool was turned on while Codex was running\. Reconnect Codex/);
+ assert.equal(started,false);
+ b.request=async(method:string)=>{if(method==='config/read')return {config:{...isolatedConfig.config,features:{...isolatedConfig.config.features,x:'on'}}};if(method==='thread/start')started=true;return base(method);};
+ await assert.rejects(b.run(options()),/feature x has an unsupported value/);
+ assert.equal(started,false);
+ const ok=mockBridge(),okBase=ok.request,controller=new AbortController();
+ ok.request=async(method:string)=>{if(method==='config/read')return {config:{...PROBE_0169_CONFIG,features:PROBE_0169_FEATURES_FINAL}};if(method==='thread/start')started=true;return okBase(method);};
+ const pending=ok.run({...options(),signal:controller.signal});
+ await new Promise(r=>setImmediate(r));
+ assert.equal(started,true);
+ controller.abort();await assert.rejects(pending,/Stopped/);
+});
+
+const hookMetadata={
+ ...Object.fromEntries(['PreModelRequest','PostModelRequest','PreToolUse','PermissionRequest','PostToolUse','PreCompact','PostCompact','SessionStart','SessionEnd','UserPromptSubmit','SubagentStart','SubagentStop','Stop','Interrupt'].map(event=>[event,[]])),
+ state:Object.fromEntries(Array.from({length:8},(_,i)=>['/fixture/hooks.json:event:'+i,{trusted_hash:'sha256:'+String(i).repeat(64)}])),
+};
+test('hooks: 14 empty event arrays and eight trusted state entries require an explicitly false feature',()=>{
+ for(const phase of ['start','turn'] as const){
+  assert.deepEqual(isolationReport({...isolatedConfig.config,hooks:hookMetadata},phase),{disableFeatures:[]});
+  for(const hooks of [undefined,null,true])assert.ok(isolationReport({...isolatedConfig.config,hooks:hookMetadata,features:{...isolatedConfig.config.features,hooks}},phase).fatal);
+ }
+});
+test('hooks: active declarations, unknown events and malformed trust state fail closed',()=>{
+ for(const hooks of [[],true,'off',{Stop:[{hooks:[{type:'command',command:'do not run'}]}]},{Stop:null},{FutureEvent:[]},{state:null},{state:[]},{state:{x:[]}}, {state:{x:null}},{state:{x:{enabled:'false'}}},{state:{x:{trusted_hash:{}}}},{state:{x:{command:'do not run'}}}]){
+  for(const phase of ['start','turn'] as const)assert.ok(isolationReport({...isolatedConfig.config,hooks},phase).fatal,JSON.stringify(hooks));
+ }
+ assert.deepEqual(isolationReport({...isolatedConfig.config,hooks:{state:{x:{enabled:true,trusted_hash:'hash',trusted_content_hash:'content'},y:{enabled:null,trusted_hash:null}}}}),{disableFeatures:[]});
+});
+test('hooks: trusted metadata connects only after an empty runtime inventory, and is rechecked before turns',async()=>{
+ const fake=await fakeCodex({hooks:hookMetadata});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  const methods=fake.requests().map(r=>r.method);
+  assert.ok(methods.indexOf('hooks/list')<methods.indexOf('account/read'));
+  assert.ok(disables(fake.spawns()[0],'hooks'));
+  // No commands are returned in config/read, but a now-active hooks.json entry
+  // in runtime discovery must still stop the turn before thread/start.
+  fake.set({hooks:hookMetadata,hookInventory:{data:[{cwd:fake.cwd,hooks:[{eventName:'stop',enabled:true,trustStatus:'trusted'}],errors:[],warnings:[]}]}});
+  await assert.rejects(fake.bridge.run({...options(),executable:fake.file,cwd:fake.cwd,model:'fake'}),/could not verify that hooks are disabled/);
+  assert.equal(fake.bridge.running,false);
+  assert.equal(fake.requests().filter(r=>r.method==='hooks/list').length,2);
+  assert.ok(!fake.requests().some(r=>r.method==='thread/start'));
+ }finally{await fake.cleanup();}
+});
+test('hooks: missing, malformed, mismatched or nonempty runtime inventories cannot connect',async()=>{
+ const bad=[{}, {data:[]},{data:[{}]},{data:[{cwd:'/wrong',hooks:[],errors:[],warnings:[]}]},
+  ...[{hooks:[{enabled:false}]},{hooks:{}},{errors:[{message:'discovery failed'}]},{warnings:['unreadable hooks']},{warnings:null}].map(fields=>({fields}))];
+ for(const value of bad){
+  const fake=await fakeCodex({hooks:hookMetadata});
+  try{
+   const {realpathSync}=await import('node:fs');
+   // connect creates cwd before discovery; use its canonical parent here.
+   const {dirname,basename,join}=await import('node:path');
+   const directory=join(realpathSync(dirname(fake.cwd)),basename(fake.cwd));
+   const hookInventory='fields' in value?{data:[{cwd:directory,hooks:[],errors:[],warnings:[],...value.fields}]}:value;
+   fake.set({hooks:hookMetadata,hookInventory});
+   await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/could not verify that hooks are disabled/);
+   assert.equal(fake.bridge.running,false);
+   assert.ok(!fake.requests().some(r=>r.method==='account/read'||r.method==='thread/start'));
+  }finally{await fake.cleanup();}
+ }
+});
+
+test('hooks: unsupported runtime discovery fails closed without exposing raw server errors',async()=>{
+ const fake=await fakeCodex({hooks:hookMetadata,hookInventoryError:true});
+ try{
+  await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/could not verify that hooks are disabled/);
+  assert.equal(fake.bridge.running,false);
+  assert.ok(!fake.requests().some(r=>r.method==='account/read'||r.method==='thread/start'));
+ }finally{await fake.cleanup();}
+});
+
+// ---------------------------------------------------------------- A3: item/started allowlist
+
+async function turnWithItem(item:Record<string,unknown>,extra:Record<string,unknown>={}){
+ const b=mockBridge(),base=b.request;let closed='';
+ b.close=(status:string)=>{closed=status;};
+ b.request=async(method:string)=>{const result=await base(method);if(method==='turn/start')queueMicrotask(()=>{b.active?.event('item/started',{threadId:'t',item});b.active?.event('turn/completed',{threadId:'t',turn:{status:'completed'}});});return result;};
+ const tools=[{type:'function',name:'read_note',description:'',inputSchema:{}}];
+ const result=b.run({...options(),tools,...extra}).then(()=>'ok',(e:Error)=>e.message);
+ return {outcome:await result,closed};
+}
+test('A3: every ThreadItem outside the allowlist stops the turn and disconnects',async()=>{
+ for(const type of ['commandExecution','fileChange','mcpToolCall','collabAgentToolCall','imageView','imageGeneration','enteredReviewMode','somethingNew']){
+  const {outcome,closed}=await turnWithItem({type});
+  assert.match(outcome,/outside OWLA tools/,type);assert.equal(closed,'Disconnected',type);
+ }
+});
+test('A3: unlisted dynamic tools and web search without permission stop the turn',async()=>{
+ assert.match((await turnWithItem({type:'dynamicToolCall',tool:'propose_edit'})).outcome,/outside OWLA tools/);
+ assert.match((await turnWithItem({type:'dynamicToolCall'})).outcome,/outside OWLA tools/);
+ assert.match((await turnWithItem({type:'webSearch'})).outcome,/web search/);
+});
+test('A3: allowed ThreadItems, listed tools and permitted web search complete the turn',async()=>{
+ for(const type of ['userMessage','agentMessage','reasoning','contextCompaction','plan','functionCallOutput'])assert.equal((await turnWithItem({type})).outcome,'ok',type);
+ assert.equal((await turnWithItem({type:'dynamicToolCall',tool:'read_note'})).outcome,'ok');
+ assert.equal((await turnWithItem({type:'webSearch'},{web:true})).outcome,'ok');
+});
+
+test('3.2.0 parity: enabled MCP servers and plugins are turned off with one restart, together with extra features',async()=>{
+ const fake=await fakeCodex({defaults:{...PROBE_0169_FEATURES_330_OVERRIDES,fancy_new_tool:true},mcp_servers:{node_repl:{command:'node'}},plugins:{'browser@openai-bundled':{enabled:true}}});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  const spawns=fake.spawns();
+  assert.equal(spawns.length,2);
+  assert.ok(spawns[1].includes('mcp_servers={"node_repl"={enabled=false}}'));
+  assert.ok(spawns[1].includes('plugins={"browser@openai-bundled"={enabled=false}}'));
+  assert.ok(disables(spawns[1],'fancy_new_tool'));
+ }finally{await fake.cleanup();}
+});
+
+test('3.2.0 parity: an MCP server that stays enabled after the restart fails closed',async()=>{
+ const fake=await fakeCodex({mcp_servers:{pinned:{command:'x',enabled:true}}});
+ // A config/read that keeps reporting the server enabled models a managed layer that outranks -c.
+ try{
+  const bridge=fake.bridge as any;const base=bridge.request.bind(bridge);let reads=0;
+  bridge.request=async(method:string,params:unknown,t?:number)=>{const r=await base(method,params,t);if(method==='config/read'){reads++;r.config.mcp_servers={pinned:{enabled:true}};}return r;};
+  await assert.rejects(fake.bridge.connect(fake.file,fake.cwd),/could not isolate OWLA tools/);
+  assert.equal(reads,2);assert.equal(fake.spawns().length,2);
+ }finally{await fake.cleanup();}
 });

@@ -1,3 +1,17 @@
+# OWLA Butler 3.4.0
+
+- Security and vault-confinement fixes on top of the working 3.2.0 code. Chat, toolbar and web-search behaviour are unchanged: the **Allow web search** setting is still the only switch.
+- Excluded folders can no longer be reached through other spellings of their names (`ſecret` for `Secret`), and hardlinked files are refused.
+- Codex runs without notify commands, hooks or extra capability features for OWLA's session, while your own Codex configuration stays unchanged. Stock Codex 0.169.0, including setups with `hooks.json`, connects normally.
+- Every provider can run only the tools offered for the current message.
+- Replies are cleaned after rendering, so injected HTML cannot load remote content or run anything. Task lists, Mermaid and math still render.
+- Long notes: OWLA reads them in parts and lists every heading, and reads after a proposal now show the section asked for. A reply that keeps repeating the same tool call is stopped instead of running for minutes.
+- German edit requests are recognised by automatic selection, and large-note edits are no longer sent to free models.
+- Split diff view no longer has per-change or per-line buttons; Accept or Decline in chat decides the whole batch. It now opens scrolled to the first change, and clicking a diff line takes the note to that line.
+- If the pending edit record cannot be loaded, a recovery button restores provisional edits safely.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and sign in to the provider CLI separately.
+
 # OWLA Butler 3.3.2
 
 - Restores the working 3.2.0 build exactly. The 3.3.0 and 3.3.1 updates were broken and have been withdrawn from the release channel.

@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.4.0
+
+Security and vault-confinement fixes ported onto the working 3.2.0/3.3.2 code in small steps, without the 3.3.0/3.3.1 UI changes. No web-search consent bar and no second toolbar indicator; the **Allow web search** setting stays the only switch.
+
+### Vault confinement
+
+- Excluded folders match the way APFS folds names, so `ſecret` or `ςοφία` cannot reach `Secret` or `Σοφία`. Paths are resolved with the OS's own realpath (`realpathSync.native`).
+- Paths with NUL, `:`, control characters or a `~` segment are refused. Trailing dots and spaces are refused on Windows only; `Dr.` stays valid on macOS and Linux.
+- A hardlinked file (and a symlink to one) is refused for reading, editing and organizing. Folders are not affected.
+- Vault path answers are no longer cached across turns, so a symlink swapped outside Obsidian is seen at once. The note picker and vault search keep a cache for one pass only.
+- Organization moves refuse a destination folder that is a case or Unicode alias of an existing folder.
+- A pending edit record is checked against the excluded folders when it loads. If it cannot be loaded, **Clear pending edit record** restores provisional edits to allowed notes and keeps any record it could not restore.
+
+### Provider isolation
+
+- Codex starts with `notify=[]`, a read-only sandbox, no approvals, no project docs and every non-OWLA capability feature turned off. A feature turned on in your own Codex config is turned off for OWLA's session with one restart; a feature pinned by managed settings stops the connection and is named. Hooks must be off and Codex's runtime hook list must be empty. Stock Codex 0.169.0 with `hooks.json` or hook trust records connects normally. A personal `~/AGENTS.md` is never a reason to refuse.
+- Codex turns stop on any activity outside an allowlist: messages, reasoning, plans, OWLA's offered tools and, when allowed, web search.
+- Claude Code's MCP bridge and OWLA's own tool dispatcher run only the tools offered for the current turn.
+- Module-path, preload and dynamic-library variables (Node, Bun, Python, Perl, `DYLD_*`, `LD_*`) are removed from every provider's environment.
+- Pilafdob plugin APIs are accepted only from plugins Obsidian has enabled, and only when the API names that same plugin.
+
+### Rendered replies
+
+- Replies are sanitized after Obsidian renders them: scripts, frames, media, forms, remote images, event handlers, URL attributes, CSS that can fetch (`url()`, `image-set()`, `@import`, CSS escapes) and non-web link schemes are removed. Task checkboxes are read-only. Icons, Mermaid diagrams and MathJax are kept, and Markdown code is never rewritten.
+
+### Long notes and runaway replies
+
+- Fixed: after a proposal was staged, every `read_note` returned the same first 4,000 characters of the preview and ignored the heading or block asked for. A model editing a long note re-read that opening until it gave up (observed live: 50+ reads in 14 minutes on a 61,000-character note).
+- `read_note` returns long notes and sections in 12,000-character parts with an exact `offset` continuation, and the first part lists every heading with its size (previously only the first 30). Heading and block reads also work on unsaved editor text and staged previews, and nested headings (`Parent#Child`) resolve.
+- A long active note sent with a message says how to continue reading and includes its heading outline.
+- Each reply has a tool budget. The same call returning the same result a third time is refused; after 40 calls the model is told to answer; at 50 the reply stops with a note in Sources & activity. An automatic retry on another model starts a fresh budget.
+- Automatic selection recognises German edit requests ("füge … zur Liste hinzu", "ergänze die Tabelle"), which were routed like questions. Edits of a note over 20,000 characters are kept off free and tool-unproven models outside Cost mode.
+
+### Split diff view
+
+- The per-hunk and per-line accept/decline buttons from 3.2.0 are removed. The split view shows the pending diff; **Accept** and **Decline** in chat decide the whole batch. In live testing, partial line decisions could drop an accepted line from the note.
+- When the diff opens, it and the note scroll so the first change is at the top. Clicking a diff line scrolls the note to that line and briefly highlights it. Scrolling never moves the cursor or selection, and re-renders of the same proposal keep your scroll position.
+
+### Other
+
+- Temporary attachment copies are readable by the user only.
+- CI and release workflows pin GitHub Actions to commit SHAs and run the restored vault guard self-test.
+
 ## 3.3.2
 
 - Restoration release: the exact 3.2.0 code after the broken, withdrawn 3.3.0 and 3.3.1 updates. Only the version metadata changes, so installs stuck on 3.3.0 or 3.3.1 receive it as an update and return to normal.

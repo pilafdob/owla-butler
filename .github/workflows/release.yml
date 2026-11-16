@@ -17,11 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22'
           cache: npm
@@ -29,6 +29,7 @@ jobs:
       - run: npm run check
       - run: npm run lint
       - run: npm test
+      - run: npm run guard:test
       - run: npm run build
       - run: npm run check:release
       - name: Package direct-install distribution
@@ -39,7 +40,7 @@ jobs:
         run: |
           node -e 'const fs=require("fs"); const m=require("./manifest.json"); const p=require("./package.json"); const v=require("./versions.json"); const tag=process.env.RELEASE_TAG; if(!/^\d+\.\d+\.\d+$/.test(tag)||m.version!==tag||p.version!==tag||v[tag]!==m.minAppVersion) process.exit(1); for(const f of ["main.js","manifest.json","styles.css"]) if(!fs.existsSync(f)||!fs.statSync(f).size) process.exit(1);'
       - name: Attest release assets
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             main.js
@@ -47,7 +48,7 @@ jobs:
             styles.css
             dist/*.zip
       - name: Store optional manual-install package separately
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: owla-butler-manual-install
           path: dist/owla-butler-*

@@ -623,3 +623,17 @@ test('autoEntries keeps context-window filtering when called as a fallback', () 
  assert.equal(autoEntries([offer], false, 500000).some(entry => entry.key === 'narrow-model'), false);
  assert.equal(autoEntries([offer], false, 500000).some(entry => entry.key === 'wide-model'), true);
 });
+
+test('a German edit of a large active note is not routed to a free or tool-unproven model',()=>{
+ const list=offers(),entries=autoEntries(list,false);
+ const ctx=(chars:number)=>({attachments:[],activeNote:true,selections:0,recentMessages:0,previousImages:0,previousPdfs:0,webSearch:false,activeNoteChars:chars});
+ const prompt='nein, füge und kombinire zu der ersten Liste die du gemacht hast.';
+ const edit=calibrateTask(task(3,'synthesis'),prompt,ctx(61_376) as any);
+ assert.equal(edit.writes,true);
+ const large=scoreEntries(entries,list,edit,'codex',now,ctx(61_376) as any)[0];
+ assert.notEqual(large.entry.provider,'opencode');
+ assert.ok(large.profile.cost>0);
+ // The size of the note itself weighs against free models for edits.
+ const freeScore=(chars:number)=>scoreEntries(entries,list,edit,'codex',now,ctx(chars) as any).find(item=>item.profile.cost===0)!.score;
+ assert.ok(freeScore(61_376)>=freeScore(3_000)+3);
+});

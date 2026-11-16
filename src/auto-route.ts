@@ -302,12 +302,27 @@ export function calibrateTask(task:TaskClass,prompt:string,context?:RoutingConte
  // Apple's model answers tools:true for nearly every request (measured live: 29 of 30
  // evaluation prompts). Keep its yes only when the request points into the vault.
  const tools=forced||kind==='edit'||kind==='organisation'||task.tools&&(options?.trustTools===true||VAULT_REFERENCE.test(prompt));
- const writes=kind==='edit'||kind==='organisation'||WRITE_INTENT.test(prompt);
+ const writes=kind==='edit'||kind==='organisation'||WRITE_INTENT.test(prompt)||germanWriteIntent(prompt,!!context?.activeNote);
  return {difficulty,kind,tools:tools||writes,effort,writes};
 }
 
 /** An edit verb aimed at vault content, or text placed into a note. Reading a note is not writing. */
 const WRITE_INTENT=/\b(add|append|insert|put|save|create|update|edit|change|replace|fix|rename|move|delete|remove|organi[sz]e|restructure)\b[^.?!]*\b(notes?|files?|folders?|vault|headings?|sections?|frontmatter|propert(?:y|ies)|tags?)\b|\b(?:in|into|to|under|below) (?:the|my|this|current|a|an|new)(?: [\w-]+)? (?:note|file|heading|section)\b/i;
+
+/**
+ * German edit requests ("füge … zur Liste hinzu", "ergänze die Tabelle"). The
+ * English pattern above uses ASCII word boundaries, which cannot see words
+ * with umlauts, so a German edit was routed like a question. A German edit verb
+ * counts when it names a note element or the request is about the active note.
+ */
+const GERMAN_EDIT_VERB=/(?<!\p{L})(?:füg|hinzufüg|einfüg|ergänz|änder|ersetz|lösch|entfern|kombinier|zusammenführ|verschieb|korrigier|aktualisier|erstell|umbenenn|überarbeit|bearbeit|schreib|trag\p{L}* ein|verbesser|sortier|formatier)\p{L}*/iu;
+const GERMAN_EDIT_TARGET=/(?<!\p{L})(?:notiz|datei|ordner|liste|tabelle|abschnitt|überschrift|eintr[aä]g|zeile|absatz|vokabel|kapitel|seite|dokument)\p{L}*/iu;
+export function germanWriteIntent(prompt:string,activeNote=false):boolean{
+ return GERMAN_EDIT_VERB.test(prompt)&&(activeNote||GERMAN_EDIT_TARGET.test(prompt));
+}
+
+/** An active note this long counts as large for edit routing. */
+export const LARGE_NOTE_CHARS=20_000;
 
 const VAULT_REFERENCE=/\b(vault|folders?|insert\w*|append\w*|below|above|headings?|sections?|backlinks?|frontmatter|propert(?:y|ies)|tags?|wikilinks?|canvas|(?:my|other|linked|related|these|those|all)(?: [\w-]+)? (?:notes?|files?)|(?:this|current|active|that|the) (?:note|file|page))\b/i;
 const PROOF_WORDS=/\b(prove|proof|counterexample|induction|invariant|lemma|theorem)\b/i;
@@ -527,6 +542,11 @@ export function scoreEntries(
   // Changing notes through a model whose OWLA tool use is unproven risks a broken edit, which costs
   // more than plan usage. Balance and Intelligence pay a proven model unless its plan is scarce; Cost stays free.
   const unprovenPenalty=!toolsUnproven?0:task.writes?(activeMode==='cost'?1.5:activeMode==='intelligence'?4.5:4):1;
+  // Editing a large note needs many exact reads and a precise replacement. Free and
+  // tool-unproven models loop on such notes (observed: 50+ reads of a 61k-character
+  // note), so outside Cost mode they are kept off large-note edits.
+  const largeNoteEdit=task.writes&&(context?.activeNoteChars??0)>=LARGE_NOTE_CHARS;
+  const largeNotePenalty=!largeNoteEdit||activeMode==='cost'?0:(toolsUnproven?4:0)+(profile.cost===0?3:0);
   const eligible=profile.capability>=capabilityFloor&&!(usage&&usage.remaining<15);
   const sameProvider=context?.previousProvider===entry.provider;
   const continuity=sameTask?(sameProvider&&context?.previousModel===entry.key?continuityModel:sameProvider?continuityProvider:0):0;
@@ -536,6 +556,7 @@ export function scoreEntries(
    +overshootWeight*Math.max(0,profile.capability-task.difficulty)
    +(weak?2:0)
    +unprovenPenalty
+   +largeNotePenalty
    -(strong?strongBonus:0)
    -(profile.cost===0?freeBonus:0)
    -(entry.provider===home?0.1:0)

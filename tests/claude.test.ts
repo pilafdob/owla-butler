@@ -121,3 +121,27 @@ test('get_usage plan limits decode without a prompt, as percentages with ISO res
  const locked=usageWindows(decodeClaudeUsage({rate_limits:{five_hour:{utilization:80,locked_reason:'limit'}}}));
  assert.equal(locked[0].used,100);
 });
+
+test('Claude MCP tools/call refuses a tool that was not offered for this turn',async()=>{
+ const {ClaudeBridge}=await import('../src/claude');
+ const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');
+ if(process.platform==='win32')return;
+ const folder=mkdtempSync(join(tmpdir(),'owla-claude-mcp-'));
+ const fake=resolve('tests/fixtures/fake-claude-mcp.mjs');
+ try{
+  for(const [requested,expectCall] of [['propose_edit',false],['read_note',true]] as const){
+   const file=join(folder,'claude-'+requested);
+   writeFileSync(file,'#!/bin/sh\nexec "'+process.execPath+'" "'+fake+'" '+requested+'\n',{mode:0o700});
+   const bridge=new ClaudeBridge() as any;
+   bridge.connect=async()=>{};bridge.executable=file;
+   const calls:string[]=[];
+   const result=await bridge.run({executable:file,cwd:folder,model:'m',effort:'default',instructions:'',text:'hi',images:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},
+    tools:[{type:'function',name:'read_note',description:'',inputSchema:{type:'object'}}],
+    tool:async(name:string)=>{calls.push(name);return 'note text';}});
+   const response=JSON.parse(result.text);
+   if(expectCall){assert.deepEqual(calls,['read_note']);assert.equal(response.isError,undefined);}
+   else{assert.deepEqual(calls,[]);assert.equal(response.isError,true);assert.match(response.content[0].text,/not available in this mode/);}
+  }
+ }finally{rmSync(folder,{recursive:true,force:true});}
+});

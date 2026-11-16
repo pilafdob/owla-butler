@@ -77,3 +77,16 @@ test('the integration toggle hides tools and revokes prepared changes',async()=>
  await assert.rejects(change.apply(),/turned off/);
  assert.equal(f.writes,0);
 });
+
+test('a responder for a plugin Obsidian has not enabled, or one naming another plugin, is ignored',()=>{
+ const f=fixture();
+ const workspaceWith=(enabledPlugins:Set<string>|undefined,reply:unknown)=>({app:{plugins:{enabledPlugins}},trigger:(event:string,answer:(api:unknown)=>void)=>{if(event==='pilafdob:pinup:api:v1')answer(reply);}} as unknown as Workspace);
+ const names=(workspace:Workspace)=>new PluginTurn(workspace,()=>true,()=>true).specs.map(spec=>spec.name);
+ assert.deepEqual(names(workspaceWith(new Set(['pinup']),f.provider)),[inspect,propose]);
+ assert.deepEqual(names(workspaceWith(new Set(['nicons']),f.provider)),[]);
+ assert.deepEqual(names(workspaceWith(new Set(['pinup']),{...f.provider,pluginId:'evil'})),[]);
+ assert.deepEqual(names(workspaceWith(new Set(['pinup']),{...f.provider,id:'evil'})),[]);
+ assert.deepEqual(names(workspaceWith(new Set(['pinup']),{...f.provider,pluginId:'pinup',plugin:{}})),[inspect,propose]);
+ // Without Obsidian's plugin registry (older builds), the single-responder rule still applies.
+ assert.deepEqual(names(workspaceWith(undefined,f.provider)),[inspect,propose]);
+});

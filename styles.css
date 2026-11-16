@@ -187,6 +187,9 @@
 .owla-split-diff { display: flex; flex-direction: column; gap: 8px; }
 .owla-split-diff-content { min-height: 0; overflow: auto; flex: 1; }
 .owla-split-diff .owla-diff { max-height: none; }
+.owla-split-diff-content .owla-diff-line { cursor: pointer; }
+.owla-split-diff-content .owla-diff-line:hover { outline: 1px solid var(--interactive-accent); outline-offset: -1px; }
+.owla-reveal-line { background: var(--text-highlight-bg); transition: background .4s ease; }
 
 .owla-working {
  color: var(--text-faint);

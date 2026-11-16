@@ -21,7 +21,8 @@ test('stream formats',()=>{assert.deepEqual(parseJsonLine('data: {"a":1}'),{a:1}
 
 test('simple transcribed equations become display math without changing symbols',()=>{assert.equal(formatTranscription(' Solve: 2x + 3 = 11'),'Solve:\n\n$$\n2x + 3 = 11\n$$');assert.equal(formatTranscription('This is a paragraph.'),'This is a paragraph.');});
 test('Markdown insertion cannot corrupt YAML and separates multiline blocks',()=>{assert.throws(()=>insertion('A.md','---\ntitle: Test\n---\nBody','$$\nx=4\n$$',5),/Properties/);assert.equal(insertion('A.md','text here','$$\nx=4\n$$',4).after,'text\n\n$$\nx=4\n$$\n\n here');});
-test('rendered model content cannot automatically embed remote images',()=>{assert.equal(displayMarkdown('![private](https://example.com/a.png)'),'[private](https://example.com/a.png)');assert.equal(displayMarkdown('<img src="https://example.com/a">'),'');});
+test('rendered model content cannot automatically embed remote images',()=>{assert.equal(displayMarkdown('![private](https://example.com/a.png)'),'[private](https://example.com/a.png)');// Raw HTML is removed on the rendered DOM (tests/security-render.test.ts), not in the Markdown text.
+assert.equal(displayMarkdown('<img src="https://example.com/a">'),'<img src="https://example.com/a">');});
 
 
 test('vault recovery and chat namespaces are stable and separated',async()=>{const {vaultStorageKey}=await import('../src/core');assert.equal(vaultStorageKey('/vault/A'),vaultStorageKey('/vault/A'));assert.notEqual(vaultStorageKey('/vault/A'),vaultStorageKey('/vault/B'));assert.match(vaultStorageKey('/vault/A'),/^[a-f0-9]{20}$/);});
@@ -249,4 +250,12 @@ test('diff hunk decisions support flat per-line decisions', () => {
  const after = 'a\nnew\nz\n';
  assert.equal(applyHunkDecisions(before, after, [true]), after);
  assert.equal(applyHunkDecisions(before, after, [false]), before);
+});
+
+test('diff lines map to their line in both the original and the proposed note',async()=>{
+ const {diffLineMap}=await import('../src/core');
+ const before='a\nb\nc\nd\n',after='a\nB\nc\nx\nd\n';
+ const lines=diffLineMap(before,after).map(l=>[l.kind,l.text.trim(),l.beforeLine,l.afterLine]);
+ assert.deepEqual(lines,[['unchanged','a',0,0],['removed','b',1,1],['added','B',2,1],['unchanged','c',2,2],['added','x',3,3],['unchanged','d',3,4]]);
+ assert.equal(diffLineMap('', 'new\n')[0].afterLine,0);
 });

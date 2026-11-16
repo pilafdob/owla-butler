@@ -143,9 +143,16 @@ export class Organization {
   }
   return false;
  }
+ /** A file with a second hardlink may share its content with a file outside the vault. */
+ private hardlinked(path:string){
+  const base=this.base();
+  if(!base)return true;
+  const stat=statSync(join(base,path),{throwIfNoEntry:false});
+  return !!stat&&stat.isFile()&&stat.nlink>1;
+ }
  private safeSource(path:string){
   if(!this.allowed(path))return false;
-  return !this.ancestorSymlink(path);
+  return !this.ancestorSymlink(path)&&!this.hardlinked(path);
  }
 
  private tree(path:string):string[][]{
@@ -156,6 +163,7 @@ export class Organization {
    const stat=this.stat(current);
    if(result.length>=5000)throw Error('This folder has too many entries for one review.');
    if(!stat||stat.isSymbolicLink()||!this.allowed(current))throw Error('A source contains an excluded, missing or symbolic-link entry.');
+   if(stat.isFile()&&stat.nlink>1)throw Error('A source contains a hardlinked file.');
    result.push([current,String(stat.dev),String(stat.ino),stat.isDirectory()?'folder':String(stat.size),stat.isDirectory()?'':String(stat.mtimeMs)]);
    if(stat.isDirectory())for(const child of readdirSync(join(base,current)).sort())visit(current+'/'+child);
   };
@@ -167,7 +175,9 @@ export class Organization {
   if(!allowedPath(path,this.excluded(),null))throw Error('A destination is outside the allowed vault paths.');
   for(let folder=parent(path);folder;folder=parent(folder)){
    const stat=this.stat(folder);
-   if(stat&&(!stat.isDirectory()||stat.isSymbolicLink()||!this.allowed(folder)))throw Error('A destination folder is blocked or unsafe.');
+   // An existing folder must be known to Obsidian by this exact spelling, so a
+   // case or Unicode alias of an excluded folder cannot be reached by a move.
+   if(stat&&(!stat.isDirectory()||stat.isSymbolicLink()||!this.allowed(folder)||this.app.vault.getFolderByPath(folder)?.path!==folder))throw Error('A destination folder is blocked or unsafe.');
   }
  }
 
