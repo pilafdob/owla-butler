@@ -35,7 +35,7 @@ async function viewClass(Butler:any){
   app:{vault:{adapter:{},getName:()=>'test'},workspace:{}},
   loadData:async()=>({}),saveData:async()=>{},save:async()=>{},
   vaultStorage:()=>storage,registerEditorExtension:()=>{},
-  codexBridge:{},opencodeBridge:{},claudeBridge:{},
+  codexBridge:{},opencodeBridge:{},claudeBridge:{},hermesBridge:{},
   registerView:(type:string,make:(leaf:unknown)=>unknown)=>{if(type==='owla-butler-chat'){factory=make;throw stopped;}},
  });
  try{await fake.onload();}catch(e){if(e!==stopped)throw e;}

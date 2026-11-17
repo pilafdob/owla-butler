@@ -1,7 +1,9 @@
 /**
- * Obsidian Excalidraw drawings (`.excalidraw.md`): parse the file, summarise
- * the scene for a model, apply reviewed operations and write the file back in
- * the format the Excalidraw plugin reads. New elements are built by an injected
+ * Obsidian Excalidraw drawings in every form the plugin opens: `.excalidraw.md`
+ * and `.excalidraw` files, and plain `.md` notes with the `excalidraw-plugin`
+ * frontmatter key. Parses the file, summarises the scene for a model, applies
+ * reviewed operations and writes the file back in the format the plugin reads
+ * (Markdown wrapper or plain JSON). New elements are built by an injected
  * factory (the plugin's ExcalidrawAutomate in main.ts), so they carry every
  * field Excalidraw expects. Pure functions otherwise.
  */
@@ -11,18 +13,38 @@ export type ExcalidrawElement={id:string;type:string;x:number;y:number;width:num
 export type ExcalidrawScene={type?:string;version?:number;source?:string;elements:ExcalidrawElement[];appState?:Record<string,unknown>;files?:Record<string,unknown>;[key:string]:unknown};
 
 export const EXCALIDRAW_SUFFIX='.excalidraw.md';
-export const isExcalidrawPath=(path:string)=>path.toLowerCase().endsWith(EXCALIDRAW_SUFFIX);
+const EXCALIDRAW_JSON_SUFFIX='.excalidraw';
+/** A path the Excalidraw plugin opens as a drawing: `.excalidraw.md` and `.excalidraw` files. */
+export const isExcalidrawPath=(path:string)=>path.toLowerCase().endsWith(EXCALIDRAW_SUFFIX)||path.toLowerCase().endsWith(EXCALIDRAW_JSON_SUFFIX);
+/** A `.excalidraw` file: the scene as plain JSON, without the Markdown wrapper. */
+export const isExcalidrawJsonPath=(path:string)=>path.toLowerCase().endsWith(EXCALIDRAW_JSON_SUFFIX);
 
 const DRAWING=/(## Drawing\r?\n```(compressed-json|json)\r?\n)([\s\S]*?)(\r?\n```)/;
 const TEXT_SECTION=/(## Text Elements\r?\n)([\s\S]*?)(?=\r?\n## |\r?\n%%|$)/;
 
 export type ExcalidrawFile={text:string;compressed:boolean;scene:ExcalidrawScene};
 
-/** True when the text is an Excalidraw plugin drawing (frontmatter key or drawing block). */
-export function isExcalidrawText(text:string){return /^---[\s\S]*?excalidraw-plugin:/m.test(text.slice(0,2000))||DRAWING.test(text);}
+/** True when the text is a `.excalidraw` file: a JSON scene object. */
+export function isExcalidrawJson(text:string){const head=text.trimStart().slice(0,400);return head.startsWith('{')&&/"type"\s*:\s*"excalidraw"/.test(head);}
+/** True when a plain Markdown note is a drawing: the `excalidraw-plugin` frontmatter key, the plugin's own test. */
+export function isExcalidrawNote(text:string){
+ if(!text.startsWith('---'))return false;
+ const head=text.slice(0,2000),close=head.indexOf('\n---');
+ return close>0&&/^excalidraw-plugin:/m.test(head.slice(0,close));
+}
+
+/** True when the text is an Excalidraw plugin drawing (JSON scene, frontmatter key or drawing block). */
+export function isExcalidrawText(text:string){return isExcalidrawJson(text)||/^---[\s\S]*?excalidraw-plugin:/m.test(text.slice(0,2000))||DRAWING.test(text);}
 
 /** Reads the scene. Compressed drawings need the plugin's LZ-string decoder. */
 export function parseExcalidraw(text:string,decompress?:(data:string)=>string):ExcalidrawFile{
+ if(text.trimStart().startsWith('{')){
+  let value:unknown;
+  try{value=JSON.parse(text);}catch(error){throw Error('The drawing data is not valid JSON: '+(error instanceof Error?error.message:String(error)));}
+  const scene=record(value);
+  if(!Array.isArray(scene.elements))throw Error('The drawing data has no elements list.');
+  return {text,compressed:false,scene:scene as ExcalidrawScene};
+ }
  const match=text.match(DRAWING);
  if(!match)throw Error('This file has no Excalidraw drawing block. Open it once in Excalidraw so the plugin writes one.');
  const compressed=match[2]==='compressed-json';
@@ -191,11 +213,13 @@ export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unkno
 }
 
 /**
- * The file with a new scene. The drawing is written as plain JSON (the plugin
- * compresses it again on its next save); the Text Elements section is rebuilt
- * from the scene, and every other section is kept as it was.
+ * The file with a new scene. A Markdown drawing keeps its wrapper: the drawing
+ * is written as plain JSON (the plugin compresses it again on its next save),
+ * the Text Elements section is rebuilt from the scene, and every other section
+ * is kept as it was. A `.excalidraw` file is the scene as plain JSON.
  */
 export function serializeExcalidraw(original:string,scene:ExcalidrawScene):string{
+ if(original.trimStart().startsWith('{'))return JSON.stringify(scene,null,'\t');
  const text=original||newExcalidrawFile();
  const texts=live(scene).filter(element=>element.type==='text').map(element=>(element.rawText??element.originalText??element.text??'')+' ^'+element.id+'\n').join('\n');
  let next=TEXT_SECTION.test(text)?text.replace(TEXT_SECTION,(_all,head:string)=>head+texts):text.replace(/(# Excalidraw Data\r?\n)/,'$1\n## Text Elements\n'+texts+'\n');
@@ -205,14 +229,15 @@ export function serializeExcalidraw(original:string,scene:ExcalidrawScene):strin
  return next;
 }
 
-/** The text of a new, empty drawing in the plugin's file format. */
-export function newExcalidrawFile():string{
+/** The text of a new, empty drawing: the plugin's Markdown file format, or its JSON format for `.excalidraw`. */
+export function newExcalidrawFile(json=false):string{
  const scene={type:'excalidraw',version:2,source:'https://github.com/zsviczian/obsidian-excalidraw-plugin',elements:[],appState:{gridSize:null,viewBackgroundColor:'#ffffff'},files:{}};
+ if(json)return JSON.stringify(scene,null,'\t');
  return '---\n\nexcalidraw-plugin: parsed\ntags: [excalidraw]\n\n---\n==⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠==\n\n\n# Excalidraw Data\n\n## Text Elements\n%%\n## Drawing\n```json\n'+JSON.stringify(scene,null,'\t')+'\n```\n%%';
 }
 
 /**
- * A reviewable version of the file: the drawing block becomes one line per
+ * A reviewable version of the file: the drawing data becomes one line per
  * element, so a diff shows which shapes, texts and arrows change instead of a
  * compressed blob. Used for display only; the file itself is never written this way.
  */
@@ -220,7 +245,9 @@ export function readableExcalidraw(text:string,decompress?:(data:string)=>string
  if(!isExcalidrawText(text))return text;
  try{
   const file=parseExcalidraw(text,decompress);
-  return text.replace(DRAWING,'## Drawing (elements)\n'+describeElements(file.scene,embeddedFiles(text)).join('\n')+'\n');
+  const elements=describeElements(file.scene,embeddedFiles(file.text)).join('\n');
+  if(isExcalidrawJson(text))return 'Excalidraw drawing (.excalidraw JSON):\n'+elements;
+  return text.replace(DRAWING,'## Drawing (elements)\n'+elements+'\n');
  }catch{return text;}
 }
 

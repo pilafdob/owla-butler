@@ -1,3 +1,12 @@
+# OWLA Butler 3.6.0
+
+- **Hermes Agent is a fourth provider.** Connect it once per vault in Settings, then use its connected providers (OpenRouter, Anthropic, Nous, OpenAI Codex, Ollama, custom endpoints and more) with OWLA's tools, skills and review flow. Hermes runs in a private configuration home; your global Hermes configuration, plugins, skills, memory and session history are not read.
+- **Automatic mode** weighs Hermes models like OpenCode's. When the same model is available on both, a failure or exhausted plan moves it to the other source before switching models. A reported Hermes usage limit temporarily excludes that provider.
+- **Excalidraw drawings** in all three file forms (`.excalidraw.md`, `.excalidraw` and plain `.md` notes with `excalidraw-plugin` frontmatter) can be read, seen and changed. A drawing note opened in Excalidraw is recognised as the active file and gets an image-capable model.
+- Hermes does not expose its connected providers' quota percentages to OWLA; no invented usage numbers are shown.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and connect the provider CLI separately.
+
 # OWLA Butler 3.5.1
 
 - A text selection you add now stays in the composer as a chip and is shown on the sent message as a card with the excerpt it carries, so you can see that it went with the prompt.

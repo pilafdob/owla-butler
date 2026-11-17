@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.6.0
+
+### Hermes Agent
+
+- **New provider: Hermes Agent.** OWLA now runs Hermes Agent like its other assistants, with the same vault tools, skills, review flow and manual first-time connection. Choose **Connect Hermes** once per vault. Hermes uses the providers you connected in Hermes (OpenRouter, Anthropic, Nous, OpenAI Codex, Ollama, custom endpoints and more), so the same underlying model can be available through both OpenCode and Hermes.
+- **Auto mode:** Hermes models are weighed like OpenCode's. When a model is available through both OpenCode and Hermes, a failed attempt or an exhausted source moves to the same model on the other source before trying a different model.
+- **Settings:** a Hermes Agent connection section, executable picker and usage panel, plus the provider dropdown entry. Hermes does not report its connected providers' limits over its control interface, so OWLA cannot show percentages; a reported limit keeps Hermes out of automatic selection until it is tried again.
+- **Isolation:** Hermes runs with a private configuration folder and only OWLA's tools. Global configuration, skills, plugins, shell hooks, memory and persona are not read; session history and state databases are not shared with your own Hermes install. Sign-ins and connected providers keep working.
+- **Web search:** when **Allow web search** is on, Hermes gets its `web` toolset; with it off, no web tools are available. Tool activity is recognised for both search and extraction.
+- **Review fixes:** instructions now reach the agent in the prompt, tool specs are registered before Hermes asks for them, aborting sends `session/cancel`, MCP image results keep their real MIME type, refused Hermes requests get a protocol answer, and pending calls are rejected on disconnect.
+
+### Excalidraw
+
+- OWLA now reads and changes Excalidraw drawings in every form the plugin opens: `.excalidraw.md`, `.excalidraw` JSON and plain `.md` notes with `excalidraw-plugin` frontmatter. New drawings use the matching format.
+- A drawing opened as a plain `.md` note is recognised as the active file by its Excalidraw view type or frontmatter, so automatic selection offers an image-capable model and the file is not named twice. Drawing notes are no longer offered to the ordinary note editor, which could damage their data.
+
 ## 3.5.1
 
 ### Selection visibility

@@ -5,7 +5,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyCanvasOperations,canvasProblems,parseCanvas,serializeCanvas,summarizeCanvas} from '../src/canvas';
 import {baseProblems,baseReferences,parseBase,summarizeBase} from '../src/bases';
-import {applyExcalidrawOperations,revertExcalidraw,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,serializeExcalidraw,summarizeExcalidraw,type ElementFactory,type ExcalidrawElement} from '../src/excalidraw';
+import {applyExcalidrawOperations,revertExcalidraw,isExcalidrawJsonPath,isExcalidrawNote,isExcalidrawPath,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,serializeExcalidraw,summarizeExcalidraw,type ElementFactory,type ExcalidrawElement} from '../src/excalidraw';
 
 const canvasText=JSON.stringify({nodes:[
  {id:'g1',type:'group',label:'Trip',x:-40,y:-60,width:800,height:360},
@@ -166,4 +166,52 @@ test('excalidraw: a revert restores the original with versions above the proposa
  assert.equal(get(reverted.elements,extra.id).isDeleted,true);
  assert.ok(get(reverted.elements,extra.id).version!>extra.version!);
  assert.match(revertExcalidraw(before,after),/## Text Elements\nStart \^txt1\n\nLoose note \^note1\n/);
+});
+
+test('excalidraw: .excalidraw JSON drawings parse, edit and serialise as JSON',()=>{
+ assert.ok(isExcalidrawPath('Zeichnen Mathe.excalidraw.md')&&isExcalidrawPath('Kraft.excalidraw'));
+ assert.ok(!isExcalidrawPath('Zeichnen Mathe.md')&&!isExcalidrawPath('note.canvas'));
+ assert.ok(isExcalidrawJsonPath('Kraft.excalidraw')&&!isExcalidrawJsonPath('Zeichnen Mathe.excalidraw.md'));
+ const empty=newExcalidrawFile(true);
+ assert.ok(empty.trimStart().startsWith('{'));
+ assert.ok(isExcalidrawText(empty));
+ assert.equal(parseExcalidraw(empty).scene.elements.length,0);
+ const json=JSON.stringify(scene,null,'\t');
+ assert.ok(isExcalidrawText(json));
+ assert.ok(!isExcalidrawText(canvasText),'canvas JSON is not a drawing');
+ const next=applyExcalidrawOperations(parseExcalidraw(json).scene,[{op:'update_text',id:'box1',text:'Begin'}],fakeFactory());
+ const written=serializeExcalidraw(json,next);
+ assert.ok(written.trimStart().startsWith('{'),'a JSON drawing stays JSON');
+ assert.equal(parseExcalidraw(written).scene.elements.find(e=>e.id==='txt1')!.text,'Begin');
+ const created=serializeExcalidraw(empty,applyExcalidrawOperations(parseExcalidraw(empty).scene,[{op:'add_text',x:0,y:0,text:'Hello'}],fakeFactory()));
+ assert.ok(created.trimStart().startsWith('{'),'a new .excalidraw is created as JSON');
+ assert.equal(parseExcalidraw(created).scene.elements.length,1);
+ assert.match(readableExcalidraw(json),/Excalidraw drawing \(\.excalidraw JSON\):\n- rectangle \[box1\]/);
+ assert.throws(()=>parseExcalidraw('{"type":"excalidraw"}'),/no elements list/);
+});
+
+test('excalidraw: plain .md drawing notes are recognised the way the plugin opens them',()=>{
+ const text=fileText(scene);
+ assert.ok(isExcalidrawNote(text));
+ assert.ok(isExcalidrawText(text));
+ assert.ok(!isExcalidrawNote('# plain note'));
+ assert.ok(!isExcalidrawNote('---\ntags: [excalidraw]\n---\nbody'));
+ assert.ok(!isExcalidrawNote('---\nText mentioning excalidraw-plugin: mid-line\n---\nbody'));
+ // The read and write path of a .md drawing is the Markdown format, unchanged by its name.
+ const after=serializeExcalidraw(text,applyExcalidrawOperations(parseExcalidraw(text).scene,[{op:'update_text',id:'note1',text:'Moved'}],fakeFactory()));
+ assert.match(after,/## Text Elements\nStart \^txt1\n\nMoved \^note1\n/);
+ assert.equal(parseExcalidraw(after).scene.elements.find(e=>e.id==='note1')!.text,'Moved');
+});
+
+test('excalidraw: a JSON drawing reverts in JSON with versions above the proposal',()=>{
+ const before=JSON.stringify(scene,null,'\t');
+ const after=serializeExcalidraw(before,applyExcalidrawOperations(parseExcalidraw(before).scene,[{op:'update_text',id:'box1',text:'Kickoff'},{op:'add_text',x:0,y:400,text:'Extra'}],fakeFactory()));
+ const revertedText=revertExcalidraw(before,after);
+ assert.ok(revertedText.trimStart().startsWith('{'),'the revert of a JSON drawing stays JSON');
+ const reverted=parseExcalidraw(revertedText).scene,proposed=parseExcalidraw(after).scene;
+ const get=(list:ExcalidrawElement[],id:string)=>list.find(e=>e.id===id)!;
+ assert.equal(get(reverted.elements,'txt1').text,'Start');
+ assert.ok(get(reverted.elements,'txt1').version!>get(proposed.elements,'txt1').version!);
+ const extra=proposed.elements.find(e=>e.text==='Extra')!;
+ assert.equal(get(reverted.elements,extra.id).isDeleted,true);
 });

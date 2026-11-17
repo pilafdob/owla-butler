@@ -487,6 +487,32 @@ export function nearestEffort(model:ProviderModel,effort:string):string{
 }
 
 /**
+ * Normalizes a model id so the same underlying model compares equal across
+ * providers and sources: OpenCode's `openrouter/anthropic/claude-sonnet-5`,
+ * Hermes's `nous:anthropic/claude-sonnet-5` and `anthropic:claude-sonnet-5`
+ * all become `claudesonnet5`. Codex and Claude Code ids pass through the same rule.
+ */
+export function canonicalModelKey(key:string):string{
+ const raw=key.includes('/')?key.split('/').pop()!:key;
+ const colon=raw.indexOf(':');const model=colon>0?raw.slice(colon+1):raw;
+ return model.toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+
+/**
+ * When a model fails or its provider runs out of usage, the same model on
+ * another connected provider is the closest substitute: the task already
+ * suited it. Returns that route, or null when no other provider offers it.
+ * Exhausted or failed entries must already be filtered out of `entries`.
+ */
+export function sameModelRoute(entries:AutoEntry[],failed:{provider:ProviderId;model:string;effort:string}):AutoRoute|null{
+ const wanted=canonicalModelKey(failed.model);
+ if(!wanted)return null;
+ const match=entries.find(entry=>entry.provider!==failed.provider&&canonicalModelKey(entry.key)===wanted);
+ if(!match)return null;
+ return {provider:match.provider,model:match.key,effort:nearestEffort(match.model,failed.effort),reason:'same model on '+PROVIDER_NAMES[match.provider]};
+}
+
+/**
  * Weighs every entry for a classified task. Lower is better.
  *  - A model must be capable of the difficulty; overshooting costs a little.
  *  - Plan cost is scaled by how scarce the plan is: a nearly used plan costs more.
@@ -496,6 +522,7 @@ export function nearestEffort(model:ProviderModel,effort:string):string{
  *  - Continuity bonus applies only when the task kind is unchanged (`sameTaskAsPrevious`).
  *  - Optional `history` applies bounded personalization (±0.4) and latency tie-breaks.
  */
+
 export function scoreEntries(
  entries:AutoEntry[],
  offers:ProviderOffer[],

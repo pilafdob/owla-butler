@@ -14,7 +14,9 @@ export interface ButlerSettings {
  codexConnected:boolean;
  opencodeConnected:boolean;
  claudeConnected:boolean;
+ hermesConnected:boolean;
  codexExecutable:string;
+ hermesExecutable:string;
  /** Provider that serves messages while the selected one is out of usage. */
  fallback:FallbackChoice;
  opencodeExecutable:string;
@@ -40,11 +42,13 @@ export const DEFAULTS:ButlerSettings={
  codexConnected:false,
  opencodeConnected:false,
  claudeConnected:false,
+ hermesConnected:false,
  codexExecutable:'',
  fallback:'none',
  opencodeExecutable:'',
  claudeExecutable:'',
- models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''}},
+ hermesExecutable:'',
+ models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''},hermes:{model:'',reasoning:''}},
  automaticRouting:false,
  routingMode:'balance',
  routingPrivacyMode:false,
@@ -63,7 +67,7 @@ export function migrateSettings(value:unknown):ButlerSettings{
  const modern=data.schemaVersion===2||data.schemaVersion===3;
  const legacyModel=modern?string('model'):'',legacyReasoning=modern?string('reasoning'):'';
  const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude);
- const providers:ProviderId[]=['codex','opencode','claude'];
+ const providers:ProviderId[]=['codex','opencode','claude','hermes'];
  const provider:ProviderId=providers.find(id=>id===data.provider)??'codex';
  // The fallback replaces the earlier Codex-only "switch to OpenCode" toggle.
  const storedFallback=['none',...providers].find(id=>id===data.fallback) as FallbackChoice|undefined;
@@ -82,16 +86,19 @@ export function migrateSettings(value:unknown):ButlerSettings{
   models:{
    codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
    opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
-   claude:{model:typeof claude.model==='string'?claude.model:'',reasoning:typeof claude.reasoning==='string'?claude.reasoning:''}
+   claude:{model:typeof claude.model==='string'?claude.model:'',reasoning:typeof claude.reasoning==='string'?claude.reasoning:''},
+   hermes:{model:typeof (record(models.hermes) as {model?:unknown}).model==='string'?(record(models.hermes) as {model?:unknown}).model as string:'',reasoning:typeof (record(models.hermes) as {reasoning?:unknown}).reasoning==='string'?(record(models.hermes) as {reasoning?:unknown}).reasoning as string:''}
   },
   ...(modern?{
    codexConnected:data.codexConnected===true,
    opencodeConnected:data.opencodeConnected===true,
    claudeConnected:data.claudeConnected===true,
+   hermesConnected:data.hermesConnected===true,
    codexExecutable:string('codexExecutable'),
    fallback:fallback===provider?'none':fallback,
    opencodeExecutable:string('opencodeExecutable'),
    claudeExecutable:string('claudeExecutable'),
+   hermesExecutable:string('hermesExecutable'),
    automaticProvider:data.automaticProvider===true,
    automaticRouting:data.automaticRouting===true,
    webSearch:data.webSearch!==false,
@@ -106,7 +113,7 @@ export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,plat
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','hermesConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','hermesExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
@@ -150,8 +157,8 @@ export function allowedPath(path:string,excluded='',extension:string|null='md',p
  }
  return !roots.some(root=>target===root||target.startsWith(root+'/'));
 }
-/** File types OWLA can propose, review and apply: Markdown (including Excalidraw drawings), Canvas and Bases. */
-export const EDITABLE_FILE=/\.(md|canvas|base)$/i;
+/** File types OWLA can propose, review and apply: Markdown (including Excalidraw drawings), `.excalidraw`, Canvas and Bases. */
+export const EDITABLE_FILE=/\.(md|excalidraw|canvas|base)$/i;
 /** A vault path OWLA may propose an edit to: an allowed path with an editable extension. */
 export function allowedEditablePath(path:string,excluded=''):boolean{return EDITABLE_FILE.test(path)&&allowedPath(path,excluded,null);}
 export function isPathInside(root:string,file:string,platform=process.platform):boolean {

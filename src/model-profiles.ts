@@ -121,7 +121,7 @@ function opencodeProfile(model:ProviderModel):ModelProfile{
 }
 
 export function modelProfile(provider:ProviderId,model:ProviderModel):ModelProfile{
- if(provider==='opencode')return opencodeProfile(model);
+ if(provider==='opencode'||provider==='hermes')return opencodeProfile(model);
  const text=model.id+' '+model.displayName;
  return (provider==='claude'?CLAUDE:CODEX).find(rule=>rule.match.test(text))?.profile
   ??{cost:3,capability:3,strong:[],weak:[]};
@@ -131,7 +131,7 @@ export function modelProfile(provider:ProviderId,model:ProviderModel):ModelProfi
  * The models worth offering in automatic selection: older generations are
  * dropped when a current one exists.
  */
-export function currentModels(provider:ProviderId,models:ProviderModel[],limit=provider==='opencode'?6:8,estimatedTokens?:number):ProviderModel[]{
+export function currentModels(provider:ProviderId,models:ProviderModel[],limit=provider==='opencode'||provider==='hermes'?6:8,estimatedTokens?:number):ProviderModel[]{
  const eligible=estimatedTokens!==undefined&&estimatedTokens>0
   ?models.filter(model=>(model.context??200_000)>=estimatedTokens*1.15)
   :models;
@@ -165,7 +165,7 @@ export function currentModels(provider:ProviderId,models:ProviderModel[],limit=p
   // free-then-capable ordering and free models stay half of each source's slice.
   const bySource=new Map<string,ProviderModel[]>();
   for(const model of unique){
-   const source=model.providerID??'opencode';
+   const source=model.providerID??(provider==='hermes'?'hermes':'opencode');
    const list=bySource.get(source)??[];
    list.push(model);
    bySource.set(source,list);
@@ -177,8 +177,8 @@ export function currentModels(provider:ProviderId,models:ProviderModel[],limit=p
   // unused slots to the others instead of shrinking the shortlist.
   const queues=sources.map(source=>{
    const list=bySource.get(source)??[];
-   const free=list.filter(isFree).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability);
-   const paid=list.filter(m=>!isFree(m)).sort((a,b)=>modelProfile('opencode',b).capability-modelProfile('opencode',a).capability||((a.cost?.input??0)+(a.cost?.output??0))-((b.cost?.input??0)+(b.cost?.output??0)));
+   const free=list.filter(isFree).sort((a,b)=>modelProfile(provider,b).capability-modelProfile(provider,a).capability);
+   const paid=list.filter(m=>!isFree(m)).sort((a,b)=>modelProfile(provider,b).capability-modelProfile(provider,a).capability||((a.cost?.input??0)+(a.cost?.output??0))-((b.cost?.input??0)+(b.cost?.output??0)));
    const freeCap=paid.length?Math.ceil(perSource/2):perSource;
    return [...free.slice(0,freeCap),...paid,...free.slice(freeCap)];
   });

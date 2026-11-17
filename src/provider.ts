@@ -9,10 +9,10 @@
 
 import type { UsageSnapshot } from './usage';
 
-export type ProviderId = 'codex' | 'opencode' | 'claude';
+export type ProviderId = 'codex' | 'opencode' | 'claude' | 'hermes';
 
 /** Every provider, in the order the settings list them. */
-export const PROVIDER_IDS: readonly ProviderId[] = ['codex', 'opencode', 'claude'];
+export const PROVIDER_IDS: readonly ProviderId[] = ['codex', 'opencode', 'claude', 'hermes'];
 
 /** The provider to use when the selected one runs out of usage. */
 export type FallbackChoice = ProviderId | 'none';
@@ -102,13 +102,14 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   claude: 'Claude Code',
+  hermes: 'Hermes Agent',
 };
 
 /** The name a tool carries inside the assistant's instruction text. */
 export function toolName(provider: ProviderId, base: string): string {
   if (provider === 'opencode') return 'owla_' + base;
-  // Claude Code exposes OWLA's in-process MCP server tools as mcp__owla__<name>.
-  if (provider === 'claude') return 'mcp__owla__' + base;
+  // Claude Code and Hermes Agent expose OWLA's tools through an MCP server named `owla`.
+  if (provider === 'claude' || provider === 'hermes') return 'mcp__owla__' + base;
   return base;
 }
 

@@ -5,10 +5,11 @@ import {EditorView} from '@codemirror/view';
 import {ButlerSettings,DiffView,RoutingMode,DEFAULTS,readSettings,writeSettings,platformKey,disableAutomaticSelectionOutsideMac,allowedPath,isPathInside,clip,proposal,Proposal,EditBatch,ProviderPrefs,stageProposal,assertFresh,assertNoteTitle,insertion,stripFence,displayMarkdown,vaultStorageKey,editWarnings,foldPath,diffLineMap,sentCards,type DiffLine,type SentCard,EDITABLE_FILE,allowedEditablePath} from './core';
 import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHistory,friendlyError,ToolSpec,findCodexExecutable} from './codex';
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
+import {HermesBridge,findHermesExecutable} from './hermes';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
 import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames,ProviderRunResult,ProviderModel} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
-import {autoEntries,autoFallbackRoute,clearRoutingCache,getRoutingDecisions,heuristicPerProviderRoute,heuristicTaskClass,offeredEntries,pickEscalationRoute,pickRoute,quickPerProviderRoute,reloadRoutingCalibration,renderRoutingDetails,routeAcrossProviders,shouldEscalateQuality,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
+import {autoEntries,autoFallbackRoute,sameModelRoute,clearRoutingCache,getRoutingDecisions,heuristicPerProviderRoute,heuristicTaskClass,offeredEntries,pickEscalationRoute,pickRoute,quickPerProviderRoute,reloadRoutingCalibration,renderRoutingDetails,routeAcrossProviders,shouldEscalateQuality,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
 import {currentModels,type TaskKind} from './model-profiles';
 import {attachmentSizeBucket,buildRoutingContext,checkFoundationModelsHealth,DegradationNotifier,fallbackRoute,FOUNDATION_MODELS_LICENSE_COMMAND,hasFoundationModelsCLI,prewarmFoundationModels,supportsAutomaticSelection,routeWithFoundationModels,routingModels,modelKey,CodexRoute,type RoutingAttachment,type RoutingContext} from './routing';
 import {clearRoutingHistory,loadRoutingHistory,recordRoutingOutcome,saveRoutingHistory,type RoutingHistoryData} from './routing-history';
@@ -36,7 +37,7 @@ import {brokenLinks,findBlock,findSection,headingOutline,linkWarning,noteChunk,t
 import {sanitizeRenderedReply} from './render-sanitize';
 import {applyCanvasOperations,canvasProblems,parseCanvas,serializeCanvas,summarizeCanvas} from './canvas';
 import {baseProblems,parseBase,summarizeBase} from './bases';
-import {applyExcalidrawOperations,isExcalidrawPath,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,revertExcalidraw,serializeExcalidraw,summarizeExcalidraw} from './excalidraw';
+import {applyExcalidrawOperations,isExcalidrawJson,isExcalidrawJsonPath,isExcalidrawNote,isExcalidrawPath,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,revertExcalidraw,serializeExcalidraw,summarizeExcalidraw} from './excalidraw';
 import {basesAvailable,canvasAvailable,captureCanvas,excalidrawAvailable,excalidrawDecoder,excalidrawImage,excalidrawSceneImage,inspectBase,withExcalidrawFactory} from './visual';
 import {MAX_TOOL_CALLS_HARD,ToolGuard} from './tool-guard';
 import {VAULT_GRAPH_TOOL,decodeGraphQuery,queryGraph,type GraphSource} from './vault-graph';
@@ -60,7 +61,7 @@ type TextAttachment={name:string;source:string;text:string};
 type DocumentAttachment=PdfAttachment|TextAttachment;
 type Draft={text:string;images:Attachment[];pdfs:DocumentAttachment[];selections:{path:string;text:string}[];notes:string[];folders:string[]};
 export default class Butler extends Plugin {
- private ownedModals=new Set<Modal>();private saveQueue:Promise<void>=Promise.resolve();prefs:ButlerSettings={...DEFAULTS};private readonly codexBridge=new CodexBridge();private readonly opencodeBridge=new OpencodeBridge();private readonly claudeBridge=new ClaudeBridge();private fallbackProvider:ProviderId|null=null;view:ButlerView|null=null;settingsTab:ButlerSettingsTab|null=null;last:MarkdownView|null=null;
+ private ownedModals=new Set<Modal>();private saveQueue:Promise<void>=Promise.resolve();prefs:ButlerSettings={...DEFAULTS};private readonly codexBridge=new CodexBridge();private readonly opencodeBridge=new OpencodeBridge();private readonly claudeBridge=new ClaudeBridge();private readonly hermesBridge=new HermesBridge();private fallbackProvider:ProviderId|null=null;view:ButlerView|null=null;settingsTab:ButlerSettingsTab|null=null;last:MarkdownView|null=null;
  organization!:Organization;
  private splitSync:Promise<void>=Promise.resolve();
  private pending:EditBatch[] = [];
@@ -84,16 +85,17 @@ export default class Butler extends Plugin {
  /** The provider the user selected in settings. */
  get selectedProvider():ProviderId{return this.prefs.provider;}
  get bridge():ProviderBridge{return this.bridgeFor(this.activeProvider);}
- bridgeFor(provider:ProviderId):ProviderBridge{return provider==='opencode'?this.opencodeBridge:provider==='claude'?this.claudeBridge:this.codexBridge;}
+ bridgeFor(provider:ProviderId):ProviderBridge{return provider==='opencode'?this.opencodeBridge:provider==='claude'?this.claudeBridge:provider==='hermes'?this.hermesBridge:this.codexBridge;}
  get codexBridgeRef():CodexBridge{return this.codexBridge;}
  get opencodeBridgeRef():OpencodeBridge{return this.opencodeBridge;}
  get claudeBridgeRef():ClaudeBridge{return this.claudeBridge;}
+ get hermesBridgeRef():HermesBridge{return this.hermesBridge;}
  /** Model and reasoning effort of the provider that serves the next turn. */
  get modelPrefs():ProviderPrefs{return this.prefs.models[this.activeProvider];}
  /** Model and reasoning effort of the provider the user selected. */
  get selectedModelPrefs():ProviderPrefs{return this.prefs.models[this.prefs.provider];}
  providerName(provider:ProviderId=this.activeProvider):string{return PROVIDER_NAMES[provider];}
- providerExecutable(provider:ProviderId=this.prefs.provider):string{return provider==='opencode'?this.prefs.opencodeExecutable:provider==='claude'?this.prefs.claudeExecutable:this.prefs.codexExecutable;}
+ providerExecutable(provider:ProviderId=this.prefs.provider):string{return provider==='opencode'?this.prefs.opencodeExecutable:provider==='claude'?this.prefs.claudeExecutable:provider==='hermes'?this.prefs.hermesExecutable:this.prefs.codexExecutable;}
  providerSessionDirectory(provider:ProviderId=this.activeProvider):string{return join(this.vaultStorage(),provider+'-session');}
 
  get pendingEdits():readonly EditBatch[] { return this.pending; }
@@ -101,7 +103,7 @@ export default class Butler extends Plugin {
 
  async onload(){
   addIcon('owla-bird',BIRD_ICON);
-  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();
+  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();this.hermesBridge.onStatus=()=>this.refreshConnection();
   try {
    this.pending = loadPendingEdits(this.vaultStorage(), this.prefs.excludedFolders);
   } catch (e) {
@@ -132,6 +134,11 @@ export default class Butler extends Plugin {
   this.addCommand({id:'connect-opencode',name:'Connect OpenCode',checkCallback:checking=>{
    if(this.activeProvider!=='opencode')return false;
    if(!checking)void this.connect({explicit:true,provider:'opencode'}).catch(e=>new Notice(friendlyError(e)));
+   return true;
+  }});
+  this.addCommand({id:'connect-hermes',name:'Connect Hermes Agent',checkCallback:checking=>{
+   if(this.activeProvider!=='hermes')return false;
+   if(!checking)void this.connect({explicit:true,provider:'hermes'}).catch(e=>new Notice(friendlyError(e)));
    return true;
   }});
   this.addCommand({id:'connect-claude',name:'Connect Claude',checkCallback:checking=>{
@@ -256,6 +263,7 @@ export default class Butler extends Plugin {
  private exhaustion:Record<ProviderId,ProviderExhaustion>={
   codex:{provider:'codex',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
   opencode:{provider:'opencode',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
+  hermes:{provider:'hermes',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
   claude:{provider:'claude',exhausted:false,resetsAt:null,reason:'',scope:'provider'}
  };
  get fallbackActive(){return this.fallbackProvider!==null;}
@@ -270,7 +278,7 @@ export default class Butler extends Plugin {
   const fresh:ProviderExhaustion={provider,exhausted:false,resetsAt:null,reason:'',scope:'provider'};
   let state=provider==='codex'
    ?codexExhaustion(this.codexBridge.usage)
-   :(provider==='opencode'?this.opencodeBridge.exhaustion:this.claudeBridge.exhaustion)??fresh;
+   :(provider==='opencode'?this.opencodeBridge.exhaustion:provider==='hermes'?this.hermesBridge.exhaustion:this.claudeBridge.exhaustion)??fresh;
   // OpenCode and Claude Code report a reset time but cannot be polled for usage.
   // Once that time has passed the provider is tried again.
   if(provider!=='codex'&&state.exhausted&&state.resetsAt!==null&&state.resetsAt<=Date.now()/1000)state=fresh;
@@ -322,6 +330,7 @@ export default class Butler extends Plugin {
   return PROVIDER_IDS.filter(provider=>{
    if(!this.isProviderConnected(provider))return false;
    if(provider==='opencode'&&!(this.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'')))return false;
+   if(provider==='hermes'&&!(this.prefs.hermesExecutable||findHermesExecutable(process.env.PATH??'')))return false;
    if(provider==='claude'&&!(this.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'')))return false;
    // OpenCode counts as exhausted only once every one of its models is blocked.
    return !this.recordExhaustion(provider).exhausted;
@@ -344,7 +353,7 @@ export default class Butler extends Plugin {
     // Codex reports usage only after a reply; refresh a missing or old report so plan usage weighs in.
     if(!bridge.usage||Date.now()-bridge.usageUpdatedAt>10*60_000){try{await bridge.readUsage(3000);}catch{/* Usage stays unknown. */}}
     // A usage read can block OpenCode Go's paid models; offer what is left.
-    const remaining=(provider==='opencode'?bridge.selectableModels:offeredModels).filter(m=>this.sessionAvailability.available(provider,modelKey(provider,m)));
+    const remaining=(provider==='opencode'||provider==='hermes'?bridge.selectableModels:offeredModels).filter(m=>this.sessionAvailability.available(provider,modelKey(provider,m)));
     if(!remaining.length)throw Error('Every model is out of usage or unavailable on your plans.');
     return {offer:{provider,models:remaining,usage:bridge.usage,plan:bridge.plan,...(prefs.model?{preferred:{model:prefs.model,effort:prefs.reasoning}}:{})}};
    }catch(error){return {failed:{provider,message:friendlyError(error)}};}
@@ -453,8 +462,21 @@ export default class Butler extends Plugin {
  onunload(){for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
- /** A file OWLA can propose edits to: Markdown (including Excalidraw drawings), Canvas or Bases. */
+ /** A file OWLA can propose edits to: Markdown (including Excalidraw drawing notes), `.excalidraw`, Canvas or Bases. */
  allowedEditable(path:string){return EDITABLE_FILE.test(path)&&this.allowedVaultFile(path);}
+ /**
+  * True when a file is an Excalidraw drawing: a `.excalidraw` or `.excalidraw.md`
+  * path, or a Markdown note carrying the plugin's `excalidraw-plugin`
+  * frontmatter key. This is the plugin's own test, so a drawing keeps its kind
+  * even when its path is a plain `.md` note.
+  */
+ isExcalidrawFile(path:string):boolean{
+  if(isExcalidrawPath(path))return true;
+  if(!path.toLowerCase().endsWith('.md'))return false;
+  const file=this.app.vault.getFileByPath(path);
+  const frontmatter=file?this.app.metadataCache.getFileCache(file)?.frontmatter:null;
+  return !!frontmatter&&!!frontmatter['excalidraw-plugin'];
+ }
  /**
   * Canvas, Bases and Excalidraw tools are part of Plugin interconnectivity and
   * are offered only while the matching Obsidian plugin is enabled.
@@ -540,7 +562,7 @@ export default class Butler extends Plugin {
   // Canvas, Bases and Excalidraw files are checked against their own format, not as notes.
   if(edit.path.toLowerCase().endsWith('.canvas')){const problems=canvasProblems(parseCanvas(edit.after));if(problems.length)throw Error('The canvas is invalid: '+problems.slice(0,5).join('; '));return;}
   if(edit.path.toLowerCase().endsWith('.base')){const problems=baseProblems(parseBase(edit.after,parseYaml));if(problems.length)throw Error('The base is invalid: '+problems.slice(0,5).join('; '));return;}
-  if(isExcalidrawPath(edit.path)&&isExcalidrawText(edit.after)){parseExcalidraw(edit.after,excalidrawDecoder());return;}
+  if(isExcalidrawPath(edit.path)||isExcalidrawNote(edit.after)){parseExcalidraw(edit.after,excalidrawDecoder());return;}
   assertNoteTitle(edit,this.inlineTitle());
   const pattern=/^---\r?\n((?:[^\n]*\n)*?)---(?:\r?\n|$)/;
   const frontmatter=edit.after.match(pattern);
@@ -584,7 +606,7 @@ export default class Butler extends Plugin {
  }
 
  newNotePath(path:string,sourcePath:string,vaultRoot:boolean){
-  if(!allowedEditablePath(path))throw Error('Provide a vault-relative Markdown, Canvas or Bases path.');
+  if(!allowedEditablePath(path))throw Error('Provide a vault-relative Markdown, Excalidraw, Canvas or Bases path.');
   if(path.includes('/')||vaultRoot)return path;
   const folder=this.app.fileManager.getNewFileParent(sourcePath,path);
   return folder.isRoot()?path:folder.path+'/'+path;
@@ -592,7 +614,7 @@ export default class Butler extends Plugin {
 
  private assertNewNoteDestination(path:string){
   const base=this.vaultBasePath();
-  if(!allowedEditablePath(path,this.prefs.excludedFolders)||!base)throw Error('Choose an allowed vault-relative Markdown, Canvas or Bases path.');
+  if(!allowedEditablePath(path,this.prefs.excludedFolders)||!base)throw Error('Choose an allowed vault-relative Markdown, Excalidraw, Canvas or Bases path.');
   const slash=path.lastIndexOf('/');
   if(slash>=0){
    const folder=path.slice(0,slash);
@@ -635,7 +657,8 @@ export default class Butler extends Plugin {
  }
  /** The text that undoes an edit: the original, except for drawings, which need a version-aware revert. */
  private restoredText(edit:Proposal){
-  if(!isExcalidrawPath(edit.path)||!isExcalidrawText(edit.before)||!isExcalidrawText(edit.after))return edit.before;
+  if(!isExcalidrawPath(edit.path)&&!isExcalidrawNote(edit.before)&&!isExcalidrawNote(edit.after))return edit.before;
+  if(!isExcalidrawText(edit.before)||!isExcalidrawText(edit.after))return edit.before;
   try{return revertExcalidraw(edit.before,edit.after,excalidrawDecoder());}catch{return edit.before;}
  }
 
@@ -720,8 +743,8 @@ function visualToolSpecs(features:{canvas:boolean;bases:boolean;excalidraw:boole
   {type:'function',name:'propose_base',description:'Stage the complete YAML of a base (.base) for the user to accept or decline, or create a new one. Consult read_reference obsidian-bases for syntax. The YAML is checked by Obsidian\'s Bases engine first; fix any reported error and propose again. The result shows the rows the base will list.',inputSchema:{type:'object',properties:{path:{type:'string'},content:{type:'string'},reason:{type:'string'}},required:['path','content','reason'],additionalProperties:false}},
  );
  if(features.excalidraw)specs.push(
-  {type:'function',name:'read_excalidraw',description:'Read an Excalidraw drawing (.excalidraw.md): every shape, text, arrow (with what it connects), frame, image and link, with ids, positions and colours. Set visual=true to also see the drawing as Excalidraw renders it. After a proposal, reads show the staged version. Consult read_reference owla-excalidraw before editing.',inputSchema:{type:'object',properties:{path:{type:'string'},offset:{type:'integer'},visual:{type:'boolean'}},required:['path'],additionalProperties:false}},
-  {type:'function',name:'propose_excalidraw',description:'Stage changes to an Excalidraw drawing for the user to accept or decline, or create a new .excalidraw.md. Read it first with read_excalidraw. Operations apply in order: add_shape {shape rectangle|ellipse|diamond, x, y, width, height, text?, style?}, add_text {x, y, text, style?}, add_arrow {from, to, label?, style?} (element ids), add_frame {x, y, width, height, name, contains?}, update_text {id, text} (a text or a shape with text), move {id, x,y or dx,dy}, resize {id, width, height}, set_style {id, style}, delete {id}. style: strokeColor, backgroundColor, fillStyle, strokeWidth, strokeStyle, roughness, opacity, fontSize, fontFamily, textAlign.',inputSchema:{type:'object',properties:{path:{type:'string'},reason:{type:'string'},operations:{type:'array',items:{type:'object',properties:{op:{type:'string',enum:['add_shape','add_text','add_arrow','add_frame','update_text','move','resize','set_style','delete']},id:{type:'string'},shape:{type:'string',enum:['rectangle','ellipse','diamond']},x:{type:'number'},y:{type:'number'},dx:{type:'number'},dy:{type:'number'},width:{type:'number'},height:{type:'number'},text:{type:'string'},from:{type:'string'},to:{type:'string'},label:{type:'string'},name:{type:'string'},contains:{type:'array',items:{type:'string'}},style:STYLE_SCHEMA},required:['op']}}},required:['path','reason','operations'],additionalProperties:false}},
+  {type:'function',name:'read_excalidraw',description:'Read an Excalidraw drawing (.excalidraw.md, .excalidraw, or a .md with excalidraw-plugin frontmatter): every shape, text, arrow (with what it connects), frame, image and link, with ids, positions and colours. Set visual=true to also see the drawing as Excalidraw renders it. After a proposal, reads show the staged version. Consult read_reference owla-excalidraw before editing.',inputSchema:{type:'object',properties:{path:{type:'string'},offset:{type:'integer'},visual:{type:'boolean'}},required:['path'],additionalProperties:false}},
+  {type:'function',name:'propose_excalidraw',description:'Stage changes to an Excalidraw drawing for the user to accept or decline, or create a new one (.excalidraw, .excalidraw.md, or a .md drawing). Read it first with read_excalidraw. Operations apply in order: add_shape {shape rectangle|ellipse|diamond, x, y, width, height, text?, style?}, add_text {x, y, text, style?}, add_arrow {from, to, label?, style?} (element ids), add_frame {x, y, width, height, name, contains?}, update_text {id, text} (a text or a shape with text), move {id, x,y or dx,dy}, resize {id, width, height}, set_style {id, style}, delete {id}. style: strokeColor, backgroundColor, fillStyle, strokeWidth, strokeStyle, roughness, opacity, fontSize, fontFamily, textAlign.',inputSchema:{type:'object',properties:{path:{type:'string'},reason:{type:'string'},operations:{type:'array',items:{type:'object',properties:{op:{type:'string',enum:['add_shape','add_text','add_arrow','add_frame','update_text','move','resize','set_style','delete']},id:{type:'string'},shape:{type:'string',enum:['rectangle','ellipse','diamond']},x:{type:'number'},y:{type:'number'},dx:{type:'number'},dy:{type:'number'},width:{type:'number'},height:{type:'number'},text:{type:'string'},from:{type:'string'},to:{type:'string'},label:{type:'string'},name:{type:'string'},contains:{type:'array',items:{type:'string'}},style:STYLE_SCHEMA},required:['op']}}},required:['path','reason','operations'],additionalProperties:false}},
  );
  return specs;
 }
@@ -766,8 +789,8 @@ class TurnRouteModal extends Modal {
   const effortSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Reasoning effort'}});
   for(const item of this.items){
    const label=showProvider
-    ?PROVIDER_NAMES[item.provider]+' · '+(item.provider==='opencode'&&item.model.providerID&&item.model.providerID!=='opencode'?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName)
-    :(item.provider==='opencode'&&item.model.providerID&&item.model.providerID!=='opencode'?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName);
+    ?PROVIDER_NAMES[item.provider]+' · '+( (item.provider==='opencode'||item.provider==='hermes') &&item.model.providerID&&item.model.providerID!==item.provider?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName)
+    :( (item.provider==='opencode'||item.provider==='hermes') &&item.model.providerID&&item.model.providerID!==item.provider?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName);
    modelSelect.createEl('option',{text:label,value:key(item)});
   }
   modelSelect.value=key(current);
@@ -791,7 +814,7 @@ class TurnRouteModal extends Modal {
  onClose(){this.contentEl.empty();}
 }
 /** The text shown in a diff: an Excalidraw drawing as one line per element instead of its JSON block. */
-function reviewText(path:string,text:string){return isExcalidrawPath(path)?readableExcalidraw(text,excalidrawDecoder()):text;}
+function reviewText(path:string,text:string){return isExcalidrawPath(path)||isExcalidrawText(text)?readableExcalidraw(text,excalidrawDecoder()):text;}
 function renderSourceDiff(container:HTMLElement,batch:EditBatch) {
  const {edit,reasons}=batch;
  container.empty();
@@ -1323,7 +1346,7 @@ export class ButlerView extends ItemView {
     this.status.setText('Preparing '+name+'…');
     try {
      if(entry instanceof TFile&&!this.butler.allowedVaultFile(entry.path))continue;
-     if(entry instanceof TFile&&(this.butler.allowedNote(entry.path)||(/\.(canvas|base)$/i.test(entry.path)&&this.butler.prefs.pluginInterconnectivity&&this.butler.allowedEditable(entry.path)))){
+     if(entry instanceof TFile&&(this.butler.allowedNote(entry.path)||(/\.(canvas|base|excalidraw)$/i.test(entry.path)&&this.butler.prefs.pluginInterconnectivity&&this.butler.allowedEditable(entry.path)))){
       this.notes.add(entry.path);
       this.renderAttachments();
       continue;
@@ -1456,36 +1479,57 @@ export class ButlerView extends ItemView {
  }
 
  /**
- * Whether the active (most recent) canvas or Excalidraw drawing is open and
- * readable, so the one-message override offers only image-capable models.
- * Mirrors the canvas/drawing part of `visualContext` without its side effects.
- */
- private activeCanvasOrDrawingNeedsImage():boolean{
+  * The visual kind of a file. The open view decides first, so a plain `.md`
+  * note the Excalidraw plugin opens as a drawing is recognised by its view
+  * type; otherwise the path and the plugin's frontmatter key decide.
+  */
+ private visualKindOf(path:string,view?:{getViewType?:()=>string}|null):'canvas'|'base'|'excalidraw'|null{
   const features=this.butler.visualFeatures();
-  if(!features.canvas&&!features.excalidraw)return false;
-  const kindOf=(path:string)=>path.toLowerCase().endsWith('.canvas')?(features.canvas?'canvas':null):isExcalidrawPath(path)?(features.excalidraw?'excalidraw':null):null;
-  const recent=(this.app.workspace.getMostRecentLeaf()?.view as {file?:TFile}|undefined)?.file?.path;
-  return !!recent&&!!kindOf(recent)&&this.butler.allowedEditable(recent);
+  const type=view?.getViewType?.();
+  if(type==='canvas'&&features.canvas)return 'canvas';
+  if(type==='bases'&&features.bases)return 'base';
+  if(type==='excalidraw'&&features.excalidraw)return 'excalidraw';
+  if(path.toLowerCase().endsWith('.canvas'))return features.canvas?'canvas':null;
+  if(path.toLowerCase().endsWith('.base'))return features.bases?'base':null;
+  return this.butler.isExcalidrawFile(path)?(features.excalidraw?'excalidraw':null):null;
  }
 
  /**
- * Context for Canvas, Bases and Excalidraw files: the file open in the
- * workspace and attached ones, each with the tool that reads it. A drawing is
- * never sent as raw text. `needsImage` asks automatic selection for a model
- * that can read the pictures these tools return.
- */
- private visualContext(capturedPath:string|undefined,notes:string[]):{context:string;attached:string[];needsImage:boolean}{
-  const features=this.butler.visualFeatures();
-  const kindOf=(path:string)=>path.toLowerCase().endsWith('.canvas')?(features.canvas?'canvas':null):path.toLowerCase().endsWith('.base')?(features.bases?'base':null):isExcalidrawPath(path)?(features.excalidraw?'excalidraw':null):null;
+  * Whether the active (most recent) canvas or Excalidraw drawing is open and
+  * readable, so the one-message override offers only image-capable models.
+  * Mirrors the canvas/drawing part of `visualContext` without its side effects.
+  */
+ private activeCanvasOrDrawingNeedsImage():boolean{
+  const leaf=this.app.workspace.getMostRecentLeaf();
+  const view=leaf?.view as {file?:TFile;getViewType?:()=>string}|undefined;
+  const path=view?.file?.path??this.app.workspace.getActiveFile()?.path;
+  if(!path)return false;
+  const kind=this.visualKindOf(path,view);
+  return (kind==='canvas'||kind==='excalidraw')&&this.butler.allowedEditable(path);
+ }
+
+ /**
+  * Context for Canvas, Bases and Excalidraw files: the file open in the
+  * workspace and attached ones, each with the tool that reads it. A drawing is
+  * never sent as raw text. `needsImage` asks automatic selection for a model
+  * that can read the pictures these tools return. `active` is the path named
+  * as the current file, so the caller does not name it twice.
+  */
+ private visualContext(capturedPath:string|undefined,notes:string[]):{context:string;attached:string[];needsImage:boolean;active:string|undefined}{
   const hint={canvas:'read_canvas (visual=true to see it)',base:'read_base',excalidraw:'read_excalidraw (visual=true to see it)'} as const;
-  const recent=(this.app.workspace.getMostRecentLeaf()?.view as {file?:TFile}|undefined)?.file?.path;
-  const active=[recent,capturedPath].find((path):path is string=>!!path&&!!kindOf(path)&&this.butler.allowedEditable(path));
+  const recentLeaf=this.app.workspace.getMostRecentLeaf();
+  const recentView=recentLeaf?.view as {file?:TFile;getViewType?:()=>string}|undefined;
+  const recent=recentView?.file?.path??this.app.workspace.getActiveFile()?.path;
+  const kindOf=(path:string,view?:{getViewType?:()=>string}|null)=>this.visualKindOf(path,view);
+  let active:string|undefined,activeKind:'canvas'|'base'|'excalidraw'|null=null;
+  if(recent&&this.butler.allowedEditable(recent)){const kind=kindOf(recent,recentView);if(kind){active=recent;activeKind=kind;}}
+  if(!active&&capturedPath&&this.butler.allowedEditable(capturedPath)){const kind=kindOf(capturedPath);if(kind){active=capturedPath;activeKind=kind;}}
   const attached=notes.filter(path=>!!kindOf(path));
   let context='';
-  if(active){const kind=kindOf(active)!;context+='\nACTIVE FILE: '+active+' (Obsidian '+kind+'). Read it with '+hint[kind]+'.';this.addVaultSource('Current '+kind+': '+active,active);}
+  if(active&&activeKind){context+='\nACTIVE FILE: '+active+' (Obsidian '+activeKind+'). Read it with '+hint[activeKind]+'.';this.addVaultSource('Current '+activeKind+': '+active,active);}
   if(attached.length)context+='\nATTACHED FILES: '+attached.map(path=>path+' → '+hint[kindOf(path)!]).join('; ');
-  const needsImage=[active,...attached].some(path=>!!path&&(kindOf(path)==='canvas'||kindOf(path)==='excalidraw'));
-  return {context,attached,needsImage};
+  const needsImage=(activeKind==='canvas'||activeKind==='excalidraw')||attached.some(path=>{const kind=kindOf(path);return kind==='canvas'||kind==='excalidraw';});
+  return {context,attached,needsImage,active};
  }
  /** The tools offered to the provider for the running turn; any other name is refused, whatever the bridge forwards. */
  private offeredToolNames:Set<string>|null=null;
@@ -1632,12 +1676,13 @@ export class ButlerView extends ItemView {
    const kind=name==='read_canvas'?'canvas':name==='read_base'?'base':'excalidraw';
    const {path,offset=0,visual=false}=args;
    if(typeof path!=='string'||typeof offset!=='number'||!Number.isSafeInteger(offset)||offset<0||typeof visual!=='boolean')throw Error('Provide a vault path, an optional nonnegative offset and an optional visual flag.');
-   const extensionOk=kind==='canvas'?path.toLowerCase().endsWith('.canvas'):kind==='base'?path.toLowerCase().endsWith('.base'):isExcalidrawPath(path);
-   if(!extensionOk)throw Error(kind==='canvas'?'Provide a .canvas path.':kind==='base'?'Provide a .base path.':'Provide an .excalidraw.md path.');
+   const extensionOk=kind==='canvas'?path.toLowerCase().endsWith('.canvas'):kind==='base'?path.toLowerCase().endsWith('.base'):isExcalidrawPath(path)||path.toLowerCase().endsWith('.md');
+   if(!extensionOk)throw Error(kind==='canvas'?'Provide a .canvas path.':kind==='base'?'Provide a .base path.':'Provide an .excalidraw, .excalidraw.md or Markdown drawing path.');
    const pending=batches?.get(path);
    if(!pending&&!this.butler.allowedEditable(path))throw Error('Provide an allowed vault path.');
    const text=pending?pending.edit.after:await this.butler.currentText(path);
    if(epoch!==this.attachmentEpoch||this.controller?.signal.aborted)throw Error('Stopped.');
+   if(kind==='excalidraw'&&!isExcalidrawText(text))throw Error('This file is not an Excalidraw drawing (no excalidraw-plugin frontmatter or JSON scene). Read Markdown notes with read_note.');
    if(!pending)this.snapshots.set(path,text);
    const file=this.app.vault.getFileByPath(path);
    const label=pending?'Staged preview for this reply:\n':'Source: [['+path+']]\n';
@@ -1670,8 +1715,8 @@ export class ButlerView extends ItemView {
    const kind=name==='propose_canvas'?'canvas':name==='propose_base'?'base':'excalidraw';
    const {path,reason}=args;
    if(typeof path!=='string'||typeof reason!=='string'||!reason.trim())throw Error('Provide the vault path and a reason.');
-   const extensionOk=kind==='canvas'?path.toLowerCase().endsWith('.canvas'):kind==='base'?path.toLowerCase().endsWith('.base'):isExcalidrawPath(path);
-   if(!extensionOk)throw Error(kind==='canvas'?'Provide a .canvas path.':kind==='base'?'Provide a .base path.':'Provide an .excalidraw.md path.');
+   const extensionOk=kind==='canvas'?path.toLowerCase().endsWith('.canvas'):kind==='base'?path.toLowerCase().endsWith('.base'):isExcalidrawPath(path)||path.toLowerCase().endsWith('.md');
+   if(!extensionOk)throw Error(kind==='canvas'?'Provide a .canvas path.':kind==='base'?'Provide a .base path.':'Provide an .excalidraw, .excalidraw.md or Markdown drawing path.');
    if(!allowedEditablePath(path,p.excludedFolders))throw Error('Provide an allowed vault-relative path.');
    const pending=batches.get(path),exists=!!this.app.vault.getAbstractFileByPath(path);
    if(pending?.edit.create===undefined&&pending===undefined&&exists&&this.snapshots.get(path)===undefined)throw Error('Read this file first ('+(kind==='canvas'?'read_canvas':kind==='base'?'read_base':'read_excalidraw')+').');
@@ -1694,8 +1739,9 @@ export class ButlerView extends ItemView {
     if(check.errors.length)throw Error('Obsidian’s Bases engine reports: '+check.errors.slice(0,6).join('; ')+'. Fix it and propose again.');
     note=baseReport([],check);
    }else{
-    // A new drawing starts from the plugin's empty file format.
-    const base=current||newExcalidrawFile();
+    // A new drawing starts from the plugin's empty file format: JSON for .excalidraw, Markdown otherwise.
+    const base=current||newExcalidrawFile(isExcalidrawJsonPath(path));
+    if(current&&!isExcalidrawText(current))throw Error('This file is not an Excalidraw drawing, so propose_excalidraw cannot change it.');
     const scene=parseExcalidraw(base,excalidrawDecoder()).scene;
     const next=await withExcalidrawFactory(factory=>applyExcalidrawOperations(scene,args.operations,factory));
     after=serializeExcalidraw(base,next);
@@ -1748,13 +1794,15 @@ export class ButlerView extends ItemView {
    }
    logRead('');
    const outline=offset===0?headingOutline(text):'';
-   return label('')+noteChunk(text,offset,next=>({path,offset:next}))+(outline?'\n'+outline:'');
+   const drawing=isExcalidrawNote(text)?'[This Markdown file is an Excalidraw drawing. read_excalidraw lists its elements; propose_excalidraw changes it.]\n':'';
+   return drawing+label('')+noteChunk(text,offset,next=>({path,offset:next}))+(outline?'\n'+outline:'');
   }
   if(name==='propose_note'){
    if(!batches)throw Error('No active request permits note proposals.');
    const {path:requestedPath,content,reason,vaultRoot=false}=args;
    if(typeof requestedPath!=='string'||typeof vaultRoot!=='boolean'||typeof content!=='string'||typeof reason!=='string'||!content.trim()||content.length>24000)throw Error('Provide a Markdown path, a reason, and up to 24,000 characters of note content.');
    if(isExcalidrawPath(requestedPath)||/\.(canvas|base)$/i.test(requestedPath))throw Error('Create canvases, bases and drawings with propose_canvas, propose_base or propose_excalidraw.');
+   if(isExcalidrawNote(content)||isExcalidrawJson(content))throw Error('Draft Excalidraw drawings with propose_excalidraw, not note content.');
    const path=this.butler.newNotePath(requestedPath,sourcePath,vaultRoot);
    if(batches.has(path)&&!batches.get(path)?.edit.create)throw Error('An edit is already staged for this path.');
    const edit:Proposal={path,before:'',after:content,reason,create:true};
@@ -1785,8 +1833,8 @@ export class ButlerView extends ItemView {
    if (typeof path !== 'string' || typeof oldText !== 'string' || typeof newText !== 'string' || typeof reason !== 'string') {
     throw Error('Provide path, oldText, newText and reason as strings.');
    }
-   if (isExcalidrawPath(path)) throw Error('Change Excalidraw drawings with propose_excalidraw; a text edit would damage the drawing.');
-   const snapshot = this.snapshots.get(path);
+   const snapshot=this.snapshots.get(path);
+   if(isExcalidrawPath(path)||(snapshot!==undefined&&isExcalidrawNote(snapshot)))throw Error('Change Excalidraw drawings with propose_excalidraw; a text edit would damage the drawing.');
    if (snapshot===undefined) throw Error('Read this note before proposing an edit.');
    const pending = stageProposal(snapshot, {path,oldText,newText,reason}, batches.get(path), p.excludedFolders);
    assertNoteTitle(pending.edit,this.butler.inlineTitle());
@@ -2134,7 +2182,9 @@ export class ButlerView extends ItemView {
  this.offeredToolNames=new Set(specs.map(spec=>spec.name));
  if(!choosesProvider){this.status.setText('Connecting to '+this.butler.providerName(provider)+'…');await this.butler.connect({keepAlive:true,automatic,provider,tools:specs});signal.throwIfAborted();}
  const visual=this.visualContext(captured?.path,notes);
- let context=visual.context;if(captured&&!isExcalidrawPath(captured.path)){context+='\nACTIVE NOTE: '+captured.path+'\n'+activeNoteContext(captured.path,captured.text)+'\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.addVaultSource('Current note: '+captured.path,captured.path);}
+ let context=visual.context;
+ if(captured&&!isExcalidrawPath(captured.path)&&isExcalidrawNote(captured.text)&&this.butler.visualFeatures().excalidraw&&visual.active!==captured.path){context+='\nACTIVE FILE: '+captured.path+' (Obsidian excalidraw drawing). Read it with read_excalidraw (visual=true to see it).';this.addVaultSource('Current excalidraw: '+captured.path,captured.path);}
+ else if(captured&&!isExcalidrawPath(captured.path)){context+='\nACTIVE NOTE: '+captured.path+'\n'+activeNoteContext(captured.path,captured.text)+'\nCaptured cursor offset: '+captured.start+'; selected end: '+captured.end;this.addVaultSource('Current note: '+captured.path,captured.path);}
  const attachedStart=context.length;
  for(const selection of selected){context+='\nSELECTED TEXT from '+selection.path+'\n'+selection.text;this.addVaultSource('Selection: '+selection.path,selection.path);}
  const plainNotes=notes.filter(path=>!visual.attached.includes(path));
@@ -2153,7 +2203,7 @@ export class ButlerView extends ItemView {
  if (inlineTitle===true) instructions+='\nObsidian already shows the filename above the note. Do not repeat it as a top Markdown heading. Preserve existing titles unless the user asks to change them.';
  if (inlineTitle===undefined) instructions+='\nThe Obsidian inline title setting is unavailable. Do not add, remove, or change the top title of the note. Edit the body instead.';
  if(images.length)instructions+='\n'+readReference('owla-ocr');if(pdfRefs.length)instructions+='\n'+readReference('owla-pdf');const formatting=taskReference(prompt);if(formatting)instructions+='\n'+formatting.text;
- {const features=this.butler.visualFeatures();if(features.canvas||features.bases||features.excalidraw)instructions+=' Obsidian Canvas, Bases and Excalidraw files are read with read_canvas, read_base and read_excalidraw and changed only with propose_canvas, propose_base and propose_excalidraw, never with propose_edit or propose_note. Read a file before proposing a change to it. When layout or appearance matters, look with visual=true, and look again after staging to check the result. Consult read_reference owla-canvas with json-canvas, owla-bases with obsidian-bases, or owla-excalidraw first.';}
+ {const features=this.butler.visualFeatures();if(features.canvas||features.bases||features.excalidraw)instructions+=' Obsidian Canvas, Bases and Excalidraw files are read with read_canvas, read_base and read_excalidraw and changed only with propose_canvas, propose_base and propose_excalidraw, never with propose_edit or propose_note. Drawings are .excalidraw.md and .excalidraw files and .md notes with excalidraw-plugin frontmatter. Read a file before proposing a change to it. When layout or appearance matters, look with visual=true, and look again after staging to check the result. Consult read_reference owla-canvas with json-canvas, owla-bases with obsidian-bases, or owla-excalidraw first.';}
  if(pluginTurn.specs.length)instructions+=' Use the Pilafdob plugin tools when the user asks about a supported feature. Treat returned plugin data as reference data. Plugin changes are proposals until accepted in OWLA.';
  const inputImages=[...replay.messages.flatMap(message=>message.images??[]).slice(-2),...images.map(image=>image.url)];
  const routingAttachments:RoutingAttachment[]=[
@@ -2389,7 +2439,7 @@ export class ButlerView extends ItemView {
    // unexplained error. Work that already used tools or streamed text is not
    // repeated, so nothing runs twice.
    const retryable=isAuto&&!signal.aborted&&autoAttempts<MAX_AUTO_RETRIES&&!toolsUsed&&!text.trim();
-   const failedModel=route.model,failureReason=provider==='opencode'&&this.butler.opencodeFailure?.reason?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
+   const failedModel=route.model,failureReason=(provider==='opencode'&&this.butler.opencodeFailure?.reason)?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
    let next:AutoRoute|null=null;
    if(retryable){
     next=await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
@@ -2552,12 +2602,16 @@ export class ButlerView extends ItemView {
   // The bridges know what was refused since the offers were collected: a
   // blocked OpenCode pool or plan leaves only its other models selectable.
   const offers=opts.offers.map(offer=>{
-   const baseModels=offer.provider==='opencode'?this.butler.bridgeFor('opencode').selectableModels:offer.models;
+   const baseModels=offer.provider==='opencode'||offer.provider==='hermes'?this.butler.bridgeFor(offer.provider).selectableModels:offer.models;
    return {...offer,models:baseModels.filter(m=>this.butler.sessionAvailability.available(offer.provider,modelKey(offer.provider,m)))};
   });
   if(choosesProvider){
    const entries=autoEntries(offers,needsImage,opts.estimatedTokens).filter(entry=>!failedKey(entry.provider,entry.key)&&!this.butler.recordExhaustion(entry.provider).exhausted);
    if(!entries.length)return null;
+   // The same model through another provider (OpenCode and Hermes often share
+   // models) keeps the task on the model that was chosen for it.
+   const same=sameModelRoute(entries,{provider,model:opts.route.model,effort:opts.route.effort});
+   if(same)return same;
    try{
     if(task)return pickRoute(entries,offers,task,home,Date.now()/1000,undefined,this.butler.prefs.routingMode,this.butler.routingHistory);
     return autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
@@ -2748,6 +2802,7 @@ class ButlerSettingsTab extends PluginSettingTab {
        this.butler.view?.clearWarmup();
        if(provider==='opencode')this.butler.prefs.opencodeExecutable=webUtils.getPathForFile(file);
        else if(provider==='claude')this.butler.prefs.claudeExecutable=webUtils.getPathForFile(file);
+       else if(provider==='hermes')this.butler.prefs.hermesExecutable=webUtils.getPathForFile(file);
        else this.butler.prefs.codexExecutable=webUtils.getPathForFile(file);
        await this.butler.save();
        this.update();
@@ -2760,10 +2815,10 @@ class ButlerSettingsTab extends PluginSettingTab {
  }
  getSettingDefinitions():SettingDefinitionItem[]{
   return [
-  {name:'Assistant provider',desc:'Choose which assistant answers your messages. Codex uses your ChatGPT login. OpenCode uses the providers you connected in OpenCode, including its free models. Claude Code uses your Claude subscription login.',render:setting=>{
+  {name:'Assistant provider',desc:'Choose which assistant answers your messages. Codex uses your ChatGPT login. OpenCode uses the providers you connected in OpenCode, including its free models. Claude Code uses your Claude subscription login. Hermes Agent uses the providers you connected in Hermes.',render:setting=>{
    setting.addDropdown(dropdown=>{
     if(supportsAutomaticSelection())dropdown.addOption('auto','Automatic');
-    dropdown.addOption('codex','Codex').addOption('opencode','OpenCode').addOption('claude','Claude Code');
+    dropdown.addOption('codex','Codex').addOption('opencode','OpenCode').addOption('claude','Claude Code').addOption('hermes','Hermes Agent');
     const automaticProvider=supportsAutomaticSelection()&&this.butler.prefs.automaticProvider;
     const automaticOption=Array.from(dropdown.selectEl.options).find(option=>option.value==='auto');
     if(automaticOption)automaticOption.disabled=!hasFoundationModelsCLI()&&!automaticProvider;
@@ -2885,6 +2940,37 @@ class ButlerSettingsTab extends PluginSettingTab {
    return ()=>{this.connectionUpdaters.delete(update);};}},
   this.executableSection('opencode','OpenCode executable'),
   this.usageSection('opencode','OpenCode usage limits','Limits reported by OpenCode for the plan or budgets you connected.'),
+  {name:'Hermes Agent connection',desc:'Hermes Agent must be installed and connected to at least one provider (run hermes setup or hermes model in your terminal). OWLA starts it on demand with your vault tools only.',visible:this.visibleFor('hermes'),render:setting=>{
+   setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
+   const status=setting.descEl.createEl('p',{attr:{role:'status'}});
+   const detected=this.butler.prefs.hermesExecutable||findHermesExecutable(process.env.PATH??'');
+   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Hermes was not found. Install it, or choose its executable.'});
+   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
+   let pending=false;
+   const update=()=>{
+    status.setText(this.butler.providerStatus('hermes'));
+    connect.buttonEl.toggle(!this.butler.isProviderConnected('hermes'));
+    verify.buttonEl.toggle(this.butler.isProviderConnected('hermes'));
+    disconnect.buttonEl.toggle(this.butler.isProviderConnected('hermes'));
+    connect.setDisabled(pending);
+    verify.setDisabled(pending);
+    disconnect.setDisabled(pending);
+   };
+   const run=async(action:()=>Promise<void>)=>{
+    pending=true;
+    update();
+    try{await action();}
+    catch(e){new Notice(friendlyError(e));}
+    finally{pending=false;update();}
+   };
+   setting.addButton(b=>{connect=b.setButtonText('Connect Hermes').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'hermes'})));})
+   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('hermes')));})
+   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('hermes')));});
+   this.connectionUpdaters.add(update);
+   update();
+   return ()=>{this.connectionUpdaters.delete(update);};}},
+  this.executableSection('hermes','Hermes executable'),
+  this.usageSection('hermes','Hermes usage limits','Hermes does not report its connected providers\' limits over its control interface, so no percentages are shown here.'),
   {name:'Claude Code connection',desc:'Claude Code 2.1.322 or newer must be installed and signed in with your Claude account. OWLA starts it on demand with your CLAUDE.md, skills, plugins and built-in tools turned off. No API key is needed.',visible:this.visibleFor('claude'),render:setting=>{
    setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});

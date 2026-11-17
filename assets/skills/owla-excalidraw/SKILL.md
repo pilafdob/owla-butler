@@ -1,10 +1,12 @@
 ---
 name: OWLA Excalidraw
-description: Reading, seeing and changing Excalidraw drawings (.excalidraw.md) through OWLA's reviewed drawing operations.
+description: Reading, seeing and changing Excalidraw drawings (.excalidraw.md, .excalidraw and .md drawing notes) through OWLA's reviewed drawing operations.
 ---
 # Excalidraw drawings in OWLA
 
 A drawing is a scene of elements: shapes (rectangle, ellipse, diamond), text, arrows and lines, frames, images and freehand strokes. Each element has an id, a position (x, y = top-left corner, in scene pixels; y grows downward) and a size. Text inside a shape belongs to that shape. An arrow records which elements it connects.
+
+Drawings come in three file forms, and read_excalidraw and propose_excalidraw work with all of them: `.excalidraw.md`, `.excalidraw` (the scene as plain JSON) and any `.md` note with `excalidraw-plugin` frontmatter. Never mind the form; use the path the user gives.
 
 ## Read before you change
 - `read_excalidraw` lists every element with its id, position, size, text, colours, frame and connections. Use the ids exactly as listed.

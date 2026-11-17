@@ -1,5 +1,15 @@
 # OWLA Butler verification
 
+## 3.6.0 — Hermes Agent and Excalidraw file forms (2026-11-17)
+
+- **Gates (final tree, after all source edits):** `npm run check`, `npm run lint` (0 errors, 0 warnings), `npm test` (311 pass, 0 fail), `npm run build`, `npm run check:release` (version 3.6.0, three-file bundle, full notices and embedded reference pack) and `npm run guard:test` pass.
+- **Protocol, without inference:** a local fake `hermes acp` peer exercised the real `HermesBridge` against its HTTP MCP endpoint. `session/new` received the loopback MCP URL and bearer token; `tools/list` exposed the single offered tool; `tools/call` returned `TEST_TOOL_OK`, which streamed back as the answer; OWLA's instructions were present in the prompt. This covers tool registration, MCP authentication and the streaming path.
+- **Live turn (Agentbrain vault, final build):** after reload, `Connect Hermes` discovered 153 models from the user's connected providers. A short prompt sent through the bridge's actual `run()` with a free NVIDIA model answered exactly `LIVE HERMES OK`; the bridge returned to its resting state. The Nous provider was out of its daily included usage during this session (HTTP 402), so no Nous turn was possible.
+- **Isolation:** the private Hermes config now reports `platform_toolsets.acp: [web]` while **Allow web search** is on, with plugins, MCP servers, memory and user profile disabled. `sessions/`, `state.db*`, logs, history, plugins, hooks, memory, persona and gateway state are excluded from the mirror of the user's Hermes home; `auth.json` and `.env` stay reachable. A local probe re-checked the config and protocol after this change.
+- **Cross-provider routing:** six tests in `tests/hermes.test.ts` cover tool naming, private config and exclusions, error messages, settings migration, canonical model keys and switching to the same model on another provider.
+- **Excalidraw work (other agent, reviewed here):** staged source changes handle `.excalidraw.md`, `.excalidraw` JSON and plain `.md` drawings, and recognise a drawing note opened in Excalidraw as the active file. Its tests (`tests/visual-files.test.ts`, `tests/visual-context.test.ts`) pass; the previous agent verified the context path live in School. Accept/decline on a plain `.md` or `.excalidraw` drawing was not exercised live here.
+- **Not verified:** a live tool call using a real Hermes model, web search through Hermes, a real usage-limit recovery, Windows, and accept/decline of Excalidraw drawings. No commit, tag or push was made.
+
 ## Selection attachment card — 2026-11-16
 
 - **What changed.** A text selection added to the chat now appears under the sent message as an attachment card, like an attached note: the text-select icon, the vault path and the excerpt it carries. Before this, the selection only existed as a composer chip and vanished on send, so it was impossible to tell that it went with the prompt. A selection added while a reply is still running is marked **next message**, because it waits for the message after the running one.
