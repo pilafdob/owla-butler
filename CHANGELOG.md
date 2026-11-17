@@ -1,6 +1,11 @@
 # Changelog
 
-## 3.6.1
+## 3.6.2
+
+### Community source review
+
+- **Hermes bridge source checks:** removed the file-wide lint suppression in `src/hermes.ts`. JSON-RPC messages, model catalogues and streamed updates are now checked at their boundaries with the same typed helpers the other providers use, so the source scanner's directive, `any` union and unnecessary-assertion findings no longer apply. No change to chat, tools, models or the review flow.
+
 
 ### Windows compatibility
 

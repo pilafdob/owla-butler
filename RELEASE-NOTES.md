@@ -1,3 +1,9 @@
+# OWLA Butler 3.6.2
+
+This is a source-review patch for the Community listing. It removes the blanket lint suppression in the Hermes bridge and validates its JSON-RPC messages, model list and streamed updates at the boundary, like the other providers. There is no change to chat, tools, models or the review flow.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and connect the provider CLI separately.
+
 # OWLA Butler 3.6.1
 
 This is a Windows compatibility and security patch. No changes to chat, providers, models or the review flow.

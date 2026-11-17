@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call */
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
 import {copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
@@ -101,11 +100,11 @@ export class HermesBridge implements ProviderBridge{
  private toolNames=new Set<string>();
  private mcpToken='';
  private nextId=1;
- private pending=new Map<number,{resolve:(v:any)=>void;reject:(e:Error)=>void}>();
+ private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void}>();
  private buffer='';
  models:ProviderModel[]=[];
  usage:UsageSnapshot|null=null;
- lastFailure:any=null;
+ lastFailure:Error|null=null;
  usageUpdatedAt=0;
  usageError='';
  exhaustion:ProviderExhaustion|null=null;
@@ -215,9 +214,9 @@ export class HermesBridge implements ProviderBridge{
   const parts:string[]=[];let size=0;
   request.setEncoding('utf8');
   for await(const chunk of request as AsyncIterable<string>){size+=chunk.length;if(size>32*1024*1024){response.writeHead(413);response.end();return;}parts.push(chunk);}
-  let body:any;try{body=JSON.parse(parts.join('')||'{}');}catch{body={};}
-  const messages=Array.isArray(body)?body:[body];
-  const replies:any[]=[];
+  let body:unknown;try{body=JSON.parse(parts.join('')||'{}');}catch{body={};}
+  const messages=list(body);
+  const replies:Record<string,unknown>[]=[];
   for(const msg of messages){
    const reply=await this.dispatchMcp(msg);
    if(reply!==null)replies.push(reply);
@@ -227,10 +226,11 @@ export class HermesBridge implements ProviderBridge{
   response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify(payload));
  }
 
- private async dispatchMcp(msg:any):Promise<any|null>{
-  const id=msg?.id;
-  const method=typeof msg?.method==='string'?msg.method:'';
-  const params=record(msg?.params);
+ private async dispatchMcp(msg:unknown):Promise<Record<string,unknown>|null>{
+  const request=record(msg);
+  const id=request.id;
+  const method=typeof request.method==='string'?request.method:'';
+  const params=record(request.params);
   if(method==='initialize'){
    return {jsonrpc:'2.0',id,result:{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'owla',version:'1'}}};
   }
@@ -246,7 +246,7 @@ export class HermesBridge implements ProviderBridge{
    try{
     const output=await handler(name,args);
     const text=typeof output==='string'?output:output.text;
-    const content:any[]=[{type:'text',text}];
+    const content:Record<string,unknown>[]=[{type:'text',text}];
     const image=typeof output!=='string'?imageBlock(output.imageUrl):null;
     if(image)content.push({type:'image',data:image.data,mimeType:image.mediaType});
     return {jsonrpc:'2.0',id,result:{content,isError:false}};
@@ -266,11 +266,11 @@ export class HermesBridge implements ProviderBridge{
 
  private toolDescriptions=new Map<string,string>();
  private toolSchemas=new Map<string,unknown>();
- private currentToolList():any[]{
+ private currentToolList():Record<string,unknown>[]{
   return [...this.toolNames].map(name=>({name,description:this.toolDescriptions.get(name)??'',inputSchema:this.toolSchemas.get(name)??{type:'object',properties:{}}}));
  }
 
- private sendRpc(method:string,params:any,timeout:number|null=30000):Promise<any>{
+ private sendRpc(method:string,params:unknown,timeout:number|null=30000):Promise<unknown>{
   if(!this.child)return Promise.reject(Error('Hermes is not running.'));
   const id=this.nextId++;
   const payload=JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n';
@@ -288,15 +288,16 @@ export class HermesBridge implements ProviderBridge{
    const line=this.jsonBuffer.slice(0,idx).trim();
    this.jsonBuffer=this.jsonBuffer.slice(idx+1);
    if(!line)continue;
-   let msg:any;try{msg=JSON.parse(line);}catch{continue;}
+   let msg:Record<string,unknown>;try{msg=record(JSON.parse(line));}catch{continue;}
    if(typeof msg.method!=='string'){
     // A response to one of OWLA's requests.
-    const p=typeof msg.id==='number'?this.pending.get(msg.id):undefined;
-    if(p){this.pending.delete(msg.id);if(msg.error)p.reject(Error(typeof msg.error?.message==='string'?msg.error.message:'Hermes error.'));else p.resolve(msg.result);}
+    const id=typeof msg.id==='number'?msg.id:0;
+    const p=this.pending.get(id);
+    if(p){this.pending.delete(id);const failure=record(msg.error);if(msg.error)p.reject(Error(typeof failure.message==='string'?failure.message:'Hermes error.'));else p.resolve(msg.result);}
     continue;
    }
    if(msg.method==='session/update'){
-    const update=msg.params?.update;
+    const update=record(msg.params).update;
     // handled in run() via a stored callback; store latest
     this.lastUpdate=update;
     if(this.updateCallback)this.updateCallback(update);
@@ -316,8 +317,8 @@ export class HermesBridge implements ProviderBridge{
   }
  }
 
- private lastUpdate:any=null;
- private updateCallback:((u:any)=>void)|null=null;
+ private lastUpdate:unknown=null;
+ private updateCallback:((u:unknown)=>void)|null=null;
 
  async connect(executable='',cwd='',web=false,tools:ToolSpec[]=[]):Promise<void>{
   const key=JSON.stringify([executable,cwd,web,tools.map(t=>t.name).join(',')]);
@@ -367,30 +368,32 @@ export class HermesBridge implements ProviderBridge{
   void init;
   if(generation!==this.generation)throw Error('Hermes connection cancelled.');
   // session/new with mcp server
-  const session=await this.sendRpc('session/new',{cwd:this.cwd,mcpServers:[{name:'owla',type:'http',url:'http://127.0.0.1:'+this.callbackPort+'/mcp',headers:[{name:'Authorization',value:'Bearer '+this.mcpToken}]}]});
+  const sessionState=record(await this.sendRpc('session/new',{cwd:this.cwd,mcpServers:[{name:'owla',type:'http',url:'http://127.0.0.1:'+this.callbackPort+'/mcp',headers:[{name:'Authorization',value:'Bearer '+this.mcpToken}]}]}));
   if(generation!==this.generation)throw Error('Hermes connection cancelled.');
-  this.sessionId=typeof session?.sessionId==='string'?session.sessionId:'';
+  this.sessionId=typeof sessionState.sessionId==='string'?sessionState.sessionId:'';
   if(!this.sessionId)throw Error('Hermes did not return a session ID.');
   // models
-  const modelsState=session?.models;
-  const available=list(modelsState?.availableModels).map(record);
-  const mapped=available.map((entry:any)=>{
+  const modelsState=record(sessionState.models);
+  const available=list(modelsState.availableModels).map(record);
+  const currentModelId=typeof modelsState.currentModelId==='string'?modelsState.currentModelId:'';
+  const models:ProviderModel[]=[];
+  for(const entry of available){
    const id=typeof entry.modelId==='string'?entry.modelId:'';
-   if(!id)return null;
+   if(!id)continue;
    const colon=id.indexOf(':');
    const providerID=colon>0?id.slice(0,colon):'hermes';
    const modelID=colon>0?id.slice(colon+1):id;
-   return {
+   models.push({
     id,model:modelID,providerID,
     displayName:typeof entry.name==='string'?entry.name:modelID,
     description:typeof entry.description==='string'?entry.description:undefined,
-    isDefault:id===(typeof modelsState?.currentModelId==='string'?modelsState.currentModelId:''),
+    isDefault:id===currentModelId,
     defaultReasoningEffort:HERMES_NO_EFFORT,
     supportedReasoningEfforts:[{reasoningEffort:HERMES_NO_EFFORT,description:''}],
     inputModalities:['text','image'],
-   } as ProviderModel;
-  }).filter((m):m is ProviderModel=>!!m);
-  this.models=mapped;
+   });
+  }
+  this.models=models;
   if(!this.models.length)throw Error('Hermes returned no usable models.');
   this.accountType='hermes';
   this.setStatus('Connected to Hermes Agent');
@@ -419,17 +422,20 @@ export class HermesBridge implements ProviderBridge{
   let failure:Error|undefined;
   let resolveTurn:()=>void=()=>{};
   void resolveTurn;
-  this.updateCallback=(update:any)=>{
-   const type=typeof update?.sessionUpdate==='string'?update.sessionUpdate:'';
+  this.updateCallback=(update:unknown)=>{
+   const event=record(update);
+   const type=typeof event.sessionUpdate==='string'?event.sessionUpdate:'';
    if(type==='agent_message_chunk'){
-    const content=record(update?.content);
+    const content=record(event.content);
     const delta=typeof content.text==='string'?content.text:'';
     if(delta){text+=delta;options.onText(delta);}
    }
    if(type==='tool_call'||type==='tool_call_update'){
-    const name=typeof update?.title==='string'?update.title:(typeof update?.kind==='string'?update.kind:'');
+    const title=typeof event.title==='string'?event.title:'';
+    const kind=typeof event.kind==='string'?event.kind:'';
+    const name=title||kind;
     if(name)options.onActivity('Using '+name+'…');
-    if(/web_search|websearch|web_extract|webextract/i.test(String(update?.title??'')+String(update?.kind??'')))usedWeb=true;
+    if(/web_search|websearch|web_extract|webextract/i.test(String(event.title??'')+String(event.kind??'')))usedWeb=true;
    }
   };
   const sessionId=this.sessionId;
