@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {chmodSync,mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {delimiter,join,win32} from 'node:path';
-import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,shimInterpreterTrusted,terminateProcessTree,taskkillPath,windowsSystemDirectory,comSpecPath} from '../src/cli';
+import {defaultCliDirectories,defaultStorageDirectory,envPath,extendedPath,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,shimInterpreterTrusted,terminateProcessTree,taskkillPath,trustedComSpecPath,trustedSystemDirectory,windowsSystemDirectory,comSpecPath,withPinnedShimInterpreter} from '../src/cli';
 
 test('Windows storage defaults to local per-user application data',()=>{
  assert.equal(defaultStorageDirectory('win32','C:\\Users\\Ada',{LOCALAPPDATA:'C:\\Users\\Ada\\AppData\\Local'}),win32.join('C:\\Users\\Ada\\AppData\\Local','OWLA Butler'));
@@ -102,18 +102,23 @@ test('Windows system tools resolve from SystemRoot with fallbacks',()=>{
 });
 
 test('A Windows command shim runs only through the system interpreter',()=>{
- const root={SystemRoot:'C:\\Win'};
+ // On a real Windows host the system directory is validated against the
+ // installed cmd.exe, so use this machine's actual SystemRoot there.
+ const systemRoot=process.platform==='win32'?(process.env.SystemRoot||'C:\\Windows'):'C:\\Win';
+ const root={SystemRoot:systemRoot};
+ const cmd=win32.join(systemRoot,'System32','cmd.exe');
  assert.equal(shimInterpreterTrusted('win32',root),true);
- assert.equal(shimInterpreterTrusted('win32',{...root,ComSpec:'C:\\WIN\\system32\\CMD.EXE'}),true);
- assert.equal(shimInterpreterTrusted('win32',{...root,ComSpec:'C:/Win/System32/cmd.exe'}),true);
+ assert.equal(shimInterpreterTrusted('win32',{...root,ComSpec:cmd.toUpperCase()}),true);
+ assert.equal(shimInterpreterTrusted('win32',{...root,ComSpec:cmd.replace(/\\/g,'/')}),true);
  assert.equal(shimInterpreterTrusted('win32',{...root,ComSpec:'C:\\Tools\\shell.exe'}),false);
  assert.equal(shimInterpreterTrusted('win32',{...root,comspec:'C:\\Tools\\shell.exe'}),false);
  assert.equal(shimInterpreterTrusted('darwin',{ComSpec:'C:\\Tools\\shell.exe'}),true);
 });
 
 test('Windows child environments pin ComSpec to the system interpreter',()=>{
- const env=sanitizedEnv({PATH:'C:\\bin',SystemRoot:'C:\\Win',ComSpec:'C:\\Tools\\other.exe',NODE_OPTIONS:'--require /x.js'},{platform:'win32'});
- assert.equal(env.ComSpec,win32.join('C:\\Win','System32','cmd.exe'));
+ const systemRoot=process.platform==='win32'?(process.env.SystemRoot||'C:\\Windows'):'C:\\Win';
+ const env=sanitizedEnv({PATH:'C:\\bin',SystemRoot:systemRoot,ComSpec:'C:\\Tools\\other.exe',NODE_OPTIONS:'--require /x.js'},{platform:'win32'});
+ assert.equal(env.ComSpec,win32.join(systemRoot,'System32','cmd.exe'));
  assert.equal(env.comspec,undefined);
  assert.equal(env.NODE_OPTIONS,undefined);
  assert.equal(sanitizedEnv({ComSpec:'C:\\Tools\\other.exe'},{platform:'darwin'}).ComSpec,'C:\\Tools\\other.exe');
@@ -142,4 +147,74 @@ test('POSIX tree termination still kills the detached process group',async()=>{
  const child=spawnCli('/bin/sh',['-c','sleep 30'],{detached:true});
  terminateProcessTree(child,'SIGKILL');
  assert.equal(await new Promise<boolean>(resolve=>{child.once('exit',()=>resolve(true));setTimeout(()=>resolve(false),5000);}),true);
+});
+
+// W2 — a redirected SystemRoot must not choose the shim interpreter or taskkill.
+
+test('A redirected or traversal SystemRoot is never used to choose system tools',()=>{
+ const fake={SystemRoot:'C:\\DefinitelyNotWindows',ComSpec:'C:\\DefinitelyNotWindows\\System32\\cmd.exe'};
+ // The pure composition helpers stay unchanged on every host.
+ assert.equal(comSpecPath(fake),win32.join('C:\\DefinitelyNotWindows','System32','cmd.exe'));
+ assert.equal(taskkillPath(fake),win32.join('C:\\DefinitelyNotWindows','System32','taskkill.exe'));
+ if(process.platform==='win32'){
+  assert.equal(trustedSystemDirectory(fake),'C:\\Windows');
+  assert.equal(trustedComSpecPath(fake),win32.join('C:\\Windows','System32','cmd.exe'));
+  assert.equal(shimInterpreterTrusted('win32',fake),false);
+  const traversal={SystemRoot:'C:\\Windows\\..\\Evil',ComSpec:'C:\\Evil\\System32\\cmd.exe'};
+  assert.equal(trustedSystemDirectory(traversal),'C:\\Windows');
+ }else{
+  // Off Windows validation is a no-op so the same rules remain testable.
+  assert.equal(trustedSystemDirectory(fake),'C:\\DefinitelyNotWindows');
+ }
+});
+
+// W3 — the provider-child PATH uses the host separator.
+
+test('Provider child PATH uses the host separator',()=>{
+ assert.equal(extendedPath('C:\\bin',['C:\\a','C:\\b'],'win32'),'C:\\bin;C:\\a;C:\\b');
+ assert.equal(extendedPath('/bin',['/a','/b'],'darwin'),'/bin:/a:/b');
+ assert.equal(extendedPath(undefined,['/a'],'linux'),'/a');
+});
+
+// W4 — unrelated credentials are stripped on Windows only.
+
+test('Windows child environments drop unrelated credentials only on Windows',()=>{
+ const source={GH_TOKEN:'token',AWS_SECRET_ACCESS_KEY:'secret',NPM_TOKEN:'token',OPENAI_API_KEY:'key'};
+ const win=sanitizedEnv(source,{platform:'win32'});
+ assert.equal(win.GH_TOKEN,undefined);
+ assert.equal(win.AWS_SECRET_ACCESS_KEY,undefined);
+ assert.equal(win.NPM_TOKEN,undefined);
+ assert.equal(win.OPENAI_API_KEY,undefined);
+ const other=sanitizedEnv(source,{platform:'darwin'});
+ assert.equal(other.GH_TOKEN,'token');
+ assert.equal(other.AWS_SECRET_ACCESS_KEY,'secret');
+ assert.equal(other.NPM_TOKEN,'token');
+ assert.equal(other.OPENAI_API_KEY,undefined); // the universal list still applies
+});
+
+// W1 — cross-spawn's interpreter is pinned for the duration of a shim spawn.
+
+test('A shim spawn pins ComSpec to the system interpreter and restores it',()=>{
+ if(process.platform!=='win32')return;
+ const saved=process.env.comspec;
+ delete process.env.comspec;
+ try{
+  let during='';
+  withPinnedShimInterpreter(()=>{during=process.env.comspec||'';});
+  assert.equal(during,trustedComSpecPath());
+  assert.equal(process.env.comspec,undefined);
+ }finally{
+  if(saved!==undefined)process.env.ComSpec=saved;
+ }
+});
+
+// W3 follow-up — a copied environment keeps whatever key casing the host used.
+
+test('envPath finds PATH regardless of key casing on a plain object',()=>{
+ assert.equal(envPath({Path:'C:\bin'}),'C:\bin');
+ assert.equal(envPath({PATH:'/usr/bin'}),'/usr/bin');
+ assert.equal(envPath({path:'C:\other'}),'C:\other');
+ assert.equal(envPath({}),'');
+ // The spread of a normal Windows-style env is where env.PATH would be undefined.
+ assert.equal(envPath({...{Path:'C:\bin',ComSpec:'C:\Windows\System32\cmd.exe'}}),'C:\bin');
 });

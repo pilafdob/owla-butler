@@ -59,6 +59,27 @@ export function defaultStorageDirectory(platform=process.platform,home=homedir()
  if(platform==='darwin')return path.join(home,'Library','Application Support','OWLA Butler');
  return path.join(env.XDG_DATA_HOME||path.join(home,'.local','share'),'OWLA Butler');
 }
+/**
+ * The PATH handed to a provider child: the inherited PATH plus private bin
+ * directories, joined with the host's separator. Windows uses ';', macOS and
+ * Linux ':' (W3); the platform is a parameter so this is tested everywhere.
+ */
+export function extendedPath(pathValue:string|undefined,directories:string[],platform:NodeJS.Platform=process.platform):string{
+ return [pathValue,...directories].filter(Boolean).join(platform==='win32'?';':':');
+}
+/**
+ * Reads PATH from an environment regardless of key casing. Windows exposes the
+ * variable as `Path` in a normal GUI/Explorer-launched process; spreading
+ * `process.env` into a plain object keeps that casing, and a plain object is
+ * case-sensitive, so `env.PATH` is then undefined. Node's process.env itself is
+ * case-insensitive on Windows, but a copy of it is not. Every caller builds the
+ * child PATH explicitly with extendedPath, so the inherited value must be found
+ * by comparing lower-cased keys.
+ */
+export function envPath(env:NodeJS.ProcessEnv):string{
+ for(const [key,value] of Object.entries(env))if(key.toLowerCase()==='path')return value??'';
+ return '';
+}
 
 type CliSpawnOptions={cwd?:string;env?:NodeJS.ProcessEnv;detached?:boolean};
 
@@ -89,18 +110,54 @@ export const UNSAFE_CREDENTIAL_ENV=[
  'OPENAI_BASE_URL','OPENAI_API_BASE','OPENAI_ORGANIZATION',
  'ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','ANTHROPIC_BASE_URL',
 ];
+/**
+ * Credentials no assistant needs, removed from children only on Windows, where
+ * user environment variables commonly hold tokens for unrelated services (W4).
+ * macOS and Linux environments are left untouched.
+ */
+export const WINDOWS_CREDENTIAL_ENV=[
+ 'AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_PROFILE',
+ 'GH_TOKEN','GITHUB_TOKEN','GITHUB_PAT',
+ 'NPM_TOKEN','NPM_CONFIG_TOKEN','NPM_CONFIG_AUTHTOKEN',
+ 'AZURE_CLIENT_SECRET','AZURE_STORAGE_KEY','GOOGLE_APPLICATION_CREDENTIALS',
+ 'CLOUDFLARE_API_TOKEN','DATABASE_URL','SLACK_TOKEN','DISCORD_TOKEN','TELEGRAM_BOT_TOKEN',
+];
 
 /** The Windows system directory, as Windows itself records it. */
 export function windowsSystemDirectory(env:NodeJS.ProcessEnv=process.env):string{
  return env.SystemRoot||env.windir||'C:\\Windows';
 }
+/**
+ * The environment-derived system directory, checked before it is used on a real
+ * Windows host. A redirected SystemRoot/windir could otherwise choose both the
+ * interpreter for a command shim and the tool that kills a process tree. The
+ * value must be absolute, free of traversal and contain the system's own
+ * cmd.exe; anything else falls back to the default Windows directory. Off
+ * Windows the composition stays pure so the rules are testable on every host.
+ */
+export function trustedSystemDirectory(env:NodeJS.ProcessEnv=process.env):string{
+ const configured=windowsSystemDirectory(env);
+ if(process.platform!=='win32')return configured;
+ const normalized=win32.normalize(configured);
+ if(configured.split(/[\\/]+/).includes('..')||!win32.isAbsolute(normalized)||!existsSync(win32.join(normalized,'System32','cmd.exe')))
+  return 'C:\\Windows';
+ return normalized;
+}
 /** The system's own cmd.exe: the only interpreter OWLA lets run a Windows command shim. */
 export function comSpecPath(env:NodeJS.ProcessEnv=process.env):string{
  return win32.join(windowsSystemDirectory(env),'System32','cmd.exe');
 }
+/** The validated system cmd.exe used at runtime. */
+export function trustedComSpecPath(env:NodeJS.ProcessEnv=process.env):string{
+ return win32.join(trustedSystemDirectory(env),'System32','cmd.exe');
+}
 /** The system's own tool for terminating a whole process tree by PID. */
 export function taskkillPath(env:NodeJS.ProcessEnv=process.env):string{
  return win32.join(windowsSystemDirectory(env),'System32','taskkill.exe');
+}
+/** The validated system taskkill.exe used at runtime. */
+export function trustedTaskkillPath(env:NodeJS.ProcessEnv=process.env):string{
+ return win32.join(trustedSystemDirectory(env),'System32','taskkill.exe');
 }
 /**
  * Whether Windows command shims (.cmd, .bat) can run safely. cross-spawn
@@ -108,50 +165,71 @@ export function taskkillPath(env:NodeJS.ProcessEnv=process.env):string{
  * process's environment rather than the child's
  * (node_modules/cross-spawn/lib/parse.js), so a redirected ComSpec variable
  * would choose which program interprets an assistant. OWLA runs a shim only
- * when the variable names the system's own cmd.exe, or is unset.
+ * when the variable names the system's own cmd.exe, or is unset. The comparison
+ * uses the validated system path so a redirected SystemRoot cannot make a
+ * foreign interpreter look trusted.
  */
 export function shimInterpreterTrusted(platform:NodeJS.Platform=process.platform,env:NodeJS.ProcessEnv=process.env):boolean{
  if(platform!=='win32')return true;
  const comspec=env.ComSpec||env.comspec||'';
  if(!comspec)return true;
  const normalize=(value:string)=>value.replace(/\//g,'\\').toLowerCase();
- return normalize(comspec)===normalize(comSpecPath(env));
+ return normalize(comspec)===normalize(trustedComSpecPath(env));
 }
 
 /** The environment of a spawned assistant, without the variables above. */
 export function sanitizedEnv(env:NodeJS.ProcessEnv=process.env,{keepCredentials=false,platform=process.platform}:{keepCredentials?:boolean;platform?:NodeJS.Platform}={}):NodeJS.ProcessEnv{
  const result:NodeJS.ProcessEnv={...env};
  for(const key of UNSAFE_EXECUTION_ENV)delete result[key];
- if(!keepCredentials)for(const key of UNSAFE_CREDENTIAL_ENV)delete result[key];
+ if(!keepCredentials){
+  for(const key of UNSAFE_CREDENTIAL_ENV)delete result[key];
+  if(platform==='win32')for(const key of WINDOWS_CREDENTIAL_ENV)delete result[key];
+ }
  if(platform==='win32'){
   // Command shims, and anything the assistant itself runs, interpret through
-  // ComSpec; it is pinned to the system's own cmd.exe rather than inherited.
+  // ComSpec; it is pinned to the validated system cmd.exe rather than inherited.
   delete result.comspec;
   delete result.ComSpec;
-  result.ComSpec=comSpecPath(result);
+  result.ComSpec=trustedComSpecPath(result);
  }
  return result;
+}
+
+/**
+ * cross-spawn reads `process.env.comspec` from THIS process when it picks the
+ * interpreter for a `.cmd`/`.bat` shim (node_modules/cross-spawn/lib/parse.js).
+ * When the variable is unset it falls back to a PATH-resolved `cmd.exe`, which
+ * could select a different program. Pin the validated system interpreter for
+ * the single synchronous spawn call, then restore the environment (W1). No-op
+ * off Windows and when the parent already names an interpreter.
+ */
+export function withPinnedShimInterpreter<T>(run:()=>T):T{
+ if(process.platform!=='win32'||process.env.comspec)return run();
+ process.env.ComSpec=trustedComSpecPath();
+ try{return run();}finally{delete process.env.ComSpec;}
 }
 
 export function spawnCli(file:string,args:string[],options:CliSpawnOptions={}):ChildProcessWithoutNullStreams{
  // A Windows command shim is interpreted by the program ComSpec names in this
  // process's environment; OWLA refuses a shim unless that is the system's own
- // cmd.exe (see shimInterpreterTrusted).
- if(process.platform==='win32'&&/\.(?:cmd|bat)$/i.test(file)&&!shimInterpreterTrusted())
+ // cmd.exe (see shimInterpreterTrusted), and pins it if the variable is unset.
+ const shim=process.platform==='win32'&&/\.(?:cmd|bat)$/i.test(file);
+ if(shim&&!shimInterpreterTrusted())
   throw Error('OWLA cannot run this Windows command shim: the ComSpec variable names a program other than the system Command Prompt. Choose the program’s executable file in settings, or set ComSpec to the Windows cmd.exe.');
- return spawn(file,args,{...options,shell:false,windowsHide:true,stdio:'pipe'}) as ChildProcessWithoutNullStreams;
+ const spawnChild=()=>spawn(file,args,{...options,shell:false,windowsHide:true,stdio:'pipe'}) as ChildProcessWithoutNullStreams;
+ return shim?withPinnedShimInterpreter(spawnChild):spawnChild();
 }
 
 export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal:NodeJS.Signals,platform:NodeJS.Platform=process.platform):void{
  if(platform==='win32'){
   // The tree is terminated by PID. Windows reuses PIDs quickly, so an already
   // exited child is never targeted again: its PID may belong to another
-  // process now. taskkill is resolved from the system directory and only
-  // spawned when it is there; the direct child is the fallback.
+  // process now. taskkill is resolved from the validated system directory and
+  // only spawned when it is there; the direct child is the fallback.
   if(child.exitCode!==null||child.signalCode!==null)return;
   const pid=child.pid;
   if(pid){
-   const taskkill=taskkillPath();
+   const taskkill=trustedTaskkillPath();
    if(existsSync(taskkill)){
     const killer=nativeSpawn(taskkill,['/PID',String(pid),'/T','/F'],{stdio:'ignore',windowsHide:true});
     const fallback=()=>{try{child.kill(signal);}catch{return;}};

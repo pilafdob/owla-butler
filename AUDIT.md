@@ -31,6 +31,65 @@ Known limits: no live Windows verification this session — the Windows rules ar
 
 Gates: strict TypeScript, source lint, build, guard self-test, and 144 automated tests on this Mac — 148 minus `tests/auto-route.test.ts`, which another agent had in flight with `src/model-profiles.ts` at verification time and which was left untouched per AGENTS.md.
 
+## Windows compatibility audit — unreleased
+
+A read-only audit of the Windows-specific functions found the gaps below. The
+fixes are confined to Windows branches; macOS and Linux behavior is unchanged.
+
+- **Unset ComSpec (W1).** cross-spawn reads `process.env.comspec` in *this*
+  process when it interprets a `.cmd`/`.bat` shim and falls back to a
+  PATH-resolved `cmd.exe` when the variable is absent. `withPinnedShimInterpreter`
+  now pins the validated system `cmd.exe` for the single synchronous spawn and
+  restores the variable afterwards. The child-environment pin protects
+  grandchildren, not cross-spawn; this closes that gap.
+- **Redirected SystemRoot (W2).** `trustedSystemDirectory` validates the
+  environment-derived system directory (absolute, no traversal, contains the
+  installed `cmd.exe`) before it locates the shim interpreter or `taskkill.exe`;
+  invalid values fall back to `C:\Windows`. The pure `comSpecPath`/`taskkillPath`
+  helpers are unchanged, so the rules remain testable on any host.
+- **Hermes PATH separator (W3).** `extendedPath` joins a child's PATH with `;` on
+  Windows and `:` elsewhere; Hermes previously used a hard-coded `:`.
+- **Hermes PATH casing (W6).** Windows commonly stores PATH as `Path`. A spread
+  of `process.env` into a plain object keeps that casing, so `env.PATH` was
+  undefined and Hermes lost PATH-based discovery and the child's inherited PATH.
+  `envPath` now finds the variable case-insensitively.
+- **Hermes private home (W7).** Mirroring the user's auth/state into OWLA's
+  private home used `symlinkSync`, which fails with EPERM on ordinary Windows
+  (Developer Mode/elevation required) and was silently ignored. It now falls
+  back to a bounded copy, so Hermes no longer appears signed out.
+- **Unrelated credentials (W4).** Windows children also drop common tokens
+  (`GH_TOKEN`, `AWS_*`, `NPM_TOKEN`, and similar). Other platforms are untouched;
+  the universal OpenAI/Anthropic denylist and OpenCode's `keepCredentials`
+  exception are unchanged.
+- **Excluded folders with backslashes (W8).** The excluded-folders setting is
+  now normalised from `\` to `/`, so a Windows-entered `Private\Sub` excludes the
+  same notes as `Private/Sub`. Before this, such an exclusion silently failed.
+
+**Canvas, Bases and Excalidraw were not broken on Windows.** The test vault had
+OWLA 3.1.2 installed, which predates these features entirely (added in 3.5.0).
+The live app was upgraded to 3.6.0, Plugin Interconnectivity enabled, and a test
+canvas created; the pure file logic has 20 automated tests. Three audits of
+`visual.ts`/`excalidraw.ts`/`canvas.ts` against the real Obsidian 1.15.1 `app.js`
+found no Windows defect: `internalPlugins.plugins[id].enabled` is exactly what
+Obsidian's own `getEnabledPluginById` reads. An attempted change to
+`internalPlugins.config[id]` was reverted and a regression test now pins the
+correct shape.
+
+Known limits (not changed): (a) storage defaults to `%LOCALAPPDATA%\OWLA Butler`;
+folder redirection to a network share writes saved chats there too; (b) `foldPath`
+uses APFS-style Unicode folding on every platform, so on NTFS distinct folders
+such as `Straße` and `Strasse` may both be excluded — the error is conservative
+(over-exclusion, not a containment escape); (c) `isPathInside(root, file, platform)`
+resolves non-`win32` branches with the host's `node:path`, so an explicit foreign
+platform on Windows is mishandled — no production caller passes it.
+
+Verified on Windows 11 / Obsidian 1.15.1: CLI suite 17/17; full suite 320 tests /
+302 pass / 18 fail, the same 18 pre-existing `EPERM` symlink-*fixture* failures as
+the unmodified tree (311 / 293 / 18) — they occur in test `before()` hooks before
+any assertion and are unrelated to the product; strict TypeScript, source lint,
+build, guard self-test and release check clean. The new tests
+(`tests/visual-availability.test.ts`, envPath, backslash exclusion) all pass.
+
 ## 3.0.0 OpenCode provider — 2026-11-12
 
 The provider choice is the first setting. Codex keeps its own connection, sign-in, executable, quota and model controls; OpenCode gets the same controls for its own state, and only one provider's section is shown at a time. Settings migrate from schema 2 to 3: the Codex model and reasoning effort move into a per-provider record, the provider defaults to Codex, and the exhaustion fallback is off until it is enabled.

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {diffLines} from 'diff';
-import {isAbsolute,relative,sep,win32} from 'node:path';
+import {posix,win32} from 'node:path';
 import {record} from './validation';
 import type {FallbackChoice,ProviderId} from './provider';
 export type DiffView='highlights'|'none'|'split';
@@ -152,7 +152,7 @@ export function allowedPath(path:string,excluded='',extension:string|null='md',p
  const cacheKey=excluded;
  let roots=excludedCache.get(cacheKey);
  if(!roots){
-  roots=excluded.split('\n').map(s=>s.trim().replace(/^\/+|\/+$/g,'')).filter(Boolean).map(foldPath);
+  roots=excluded.split('\n').map(s=>s.trim().replace(/\\/g,'/').replace(/^\/+|\/+$/g,'')).filter(Boolean).map(foldPath);
   excludedCache.set(cacheKey,roots);
  }
  return !roots.some(root=>target===root||target.startsWith(root+'/'));
@@ -162,7 +162,7 @@ export const EDITABLE_FILE=/\.(md|excalidraw|canvas|base)$/i;
 /** A vault path OWLA may propose an edit to: an allowed path with an editable extension. */
 export function allowedEditablePath(path:string,excluded=''):boolean{return EDITABLE_FILE.test(path)&&allowedPath(path,excluded,null);}
 export function isPathInside(root:string,file:string,platform=process.platform):boolean {
- const path=platform==='win32'?win32:{relative,isAbsolute,sep};
+ const path=platform==='win32'?win32:posix;
  const relativePath=path.relative(root,file);
  return !!relativePath&&relativePath!=='..'&&!relativePath.startsWith('..'+path.sep)&&!path.isAbsolute(relativePath);
 }

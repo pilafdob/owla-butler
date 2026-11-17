@@ -1,3 +1,14 @@
+# OWLA Butler 3.6.1
+
+This is a Windows compatibility and security patch. No changes to chat, providers, models or the review flow.
+
+- **Hermes discovery and sign-in on Windows:** the inherited PATH is now read whether Windows stores it as `Path` or `PATH`, and the child PATH uses the Windows `;` separator, so Hermes and its helpers are found. Sign-in and state are mirrored into OWLA's private home with a copy fallback when Windows refuses a symbolic link (no Developer Mode needed).
+- **Command launchers:** a `.cmd`/`.bat` assistant launcher always runs through the system's own Command Prompt, even when `ComSpec` is unset; a redirected `SystemRoot` can no longer choose the interpreter or the process-termination tool.
+- **Excluded folders:** folders entered with Windows backslashes now exclude correctly.
+- **Credentials:** Windows provider processes no longer inherit unrelated GitHub, AWS, npm and similar tokens; OpenCode still keeps the provider keys it reads by design.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and connect the provider CLI separately.
+
 # OWLA Butler 3.6.0
 
 - **Hermes Agent is a fourth provider.** Connect it once per vault in Settings, then use its connected providers (OpenRouter, Anthropic, Nous, OpenAI Codex, Ollama, custom endpoints and more) with OWLA's tools, skills and review flow. Hermes runs in a private configuration home; your global Hermes configuration, plugins, skills, memory and session history are not read.

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call */
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {existsSync,lstatSync,mkdirSync,readdirSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
+import {copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {createServer,IncomingMessage,Server} from 'node:http';
 import {homedir} from 'node:os';
@@ -11,7 +11,7 @@ import {ProviderExhaustion} from './exhaustion';
 import {UsageSnapshot} from './usage';
 import {list,record} from './validation';
 import {skillDefinitions} from './knowledge';
-import {defaultCliDirectories,findCliExecutable,isCliExecutable,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
+import {defaultCliDirectories,envPath,extendedPath,findCliExecutable,isCliExecutable,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 import {defaultStorageDirectory} from './cli';
 import {imageBlock} from './claude';
 
@@ -64,6 +64,26 @@ export const hermesPrivateConfig=(web:boolean):string=>[
  'skills:','  external_dirs: []',
  '',
 ].join('\n');
+
+/** Copies a directory tree for the symlink fallback, bounded and never chasing links out of the source. */
+function copyTree(source:string,target:string,depth=0,budget={left:8*1024*1024}):void{
+ if(depth>6||budget.left<=0)return;
+ mkdirSync(target,{recursive:true,mode:0o700});
+ for(const entry of readdirSync(source)){
+  const from=join(source,entry),to=join(target,entry);
+  try{
+   const info=lstatSync(from);
+   if(info.isSymbolicLink())continue;
+   if(info.isDirectory())copyTree(from,to,depth+1,budget);
+   else if(info.isFile()){
+    const size=Math.min(info.size,budget.left);
+    if(size<=0)continue;
+    copyFileSync(from,to);
+    budget.left-=size;
+   }
+  }catch{/* Skip an unreadable entry. */}
+ }
+}
 
 export class HermesBridge implements ProviderBridge{
  readonly id='hermes' as const;
@@ -140,7 +160,17 @@ export class HermesBridge implements ProviderBridge{
      continue;
     }
     if(existsSync(target))continue;
-    try{symlinkSync(source,target);}catch{/* ignore */}
+    // Windows normally refuses symlink creation without Developer Mode or an
+    // elevated process (EPERM). Fall back to copying so the private home still
+    // sees the user's auth/state instead of silently appearing signed out.
+    try{symlinkSync(source,target);}catch{
+     try{
+      const info=lstatSync(source);
+      if(info.isSymbolicLink())continue; // never chase a link out of the real home
+      if(info.isDirectory())copyTree(source,target);
+      else copyFileSync(source,target);
+     }catch{/* A single unreadable entry must not break the connection. */}
+    }
    }
   }
   mkdirSync(join(home,'skills'),{recursive:true,mode:0o700});
@@ -312,7 +342,8 @@ export class HermesBridge implements ProviderBridge{
   void generation;
   this.setStatus('Connecting…');
   const env=sanitizedEnv();
-  const file=executable||findHermesExecutable(env.PATH??'');
+  const inheritedPath=envPath(env);
+  const file=executable||findHermesExecutable(inheritedPath);
   if(!file||!isCliExecutable(file))throw Error('Hermes was not found. Install Hermes Agent, or choose its executable in settings.');
   // version check (best effort)
   try{this.version=(await runCliVersion(file)).trim();}catch{this.version='';}
@@ -323,7 +354,7 @@ export class HermesBridge implements ProviderBridge{
   this.cwd=cwd||home;
   mkdirSync(this.cwd,{recursive:true,mode:0o700});
   // spawn
-  const child=spawnCli(file,['acp'],{cwd:home,env:{...env,HERMES_HOME:home,PATH:[env.PATH,...defaultBinDirectories()].filter(Boolean).join(':')},detached:process.platform!=='win32'});
+  const child=spawnCli(file,['acp'],{cwd:home,env:{...env,HERMES_HOME:home,PATH:extendedPath(inheritedPath,defaultBinDirectories())},detached:process.platform!=='win32'});
   this.child=child;
   child.stdout.setEncoding('utf8');
   child.stdout.on('data',(chunk:string)=>this.handleStdout(chunk));

@@ -10,6 +10,23 @@ test('an excluded folder cannot be reached through a different case or Unicode s
  assert.equal(allowedPath('Privateer/Note.md','Private'),true);
 });
 test('vault containment follows Windows case-insensitive path semantics',()=>{assert.equal(isPathInside('C:\\Vault','c:\\vault\\Notes\\A.md','win32'),true);assert.equal(isPathInside('C:\\Vault','C:\\Vault\\..\\Outside.md','win32'),false);assert.equal(isPathInside('C:\\Vault','C:\\Vault','win32'),false);});
+test('excluded folders typed with Windows backslashes still exclude',()=>{
+ // A Windows user naturally types "Private\\Sub" in the excluded-folders setting.
+ // Vault paths always use '/', so the setting must be normalised before folding.
+ assert.equal(allowedPath('Private/Sub/Note.md','Private\\Sub'),false);
+ assert.equal(allowedPath('Private/Sub/Deep/Note.md','Private\\Sub'),false);
+ assert.equal(allowedPath('Private/Other/Note.md','Private\\Sub'),true);
+ assert.equal(allowedPath('Private/Sub/Note.md','/Private/Sub/'),false);
+});
+test('isPathInside honours an explicit platform regardless of host OS',()=>{
+ // POSIX semantics must apply when 'linux'/'darwin' is requested, even on Windows.
+ assert.equal(isPathInside('/vault','/vault/Notes/A.md','linux'),true);
+ assert.equal(isPathInside('/vault','/vault/../outside/A.md','linux'),false);
+ assert.equal(isPathInside('/vault','/other/A.md','linux'),false);
+ assert.equal(isPathInside('/vault','/vault','linux'),false);
+ // Windows semantics are selected explicitly too.
+ assert.equal(isPathInside('C:\\Vault','C:\\Vault\\Notes\\A.md','win32'),true);
+});
 test('Apple-only automatic selection settings are cleared on other platforms',()=>{const settings={...DEFAULTS,automaticProvider:true,automaticRouting:true};assert.deepEqual(disableAutomaticSelectionOutsideMac(settings,'win32'),{...settings,automaticProvider:false,automaticRouting:false});assert.equal(disableAutomaticSelectionOutsideMac(settings,'darwin'),settings);});
 test('small replacement preserves academic metadata and untouched content',()=>{const s='---\ncitekey: smith2024\n---\n[[Related]]\nThe result is 4.\n![[image.png]]\n';const p=proposal('A.md',s,'The result is 4.','The result is $x=4$.','Format math');assert.equal(p.after,s.replace('The result is 4.','The result is $x=4$.'));});
 test('ambiguous and missing replacements are rejected',()=>{assert.throws(()=>proposal('A.md','same same','same','new','why'));assert.throws(()=>proposal('A.md','hello','missing','new','why'));});

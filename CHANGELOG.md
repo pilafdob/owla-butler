@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.6.1
+
+### Windows compatibility
+
+- **Hermes executable discovery:** on Windows the inherited PATH is often stored as `Path` rather than `PATH`. Copying the environment into a plain object kept that casing, so Hermes could not see the system PATH and appeared not to be installed; the PATH is now read case-insensitively.
+- **Hermes private home:** mirroring your Hermes sign-in and state used symbolic links, which Windows normally refuses without Developer Mode or an elevated process. It now falls back to a bounded copy, so Hermes keeps its existing sign-in.
+- **Excluded folders:** a folder entered with Windows backslashes (`Private\Sub`) now excludes the same notes as `Private/Sub`. Previously such an entry silently excluded nothing.
+
+### Windows security and privacy
+
+- **Command launchers:** a Windows `.cmd`/`.bat` assistant launcher is now always interpreted by the system's own Command Prompt, even when `ComSpec` is unset. A redirected `SystemRoot`/`windir` can no longer choose that interpreter or the tool used to stop a process tree.
+- **Hermes PATH separator:** the child process PATH now uses the Windows `;` separator instead of `:`, so Hermes can find its installed helpers and binaries.
+- **Credentials:** provider processes on Windows no longer inherit unrelated tokens and keys (GitHub, AWS, npm and similar) from your environment. The OpenAI/Anthropic keys were already removed, and OpenCode still keeps the provider keys it reads by design.
+
 ## 3.6.0
 
 ### Hermes Agent
