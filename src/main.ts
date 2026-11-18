@@ -103,7 +103,7 @@ export default class Butler extends Plugin {
 
  async onload(){
   addIcon('owla-bird',BIRD_ICON);
-  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();this.hermesBridge.onStatus=()=>this.refreshConnection();
+  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);this.sessionAvailability?.load(this.prefs.modelUnavailability);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();this.hermesBridge.onStatus=()=>this.refreshConnection();
   try {
    this.pending = loadPendingEdits(this.vaultStorage(), this.prefs.excludedFolders);
   } catch (e) {
@@ -270,7 +270,23 @@ export default class Butler extends Plugin {
   exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
   /** True when OpenCode or session availability refused this model because its hosting region is outside the workspace's allowed privacy regions. */
   isRegionRestricted(provider:ProviderId,model:string):boolean{return (provider==='opencode'&&this.opencodeBridge.isRegionRestricted(model))||this.sessionAvailability.isRegionRestricted(provider,model);}
-  recordModelRefusal(provider:ProviderId,model:string,message:string):void{this.sessionAvailability.recordFailure(provider,model,message);}
+  recordModelRefusal(provider:ProviderId,model:string,message:string):void{
+   const result=this.sessionAvailability.recordFailure(provider,model,message);
+   // A plan/region refusal or a rejected reasoning setting is a lasting fact
+   // about this account's model, so it survives a reload until the user resets
+   // it in settings. Transient limits stay in the timed availability layer.
+   if(result.refused){
+    this.prefs.modelUnavailability=this.sessionAvailability.snapshot();
+    void this.save();
+   }
+  }
+  /** Forgets every remembered model refusal, so OWLA may try those models again. */
+  resetModelUnavailability():number{
+   const count=this.sessionAvailability.size;
+   this.sessionAvailability.clear();
+   this.prefs.modelUnavailability=[];
+   return count;
+  }
   /** Why OpenCode refused the last attempt, when it said. */
   get opencodeFailure(){return this.opencodeBridge.lastFailure;}
  exhaustedProviders():ProviderExhaustion[]{return PROVIDER_IDS.map(provider=>this.exhaustion[provider]).filter(state=>state.exhausted);}
@@ -435,7 +451,8 @@ export default class Butler extends Plugin {
  async disconnectProvider(provider:ProviderId=this.activeProvider){
   if(this.view?.isBusy())throw Error('Stop the current reply first.');
   this.prefs[`${provider}Connected`]=false;
-  this.sessionAvailability.clear();
+  // The model-unavailability memory is a lasting account fact: only the
+  // settings reset clears it, never a disconnect or a reload.
   this.view?.clearWarmup();
   this.bridgeFor(provider).accountType=undefined;
   this.bridgeFor(provider).disconnect();
@@ -2352,7 +2369,7 @@ export class ButlerView extends ItemView {
   // Each attempt (including an automatic retry on another model) gets its own tool budget.
   toolGuard.reset();
   try{
-   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route.model,effort:route.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
+   result=await bridge.run({executable:this.butler.providerExecutable(provider),cwd:this.butler.providerSessionDirectory(provider),model:route.model,effort:this.butler.sessionAvailability.rejectsEffort(provider,route.model)?'':route.effort,instructions:attemptInstructions,text:history+'REQUEST: '+prompt+'\n\n'+context,images:inputImages,tools:specs,web,signal,onText:delta=>{text+=delta;pendingText+=delta;if(!streamTimer)streamTimer=nodeTimeout(()=>{streamTimer=undefined;if(epoch!==this.attachmentEpoch||this.closing)return;streamNode.appendData(pendingText);pendingText='';const scroll=()=>{this.feed.scrollTop=this.feed.scrollHeight;};if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(scroll);else window.setTimeout(scroll,0);},50);},onActivity:message=>activity.createDiv({text:message,cls:'owla-activity'}),tool:(name,args)=>{
     toolsUsed=true;
     const operation=toolQueue.then(async()=>{
      if(signal.aborted||epoch!==this.attachmentEpoch)throw Error('Stopped.');
@@ -3035,6 +3052,23 @@ class ButlerSettingsTab extends PluginSettingTab {
      await this.butler.save();
      this.update();
     }));
+  }},
+  {name:'Model unavailability memory',desc:'OWLA remembers models your plan refused, models blocked by your workspace’s privacy regions, and models that reject reasoning settings, and does not try them again. The memory survives restarts. Rate and usage limits are not stored here: they expire on their own.',render:setting=>{
+   const remembered=this.butler.sessionAvailability.size;
+   if(remembered)setting.descEl.createDiv({text:remembered+' model'+(remembered===1?' is':'s are')+' currently remembered.'});
+   let resetBtn!:ButtonComponent;
+   setting.addButton(b=>{
+    resetBtn=b.setButtonText('Reset OWLA model unavailability memory').onClick(async()=>{
+     resetBtn.setDisabled(true);
+     try{
+      const count=this.butler.resetModelUnavailability();
+      await this.butler.save();
+      new Notice(count?'OWLA forgot '+count+' remembered model'+(count===1?'':'s')+'. They can be tried again.':'OWLA had no remembered model refusals.');
+      this.update();
+     }catch(e){new Notice(friendlyError(e));}
+     finally{resetBtn.setDisabled(false);}
+    });
+   });
   }},
   {name:'Automatic selection priority',desc:'Balance cost and capability, favour lower plan usage and free models, or favour higher-tier models and quality escalation.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
    setting.addDropdown(dropdown=>dropdown

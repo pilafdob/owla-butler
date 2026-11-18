@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.6.3
+
+### Hermes containment (security)
+
+- **Hermes could run on your own Hermes daemon instead of OWLA's.** OWLA's private Hermes home linked your live gateway socket, lock and runtime files, so `hermes acp` attached to your running daemon, with your shell and file tools, MCP servers and session database. OWLA's private configuration was never read. The gateway, runtime, state and lock files are no longer linked, and links left by an earlier build are removed.
+- **OWLA's tools were invisible to Hermes.** The loopback MCP endpoint treated a single JSON-RPC request as an empty batch, so `initialize` and `tools/list` got no answer. Hermes found no OWLA tools and fell back to shell searches and unreviewed writes. Single requests are answered now. OWLA's server is also registered as a native `owla` server, so the model sees the `mcp__owla__<tool>` names its instructions use.
+- **Default model:** an OWLA-owned Hermes daemon needs a default model. OWLA copies only `model.default` and `model.provider` from your Hermes config, as checked scalars.
+- **`.env` is filtered:** Hermes loads `<home>/.env` with override semantics, and `HERMES_TUI_GATEWAY_URL` connects straight to a remote gateway. The private home now gets a filtered copy of your `.env` with every `HERMES_*` key removed (provider keys stay), and inherited `HERMES_*` variables are removed before Hermes starts.
+- **Spelling and links:** excluded Hermes entries are matched case-insensitively (`Config.yaml` is the same file as `config.yaml` on macOS and Windows). OWLA's own `config.yaml`, `.env` and `skills/` are never written through a leftover link into your Hermes home.
+
+### Codex isolation (security)
+
+- **Private Codex home:** Codex adds `<CODEX_HOME>/AGENTS.md` and every user skill's description to each model request (`project_doc_max_bytes` covers only project files). OWLA now runs Codex with its own `CODEX_HOME` in OWLA's storage folder. That folder holds only links to your sign-in (`auth.json` and its lock files), so your global Codex instructions, skills and config no longer reach OWLA's sessions, and Codex's state databases stay out of `~/.codex`. A link is used rather than a copy, so token refreshes stay shared with your own Codex. Where no link can be made, OWLA asks you to sign in once. Skill instructions are also turned off (`skills.include_instructions=false`).
+
+### Vault confinement (security)
+
+- **Capital sharp s:** `ẞ` (U+1E9E) folded to `ß` rather than `ss`, so `STRAẞE/…` could reach a folder excluded as `Straße` on APFS. Paths are now lower-cased first, and `ẞ`, `ß` and `ss` match each other.
+
+### Other changes
+
+- **Model unavailability memory:** models your plan refused, models outside your workspace's privacy regions, and models that reject reasoning settings are remembered across restarts. A model that only rejects reasoning settings is retried without them. **Settings → Reset OWLA model unavailability memory** clears the list. Rate and usage limits still expire on their own.
+- **Child environments:** unrelated service credentials (GitHub, AWS, npm and similar) are now removed on every host, not only on Windows. More interpreter injection variables are removed too (`PYTHONHOME`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `RUBYLIB`, `BASH_ENV`, `ENV`, `ZDOTDIR`), and on Windows this matching ignores case.
+- **Excalidraw skill:** a shorter Canvas → Excalidraw route that uses only OWLA's tools.
+
 ## 3.6.2
 
 ### Community source review

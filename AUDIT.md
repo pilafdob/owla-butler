@@ -1,5 +1,87 @@
 # OWLA Butler 3.0.0 final audit
 
+## macOS + Windows security audit — 2026-11-18 (released in 3.6.3)
+
+Triggered by the School-vault debug bundle (`work/school-chat-debug-2026-11-18/`). The
+transcript showed the assistant calling `mcp__owla__read_canvas`, being told the tool
+did not exist, then running `find /`, `grep -rl "mcp__owla" /`, reading `~/.hermes/config.yaml`,
+and finally writing `Kinematik.excalidraw` straight to the vault with `execute_code` —
+outside OWLA's review flow. Four defects, all fixed and verified:
+
+- **Hermes MCP requests were dropped (root cause of the missing tools).** `handleMcp`
+  parsed the body with `list(body)`, which returns `[]` for a JSON-RPC *object*. Streamable
+  HTTP sends one object per request, so `initialize` and `tools/list` were answered `202`
+  with no result and Hermes discovered zero OWLA tools. Now a single object is dispatched
+  and only an empty array is rejected. Verified with the real MCP Python SDK against the
+  running endpoint: `INITIALIZE OK`, `TOOLS: ['read_canvas','read_excalidraw','propose_excalidraw']`.
+- **The private Hermes home borrowed the user's live gateway (isolation escape).**
+  `hermes acp` is a *viewer* of the gateway owning its `HERMES_HOME`
+  (`acp_adapter/entry.py`), and the control socket resolves as `<home>/gateway.sock`
+  (`hermes_cli/gateway_runtime_discovery.py::_socket_path`). `ensurePrivateHome` mirrored
+  every non-denylisted entry, so `gateway.sock`, `gateway.pid`, `gateway.lock`,
+  `gateway-connections.json`, `runtime`, `shared` and `projects.db` became symlinks into
+  `~/.hermes`. OWLA's private config was therefore never read: the turn ran on the user's
+  daemon with their shell/file tools, their MCP servers (adrafinil, node_repl) and their
+  `state.db`. Confirmed on disk — the private `gateway.pid` named the user's PID 55507 with
+  `hermes_home: ~/.hermes`. `hermesMirrorExcluded()` now refuses the
+  gateway/runtime/state/locks families and the extra DB sidecars, and removes stale links.
+- **Session MCP servers are renamed by the gateway.** Servers passed to `session/new`
+  become `editor_owla_<hash>` (`gateway/session_local_mcp.py::_server_names`), so the model
+  saw `mcp__editor_owla_<hash>__read_note` and every `mcp__owla__…` name in OWLA's
+  instructions was uncallable. OWLA's server is now a **native** `mcp_servers.owla` entry
+  in the private config with `mcp-owla` in `platform_toolsets.acp`, which keeps the plain
+  `mcp__owla__<tool>` name. `session/new` sends `mcpServers: []` (the field is required).
+- **An OWLA-owned daemon needs a default model.** With the user's config no longer in
+  play, `session/new` failed `storage_unavailable`; the owner logged
+  `invalid policy … not policy.model.strip()` (`gateway/session_policy.py:1038`).
+  `hermesDefaultModel()` copies only `model.default` and `model.provider` as validated
+  scalars — no keys, no toolsets, no plugins.
+
+Verified live end-to-end against the installed Hermes (no model turn, so no inference
+spent): a fresh OWLA-owned home starts its **own** control socket, `session/new` returns
+`error: null` with a session id, and the owner logs
+`MCP server 'owla' (HTTP): registered 5 tool(s): mcp__owla__read_canvas,
+mcp__owla__read_excalidraw, mcp__owla__propose_excalidraw, mcp__owla__read_reference,
+mcp__owla__search_vault`. Because `platform_toolsets.acp` lists only `mcp-owla` (plus `web`
+when allowed), `terminal`, `execute_code`, `read_file`, `search_files` and `write_file` are
+no longer offered — which also removes the `find /` / `grep -r /` battery, disk and
+exfiltration surface. Probe homes and daemons were removed afterwards.
+
+Child-environment hardening (`src/cli.ts`), applying to **both** macOS and Windows:
+
+- Blocking was case-sensitive on a plain object, so `node_options`, `PyThOnPaTh` or a
+  duplicate `cOmSpEc` survived into the child. Windows environment names are
+  case-insensitive; every blocked name is now matched case-insensitively and exactly one
+  pinned `ComSpec` remains.
+- The denylist gained `PYTHONHOME`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `RUBYLIB`,
+  `BASH_ENV`, `ENV`, `ZDOTDIR`.
+- Unrelated service credentials (`GH_TOKEN`, `AWS_*`, `NPM_TOKEN`, …) were stripped only on
+  Windows; they are now stripped on every host. OpenCode's explicit `keepCredentials`
+  path still keeps provider keys, and proxies/CA bundles are untouched.
+
+Model-unavailability memory (`src/opencode-availability.ts`, `src/core.ts`, `src/main.ts`):
+plan/region refusals are persisted per platform in `modelUnavailability` and survive a
+reload; only **Reset OWLA model unavailability memory** in settings clears them (a
+disconnect no longer wipes them). Stored entries are bounded to 2048, deduplicated, and
+limited to a provider id, a catalogue-safe model id (no `..`, no leading `/`) and a known
+reason code — never provider error text. Rate limits, free-tier limits, balance and auth
+failures stay in the timed layer and are never persisted. The two refusals the bundle
+actually hit (`Thinking budget is not supported for this model.`,
+`` `reasoning_format` is not supported with this model ``) are classified as a new `effort`
+kind: the model stays selectable and OWLA sends it no reasoning setting afterwards,
+instead of blacklisting a model that works without the parameter.
+
+Gates on this Mac: `npm run check`, `npm run lint`, `npm test` (**335 pass, 0 fail**),
+`npm run build`, `npm run guard:test`, `npm run check:release` all clean;
+`npm audit --omit=dev` reports 0 advisories.
+
+Not verified: no Windows host was available this session — the Windows rules are
+parameterized tests run on macOS plus inspection, as in the 2026-11-13 pass. No live
+Obsidian turn ran with the new Hermes wiring (the daily Nous allowance was exhausted);
+the Excalidraw accept/decline review flow and the settings reset button were exercised by
+unit tests and the protocol probe, not clicked in the app. The Canvas→Excalidraw guide was
+rewritten to a bounded four-step route and mirrored into `assets/reference-pack.json`.
+
 ## Security and performance hardening — 2026-11-13 (unreleased)
 
 A security audit of the three provider bridges and the vault path checks, and a performance audit (`PERFORMANCE-AUDIT.md`), on 3.1.1. Fixed in the working tree, not released:

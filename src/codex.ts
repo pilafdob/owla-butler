@@ -1,7 +1,7 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {existsSync,mkdirSync,realpathSync} from 'node:fs';
+import {existsSync,linkSync,lstatSync,mkdirSync,readlinkSync,realpathSync,symlinkSync,unlinkSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,dirname,join,resolve} from 'node:path';
+import {delimiter,dirname,isAbsolute,join,resolve} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
@@ -119,6 +119,46 @@ export function inheritedInstructions(directory:string,home=homedir(),platform:N
  }
  return found;
 }
+/**
+ * OWLA's own CODEX_HOME. Codex injects `<CODEX_HOME>/AGENTS.md` and every user
+ * skill's description into each model request (`project_doc_max_bytes` limits
+ * project files only), and keeps its state databases there. A private home
+ * holds only links to the user's sign-in, so none of the user's global
+ * instructions, skills or config reach OWLA's session (SECURITY-AUDIT-3.6.2 H2).
+ */
+export const CODEX_PRIVATE_HOME='Codex Private';
+/** Sign-in files linked from the user's Codex home: the credentials and the locks that serialize their refresh. */
+export const CODEX_AUTH_FILES=['auth.json','auth.json.lock','auth.lock'] as const;
+/** The user's own Codex home, the only place OWLA reads a sign-in from. */
+export function userCodexHome(env:NodeJS.ProcessEnv=process.env,home=homedir()):string{
+ const configured=env.CODEX_HOME;
+ return configured&&isAbsolute(configured)?configured:join(home,'.codex');
+}
+/** Instruction files that must never sit in OWLA's private Codex home. */
+export function privateHomeInstructions(home:string):string[]{
+ return ['AGENTS.md','AGENTS.override.md'].map(name=>join(home,name)).filter(path=>{try{lstatSync(path);return true;}catch{return false;}});
+}
+/**
+ * Creates OWLA's private Codex home and links the user's sign-in into it. A
+ * link (never a copy) keeps one credential: Codex rotates the refresh token on
+ * every refresh, so a copy would sign the user's own Codex out. Where neither a
+ * symbolic nor a hard link can be made, OWLA asks for its own sign-in instead.
+ */
+export function ensureCodexPrivateHome(home:string,source:string):void{
+ mkdirSync(home,{recursive:true,mode:0o700});
+ for(const name of CODEX_AUTH_FILES){
+  const target=join(home,name),from=join(source,name);
+  let present=false;
+  try{
+   const info=lstatSync(target);
+   // A regular file is OWLA's own sign-in, or a hard link: keep it.
+   if(!info.isSymbolicLink()||readlinkSync(target)===from)present=true;
+   else unlinkSync(target);
+  }catch{/* Not present. */}
+  if(present||!existsSync(from))continue;
+  try{symlinkSync(from,target);}catch{try{linkSync(from,target);}catch{/* OWLA signs in on its own. */}}
+ }
+}
 function decodeModel(value:unknown):CodexModel|null{
  const data=record(value);const id=typeof data.id==='string'?data.id:'';const model=typeof data.model==='string'?data.model:id;
  if(!model||typeof data.defaultReasoningEffort!=='string')return null;
@@ -133,7 +173,8 @@ export class CodexBridge implements ProviderBridge{
  private finishSignIn:(()=>void)|undefined;
  /** Features learned to be on in the user's Codex config; turned off on later starts (web re-keys) without a second probe. */
  private featureOverrides:string[]=[];
- private env(){const env=sanitizedEnv();for(const key of Object.keys(env))if(key.toLowerCase()==='path')delete env[key];env.PATH=[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter);return env;}
+ private privateHome=join(defaultStorageDirectory(),CODEX_PRIVATE_HOME);
+ private env(){const env=sanitizedEnv();for(const key of Object.keys(env))if(key.toLowerCase()==='path'||key.toUpperCase()==='CODEX_HOME')delete env[key];env.PATH=[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter);env.CODEX_HOME=this.privateHome;return env;}
  private setStatus(s:string){this.status=s;this.onStatus(s);}
  get ready(){return !!this.child&&this.initialized&&this.accountType==='chatgpt';}
  get running(){return !!this.child;}
@@ -194,9 +235,10 @@ export class CodexBridge implements ProviderBridge{
  this.version=(await command(file,['--version'],env,startup.signal)).trim();if(!supportedVersion(this.version))throw Error('Update Codex to version 0.162.1 or newer, then reconnect.');if(generation!==this.generation)throw Error('Codex connection cancelled.');this.executable=file;mkdirSync(cwd,{recursive:true,mode:0o700});
   // Codex project docs are also neutralized for OWLA sessions (project_doc_max_bytes=0);
   // instructions at or above $HOME (a personal ~/AGENTS.md) are never a reason to refuse.
-  const inheritedFiles=inheritedInstructions(cwd);
+  ensureCodexPrivateHome(this.privateHome,userCodexHome());
+  const inheritedFiles=[...inheritedInstructions(cwd),...privateHomeInstructions(this.privateHome)];
   if(inheritedFiles.length)throw Error('Codex would read project instructions from '+inheritedFiles.join(', ')+'. Remove those files or move the OWLA storage folder, then reconnect.');
- const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','sandbox_mode="read-only"','approval_policy="never"','notify=[]','project_doc_max_bytes=0',...CAPABILITY_FEATURES.map(featureOverride),'web_search='+JSON.stringify(web?'live':'disabled'),...extra];
+ const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','sandbox_mode="read-only"','approval_policy="never"','notify=[]','project_doc_max_bytes=0','skills.include_instructions=false',...CAPABILITY_FEATURES.map(featureOverride),'web_search='+JSON.stringify(web?'live':'disabled'),...extra];
  const child=spawnCli(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,detached:process.platform!=='win32'});this.child=child;this.lines=newProtocolLines();child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
  await this.request('initialize',{clientInfo:{name:'owla_butler',title:'OWLA Butler',version:manifest.version},capabilities:{experimentalApi:true}});this.notify('initialized');
  const config=record(record(await this.request('config/read',{includeLayers:false})).config);

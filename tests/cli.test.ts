@@ -176,9 +176,9 @@ test('Provider child PATH uses the host separator',()=>{
  assert.equal(extendedPath(undefined,['/a'],'linux'),'/a');
 });
 
-// W4 — unrelated credentials are stripped on Windows only.
+// Unrelated service credentials are stripped consistently on Windows and macOS.
 
-test('Windows child environments drop unrelated credentials only on Windows',()=>{
+test('Subscription-only child environments drop unrelated credentials on every host',()=>{
  const source={GH_TOKEN:'token',AWS_SECRET_ACCESS_KEY:'secret',NPM_TOKEN:'token',OPENAI_API_KEY:'key'};
  const win=sanitizedEnv(source,{platform:'win32'});
  assert.equal(win.GH_TOKEN,undefined);
@@ -186,9 +186,9 @@ test('Windows child environments drop unrelated credentials only on Windows',()=
  assert.equal(win.NPM_TOKEN,undefined);
  assert.equal(win.OPENAI_API_KEY,undefined);
  const other=sanitizedEnv(source,{platform:'darwin'});
- assert.equal(other.GH_TOKEN,'token');
- assert.equal(other.AWS_SECRET_ACCESS_KEY,'secret');
- assert.equal(other.NPM_TOKEN,'token');
+ assert.equal(other.GH_TOKEN,undefined);
+ assert.equal(other.AWS_SECRET_ACCESS_KEY,undefined);
+ assert.equal(other.NPM_TOKEN,undefined);
  assert.equal(other.OPENAI_API_KEY,undefined); // the universal list still applies
 });
 

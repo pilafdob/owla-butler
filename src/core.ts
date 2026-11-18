@@ -3,6 +3,7 @@ import {diffLines} from 'diff';
 import {posix,win32} from 'node:path';
 import {record} from './validation';
 import type {FallbackChoice,ProviderId} from './provider';
+import {sanitizeModelUnavailability,type ModelUnavailabilityEntry} from './opencode-availability';
 export type DiffView='highlights'|'none'|'split';
 export type RoutingMode='cost'|'balance'|'intelligence';
 export interface ProviderPrefs {model:string;reasoning:string;}
@@ -22,6 +23,7 @@ export interface ButlerSettings {
  opencodeExecutable:string;
  claudeExecutable:string;
  models:Record<ProviderId,ProviderPrefs>;
+ modelUnavailability:ModelUnavailabilityEntry[];
  automaticRouting:boolean;
  routingMode:RoutingMode;
  routingPrivacyMode:boolean;
@@ -49,6 +51,7 @@ export const DEFAULTS:ButlerSettings={
  claudeExecutable:'',
  hermesExecutable:'',
  models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''},hermes:{model:'',reasoning:''}},
+ modelUnavailability:[],
  automaticRouting:false,
  routingMode:'balance',
  routingPrivacyMode:false,
@@ -83,6 +86,7 @@ export function migrateSettings(value:unknown):ButlerSettings{
   routingPrivacyMode:data.routingPrivacyMode===true,
   routingThorough:data.routingThorough===true,
   showRoutingDetails:data.showRoutingDetails===true,
+  modelUnavailability:sanitizeModelUnavailability(data.modelUnavailability),
   models:{
    codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
    opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
@@ -113,7 +117,7 @@ export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,plat
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','hermesConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','hermesExecutable','models','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','hermesConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','hermesExecutable','models','modelUnavailability','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
@@ -134,7 +138,10 @@ export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platf
  * an exclusion the user set. Unicode is compared in the normalized form that
  * APFS stores, so `café` and `café` are one folder.
  */
-const foldPath=(value:string)=>value.normalize('NFC').toUpperCase().toLowerCase();
+// Lower-case first: `ẞ` (U+1E9E) upper-cases to itself but lower-cases to `ß`,
+// which then upper-cases to `SS`. Upper-first left `STRAẞE` as `straße` while
+// `Straße` became `strasse`, so a capital sharp s reached an excluded folder.
+const foldPath=(value:string)=>value.normalize('NFC').toLowerCase().toUpperCase().toLowerCase();
 export {foldPath};
 const excludedCache=new Map<string,string[]>();
 /**

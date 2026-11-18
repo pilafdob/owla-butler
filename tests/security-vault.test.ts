@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {linkSync,mkdirSync,mkdtempSync,renameSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {allowedPath} from '../src/core';
+import {allowedEditablePath,allowedPath,foldPath} from '../src/core';
 import {loadMain} from './helpers/load-main';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -54,6 +54,17 @@ test('allowedPath folds ſ, ς and ß the way the filesystem does',()=>{
  assert.equal(allowedPath('ςοφία/x.md','Σοφία'),false);
  assert.equal(allowedPath('Strasse/x.md','Straße'),false);
  assert.equal(allowedPath('Public/x.md','Secret'),true);
+});
+
+// SECURITY-AUDIT-3.6.2 H3: ẞ (U+1E9E) upper-cases to itself, so an upper-first
+// fold left `STRAẞE` as `straße` while `Straße` folded to `strasse`.
+test('allowedPath folds the capital sharp s ẞ like ß and ss',()=>{
+ for(const [path,excluded] of [['STRAẞE/secret.md','Straße'],['Straße/secret.md','STRAẞE'],['Strasse/secret.md','STRAẞE'],['STRAẞE/secret.md','strasse'],['straße/secret.md','STRASSE']])
+  assert.equal(allowedPath(path,excluded),false,path+' vs '+excluded);
+ assert.equal(allowedEditablePath('STRAẞE/secret.md','Straße'),false);
+ assert.equal(allowedEditablePath('STRAẞE/a.canvas','Straße'),false);
+ assert.equal(foldPath('STRAẞE'),foldPath('Strasse'));
+ assert.equal(allowedPath('Strand/x.md','Straße'),true);
 });
 
 test('allowedPath accepts trailing dots on POSIX and refuses them on Windows',()=>{
@@ -111,6 +122,8 @@ test('organization refuses a destination that is a case-fold alias of an exclude
  const org=organizationFor(butler);
  await assert.rejects(org.preview([{from:'Notes/a.md',to:'ſecret/a.md'}],'move'));
  await assert.rejects(org.preview([{from:'Notes/a.md',to:'secret/a.md'}],'move'));
+ const sharp=organizationFor(makeButler(makeApp(['Notes/a.md'],['Notes','Straße']),'Straße'));
+ await assert.rejects(sharp.preview([{from:'Notes/a.md',to:'STRAẞE/a.md'}],'move'));
  const ok=await org.preview([{from:'Notes/a.md',to:'Archive/a.md'}],'move');
  assert.deepEqual(ok.moves,[{from:'Notes/a.md',to:'Archive/a.md'}]);
 });

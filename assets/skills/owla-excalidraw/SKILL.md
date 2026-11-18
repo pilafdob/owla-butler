@@ -4,14 +4,19 @@ description: Reading, seeing and changing Excalidraw drawings (.excalidraw.md, .
 ---
 # Excalidraw drawings in OWLA
 
-A drawing is a scene of elements: shapes (rectangle, ellipse, diamond), text, arrows and lines, frames, images and freehand strokes. Each element has an id, a position (x, y = top-left corner, in scene pixels; y grows downward) and a size. Text inside a shape belongs to that shape. An arrow records which elements it connects.
+## Canvas → Excalidraw: the short route
+1. Use `read_reference` name `owla-excalidraw` (follow continuation offsets), then `read_canvas` with the source path and `visual: true` (a boolean, not a string).
+2. Keep the original canvas unchanged. Choose one new destination beside it: `Topic.canvas` → `Topic.excalidraw.md`, unless the user specifies otherwise. If the destination exists, read it first; do not overwrite it silently.
+3. Use `propose_excalidraw` with `path`, `reason` and `operations`: add the cards as shapes/text first, then `read_excalidraw` without a picture to get their actual generated ids. Add edges/frames in a second proposal to the SAME path. Both calls update one staged drawing; no acceptance is needed between them.
+4. Check the finished drawing once with `read_excalidraw` and `visual: true`. Correct only concrete defects; report the reviewable path and any limits briefly.
 
-Drawings come in three file forms, and read_excalidraw and propose_excalidraw work with all of them: `.excalidraw.md`, `.excalidraw` (the scene as plain JSON) and any `.md` note with `excalidraw-plugin` frontmatter. Never mind the form; use the path the user gives.
+Use OWLA tools only: no shell, filesystem searches, plugin/config discovery, scripts, raw scene JSON, manual compression or extra format copies. If required tools are missing, stop and report the unavailable tool; never bypass review.
 
 ## Read before you change
-- `read_excalidraw` lists every element with its id, position, size, text, colours, frame and connections. Use the ids exactly as listed.
-- Use `visual=true` whenever meaning depends on the picture: layout, grouping by position, colour coding, handwriting, sketches, or arrows that are not bound to shapes. The text list cannot show freehand strokes or what an image depicts.
-- Describe what the picture shows and what the element list says. Mark anything you cannot read as unclear rather than guessing.
+Drawings may be `.excalidraw.md`, `.excalidraw` (plain JSON) or `.md` notes with `excalidraw-plugin` frontmatter. Both drawing tools support all three; keep an existing file's exact path. OWLA handles encoding and compression.
+- `read_excalidraw` lists elements, ids, positions, sizes, text, colours, frames and connections. Follow continuation offsets until all relevant elements are covered.
+- Read an existing drawing before proposing edits. A new destination needs no read before creation.
+- Use `visual: true` when meaning depends on layout, colours, handwriting, images or unbound arrows. Mark unclear content rather than guessing.
 
 ## Change with operations
 `propose_excalidraw` stages operations for the user to accept or decline. Never edit the file text with propose_edit: the drawing data would be damaged.

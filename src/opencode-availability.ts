@@ -18,12 +18,32 @@
  * OpenCode as a whole counts as exhausted only once every model is blocked.
  */
 
-import type {ProviderId,ProviderModel} from './provider';
+import {PROVIDER_IDS,type ProviderId,type ProviderModel} from './provider';
 import type {UsageSnapshot} from './usage';
+import {record} from './validation';
+
+export type ModelUnavailabilityEntry={provider:ProviderId;model:string;kind:'region'|'unavailable'|'effort'};
+export const MAX_MODEL_UNAVAILABILITY=2048;
+const REFUSAL_KINDS=['region','unavailable','effort'] as const;
+const refusalReason=(kind:ModelUnavailabilityEntry['kind'])=>kind==='region'?'not allowed in your workspace’s privacy regions':kind==='effort'?'does not accept reasoning settings':'not available on your plan';
+/** Persist only bounded catalogue identifiers and a known reason code, never provider error text. */
+export function sanitizeModelUnavailability(value:unknown):ModelUnavailabilityEntry[]{
+ if(!Array.isArray(value))return [];
+ const entries:ModelUnavailabilityEntry[]=[],seen=new Set<string>();
+ for(const raw of value.slice(0,MAX_MODEL_UNAVAILABILITY)){
+  const entry=record(raw);
+  if(!PROVIDER_IDS.includes(entry.provider as ProviderId)||typeof entry.model!=='string'||!entry.model.length||entry.model.length>256||!/^[a-zA-Z0-9._:/@+-]+$/.test(entry.model)||entry.model.includes('..')||entry.model.startsWith('/')||!REFUSAL_KINDS.includes(entry.kind as ModelUnavailabilityEntry['kind']))continue;
+  const key=String(entry.provider)+':'+entry.model;
+  if(seen.has(key))continue;
+  seen.add(key);
+  entries.push({provider:entry.provider as ProviderId,model:entry.model,kind:entry.kind as ModelUnavailabilityEntry['kind']});
+ }
+ return entries;
+}
 
 /** How far a failure reaches. */
 export type OpencodeBlockScope='model'|'pool'|'account'|'none';
-export type OpencodeFailure={scope:OpencodeBlockScope;reason:string;kind:'unavailable'|'balance'|'free-limit'|'usage-limit'|'auth'|'region'|'other'};
+export type OpencodeFailure={scope:OpencodeBlockScope;reason:string;kind:'unavailable'|'balance'|'free-limit'|'usage-limit'|'auth'|'region'|'effort'|'other'};
 
 /** A block without a reported reset is retried after this long. */
 export const OPENCODE_RETRY_AFTER_SECONDS=30*60;
@@ -50,6 +70,10 @@ export function opencodePool(model:ProviderModel):string{
 
 /** Reads an OpenCode failure message and decides how far it reaches. */
 export function classifyOpencodeFailure(message:string):OpencodeFailure{
+ // A reasoning parameter the model does not implement. The model itself works
+ // without it, so this must never be recorded as a missing plan entitlement.
+ if(/thinking budget|reasoning_format|reasoning_effort|thinking[_ ]type|\breasoning\b[^.]{0,40}(not supported|unsupported|not allowed)|(not supported|unsupported)[^.]{0,40}\breasoning\b/i.test(message))
+  return {scope:'model',kind:'effort',reason:'does not accept reasoning settings'};
  if(/hosted outside|outside (?:your |the )?(?:region|location|country)|not available in your (?:region|location|country)|\bregion\b.*(?:not allowed|restricted)/i.test(message))return {scope:'model',kind:'region',reason:'not allowed in your workspace’s privacy regions'};
  if(/free-limit|free usage limit/i.test(message))return {scope:'pool',kind:'free-limit',reason:'free models’ shared limit reached'};
  if(/insufficient (balance|credit|fund)|top up|out of credits|no credits|payment required|\b402\b|billing/i.test(message))
@@ -146,25 +170,46 @@ export class OpencodeAvailability{
 }
 
 /**
- * Session-scoped model availability cache across all providers (Codex, OpenCode, Claude).
+ * Persistable model availability memory across every provider.
  * When a model is refused because of region restrictions, plan entitlement, or unsupported
- * model status, it is marked unavailable for the remainder of the session.
+ * model status, it stays unavailable until the user resets the memory.
  */
 export class SessionModelAvailability{
- private refused=new Map<string,{reason:string;kind:'region'|'unavailable'}>();
+ private refused=new Map<string,{reason:string;kind:ModelUnavailabilityEntry['kind']}>();
  private static key(provider:ProviderId,model:string):string{return provider+':'+model;}
+
+ constructor(value:unknown=[]){this.load(value);}
+ load(value:unknown):void{
+  this.refused.clear();
+  for(const entry of sanitizeModelUnavailability(value))this.refused.set(SessionModelAvailability.key(entry.provider,entry.model),{kind:entry.kind,reason:refusalReason(entry.kind)});
+ }
+ snapshot():ModelUnavailabilityEntry[]{
+  return [...this.refused].map(([key,entry])=>{const colon=key.indexOf(':');return {provider:key.slice(0,colon) as ProviderId,model:key.slice(colon+1),kind:entry.kind};});
+ }
+ /** How many models the memory holds, for the settings description. */
+ get size():number{return this.refused.size;}
 
  recordFailure(provider:ProviderId,model:string,message:string):{refused:boolean;reason:string}{
   const classified=classifyOpencodeFailure(message);
-  if(classified.scope==='model'&&(classified.kind==='region'||classified.kind==='unavailable')){
-   this.refused.set(SessionModelAvailability.key(provider,model),{reason:classified.reason,kind:classified.kind});
+  if(classified.scope==='model'&&(classified.kind==='region'||classified.kind==='unavailable'||classified.kind==='effort')){
+   if(!sanitizeModelUnavailability([{provider,model,kind:classified.kind}]).length)return {refused:false,reason:''};
+   const key=SessionModelAvailability.key(provider,model);
+   if(!this.refused.has(key)&&this.refused.size>=MAX_MODEL_UNAVAILABILITY)return {refused:false,reason:''};
+   this.refused.set(key,{reason:classified.reason,kind:classified.kind});
    return {refused:true,reason:classified.reason};
   }
   return {refused:false,reason:''};
  }
 
  available(provider:ProviderId,model:string):boolean{
-  return !this.refused.has(SessionModelAvailability.key(provider,model));
+  // A model that only rejects reasoning settings is still usable without them.
+  return this.refused.get(SessionModelAvailability.key(provider,model))?.kind!=='region'
+   &&this.refused.get(SessionModelAvailability.key(provider,model))?.kind!=='unavailable';
+ }
+
+ /** True when this model refused a reasoning/thinking parameter and must be sent none. */
+ rejectsEffort(provider:ProviderId,model:string):boolean{
+  return this.refused.get(SessionModelAvailability.key(provider,model))?.kind==='effort';
  }
 
  reasonOf(provider:ProviderId,model:string):string|undefined{

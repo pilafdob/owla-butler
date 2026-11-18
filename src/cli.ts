@@ -95,7 +95,8 @@ export const UNSAFE_EXECUTION_ENV=[
  'NODE_OPTIONS','NODE_PATH','NODE_MODULE_PATH','NODE_TLS_REJECT_UNAUTHORIZED',
  'ELECTRON_RUN_AS_NODE','BUN_OPTIONS','BUN_INSTALL',
  'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH',
- 'LD_PRELOAD','LD_LIBRARY_PATH','PYTHONPATH','PERL5LIB',
+ 'LD_PRELOAD','LD_LIBRARY_PATH','PYTHONPATH','PYTHONHOME','PYTHONSTARTUP',
+ 'PERL5LIB','PERL5OPT','RUBYOPT','RUBYLIB','BASH_ENV','ENV','ZDOTDIR',
 ];
 
 /**
@@ -111,9 +112,8 @@ export const UNSAFE_CREDENTIAL_ENV=[
  'ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','ANTHROPIC_BASE_URL',
 ];
 /**
- * Credentials no assistant needs, removed from children only on Windows, where
- * user environment variables commonly hold tokens for unrelated services (W4).
- * macOS and Linux environments are left untouched.
+ * Unrelated service credentials stripped from subscription-only children on
+ * every host. OpenCode's explicit keepCredentials path keeps provider keys.
  */
 export const WINDOWS_CREDENTIAL_ENV=[
  'AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_PROFILE',
@@ -180,16 +180,17 @@ export function shimInterpreterTrusted(platform:NodeJS.Platform=process.platform
 /** The environment of a spawned assistant, without the variables above. */
 export function sanitizedEnv(env:NodeJS.ProcessEnv=process.env,{keepCredentials=false,platform=process.platform}:{keepCredentials?:boolean;platform?:NodeJS.Platform}={}):NodeJS.ProcessEnv{
  const result:NodeJS.ProcessEnv={...env};
- for(const key of UNSAFE_EXECUTION_ENV)delete result[key];
- if(!keepCredentials){
-  for(const key of UNSAFE_CREDENTIAL_ENV)delete result[key];
-  if(platform==='win32')for(const key of WINDOWS_CREDENTIAL_ENV)delete result[key];
- }
+ const blocked=new Set([
+  ...UNSAFE_EXECUTION_ENV,
+  ...(!keepCredentials?[...UNSAFE_CREDENTIAL_ENV,...WINDOWS_CREDENTIAL_ENV]:[]),
+  ...(platform==='win32'?['COMSPEC']:[]),
+ ].map(key=>key.toUpperCase()));
+ // Windows treats environment names case-insensitively; a plain object does
+ // not. Strip every spelling before Node picks which duplicate to forward.
+ for(const key of Object.keys(result))if(blocked.has(key.toUpperCase()))delete result[key];
  if(platform==='win32'){
   // Command shims, and anything the assistant itself runs, interpret through
   // ComSpec; it is pinned to the validated system cmd.exe rather than inherited.
-  delete result.comspec;
-  delete result.ComSpec;
   result.ComSpec=trustedComSpecPath(result);
  }
  return result;

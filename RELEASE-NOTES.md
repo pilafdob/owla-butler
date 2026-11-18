@@ -1,3 +1,14 @@
+# OWLA Butler 3.6.3
+
+This is a security patch. Please update.
+
+- **Hermes stays in OWLA's sandbox.** OWLA's private Hermes home linked your running Hermes daemon, and a transport bug hid OWLA's tools. A Hermes turn could therefore use your own shell and file tools and write without review. OWLA now starts its own Hermes daemon with only OWLA's tools, answers Hermes' tool discovery, filters `HERMES_*` keys out of the mirrored `.env` and environment, and never writes through a leftover link into `~/.hermes`.
+- **Codex no longer reads your global instructions.** Codex runs in a private `CODEX_HOME` that holds only links to your sign-in, so `~/.codex/AGENTS.md`, your skills and your config stay out of OWLA's sessions. Your Codex sign-in keeps working, and token refreshes stay shared.
+- **Excluded folders:** a capital sharp s (`ẞ`) can no longer reach a folder excluded as `Straße`.
+- **Remembered model refusals:** models your plan or privacy regions refuse are remembered across restarts. Settings has a button to reset the list.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and connect the provider CLI separately.
+
 # OWLA Butler 3.6.2
 
 This is a source-review patch for the Community listing. It removes the blanket lint suppression in the Hermes bridge and validates its JSON-RPC messages, model list and streamed updates at the boundary, like the other providers. There is no change to chat, tools, models or the review flow.

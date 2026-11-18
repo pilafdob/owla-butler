@@ -433,3 +433,45 @@ test('3.2.0 parity: an MCP server that stays enabled after the restart fails clo
   assert.equal(reads,2);assert.equal(fake.spawns().length,2);
  }finally{await fake.cleanup();}
 });
+
+// SECURITY-AUDIT-3.6.2 H2: Codex injects <CODEX_HOME>/AGENTS.md and user skill
+// descriptions into every request, so OWLA runs Codex in a private home that
+// holds only links to the user's sign-in.
+test('Codex runs in a private home linked only to the user’s sign-in',async()=>{
+ const {ensureCodexPrivateHome,privateHomeInstructions,userCodexHome,CODEX_AUTH_FILES}=await import('../src/codex');
+ const fs=await import('node:fs'),path=await import('node:path'),os=await import('node:os');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'owla-codex-home-'));
+ try{
+  const user=path.join(root,'user'),home=path.join(root,'private');
+  fs.mkdirSync(path.join(user,'skills','mine'),{recursive:true});
+  for(const file of ['auth.json','auth.lock','AGENTS.md','config.toml'])fs.writeFileSync(path.join(user,file),file);
+  fs.writeFileSync(path.join(user,'skills','mine','SKILL.md'),'---\ndescription: x\n---\n');
+  ensureCodexPrivateHome(home,user);
+  assert.deepEqual(fs.readdirSync(home).sort(),['auth.json','auth.lock']);
+  for(const file of ['auth.json','auth.lock'])assert.equal(fs.readlinkSync(path.join(home,file)),path.join(user,file));
+  assert.ok(CODEX_AUTH_FILES.includes('auth.json.lock'));
+  assert.deepEqual(privateHomeInstructions(home),[]);
+  // OWLA's own sign-in (a regular file) is kept; a link elsewhere is replaced.
+  fs.unlinkSync(path.join(home,'auth.json'));fs.writeFileSync(path.join(home,'auth.json'),'own');
+  fs.unlinkSync(path.join(home,'auth.lock'));fs.symlinkSync(path.join(root,'elsewhere'),path.join(home,'auth.lock'));
+  ensureCodexPrivateHome(home,user);
+  assert.equal(fs.readFileSync(path.join(home,'auth.json'),'utf8'),'own');
+  assert.equal(fs.readlinkSync(path.join(home,'auth.lock')),path.join(user,'auth.lock'));
+  fs.writeFileSync(path.join(home,'AGENTS.md'),'planted');
+  assert.deepEqual(privateHomeInstructions(home),[path.join(home,'AGENTS.md')]);
+  assert.equal(userCodexHome({CODEX_HOME:'/custom/codex'},'/Users/me'),'/custom/codex');
+  assert.equal(userCodexHome({CODEX_HOME:'relative'},'/Users/me'),path.join('/Users/me','.codex'));
+  assert.equal(userCodexHome({},'/Users/me'),path.join('/Users/me','.codex'));
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('Codex child environment pins CODEX_HOME to the private home and turns off skill instructions',async()=>{
+ const {CodexBridge,CODEX_PRIVATE_HOME}=await import('../src/codex');
+ const previous=process.env.CODEX_HOME;process.env.CODEX_HOME='/somewhere/else';
+ try{
+  const env=(new CodexBridge() as unknown as {env():NodeJS.ProcessEnv}).env();
+  assert.ok(env.CODEX_HOME?.endsWith(CODEX_PRIVATE_HOME),env.CODEX_HOME);
+ }finally{if(previous===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previous;}
+ const source=(await import('node:fs')).readFileSync(new URL('../src/codex.ts',import.meta.url),'utf8');
+ assert.ok(source.includes("'skills.include_instructions=false'"));
+});

@@ -1,5 +1,5 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
+import {copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {createServer,IncomingMessage,Server} from 'node:http';
 import {homedir} from 'node:os';
@@ -52,13 +52,98 @@ export const HERMES_PRIVATE_EXCLUDED=new Set([
  'pairing','pending_messages','terminal-sessions',
 ]);
 /** State files whose `-shm` and `-wal` sidecars must stay private too. */
-const HERMES_PRIVATE_DB_PREFIXES=['state.db','kanban.db'];
+const HERMES_PRIVATE_DB_PREFIXES=['state.db','kanban.db','projects.db','spawn-ledger.json'];
+/**
+ * Live daemon endpoints and session state. `hermes acp` is a *viewer* of the
+ * gateway that owns its HERMES_HOME (acp_adapter/entry.py), and the control
+ * socket is resolved as `<home>/gateway.sock`
+ * (hermes_cli/gateway_runtime_discovery.py::_socket_path). Mirroring that socket
+ * pointed OWLA's private home at the user's running daemon, so the private
+ * config was never read: the turn ran with the user's shell/file tools, MCP
+ * servers and session database. OWLA must own its daemon, never borrow one.
+ */
+const HERMES_PRIVATE_LIVE_PREFIXES=['gateway','runtime','state','locks'];
+/** Whether an entry of the user's Hermes home may be mirrored into OWLA's. */
+const HERMES_PRIVATE_EXCLUDED_FOLDED=new Set([...HERMES_PRIVATE_EXCLUDED].map(entry=>entry.toLowerCase()));
+export function hermesMirrorExcluded(entry:string):boolean{
+ // APFS and NTFS are case-insensitive: a `Config.yaml` entry is the same file
+ // as `config.yaml`, so the exclusion must not depend on the spelling.
+ const name=entry.toLowerCase();
+ return HERMES_PRIVATE_EXCLUDED_FOLDED.has(name)||name==='.env'
+  ||HERMES_PRIVATE_DB_PREFIXES.some(prefix=>name.startsWith(prefix))
+  ||HERMES_PRIVATE_LIVE_PREFIXES.some(prefix=>name===prefix||name.startsWith(prefix+'.')||name.startsWith(prefix+'-')||name.startsWith(prefix+'_'));
+}
 
-/** The private config: no built-in toolsets, no plugins, no MCP servers, no memory. */
-export const hermesPrivateConfig=(web:boolean):string=>[
- 'platform_toolsets:',web?'  acp: [web]':'  acp: []',
+/**
+ * Keys of the user's Hermes `.env` that never reach OWLA's private home. Hermes
+ * loads `<HERMES_HOME>/.env` with override semantics, and
+ * `HERMES_TUI_GATEWAY_URL` dials a remote gateway directly, past the private
+ * home; `HERMES_ACP_*` changes approval and sign-in behaviour. Provider keys
+ * (including AI gateway keys such as AI_GATEWAY_API_KEY) stay, so the user's
+ * sign-ins keep working.
+ */
+export const hermesEnvKeyBlocked=(key:string):boolean=>/^HERMES_/i.test(key);
+/** The user's `.env` with every blocked key (and every comment) removed. */
+export function hermesFilteredEnv(content:string):string{
+ const kept:string[]=[];
+ for(const line of content.split(/\r?\n/)){
+  const match=line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=/);
+  if(match&&!hermesEnvKeyBlocked(match[1]))kept.push(line);
+ }
+ return kept.length?kept.join('\n')+'\n':'';
+}
+/** The spawn environment without inherited `HERMES_*` variables; OWLA sets HERMES_HOME itself. */
+export function hermesChildEnv(env:NodeJS.ProcessEnv,home:string,path:string):NodeJS.ProcessEnv{
+ const result:NodeJS.ProcessEnv={};
+ for(const [key,value] of Object.entries(env))if(!hermesEnvKeyBlocked(key)&&key.toLowerCase()!=='path')result[key]=value;
+ return {...result,HERMES_HOME:home,PATH:path};
+}
+
+/** Removes a mirrored link so a write lands in OWLA's home, never through to the user's. */
+function unlinkMirror(path:string):void{try{if(lstatSync(path).isSymbolicLink())unlinkSync(path);}catch{/* Not present. */}}
+
+/**
+ * The user's default model, carried into the private config as two scalars.
+ * Hermes refuses a session whose policy has an empty model
+ * (gateway/session_policy.py: `not policy.model.strip()` → `invalid policy` →
+ * `storage_unavailable`), so an OWLA-owned daemon needs a default before
+ * `session/set_model` selects the turn's model. Nothing else is inherited.
+ */
+export function hermesDefaultModel(userConfig:string):{model:string;provider:string}{
+ const block=userConfig.match(/^model:[ \t]*\r?\n((?:[ \t]+[^\n]*\r?\n?)+)/m);
+ const scalar=(key:string)=>{
+  const line=block?.[1].split(/\r?\n/).find(item=>new RegExp('^\\s+'+key+':').test(item));
+  const value=line?.slice(line.indexOf(':')+1).trim().replace(/^["']|["']$/g,'')??'';
+  return /^[A-Za-z0-9._:/@+-]{1,200}$/.test(value)?value:'';
+ };
+ return {model:scalar('default')||scalar('model'),provider:scalar('provider')};
+}
+
+/**
+ * The private config: no built-in toolsets, no plugins, no user MCP servers, no
+ * memory. OWLA's own tools are registered as a NATIVE MCP server named `owla`.
+ *
+ * Servers passed to ACP `session/new` are "editor" servers: the gateway renames
+ * them to `editor_owla_<hash>` (gateway/session_local_mcp.py::_server_names), so
+ * the model sees `mcp__editor_owla_<hash>__read_note` and every `mcp__owla__…`
+ * name in OWLA's instructions is uncallable. A native config server keeps the
+ * plain `mcp__owla__<tool>` name (tools/mcp_tool_schema.py).
+ */
+export const hermesPrivateConfig=(web:boolean,endpoint?:{url:string;token:string},model?:{model:string;provider:string}):string=>[
+ ...(model?.model?['model:','  default: '+JSON.stringify(model.model),...(model.provider?['  provider: '+JSON.stringify(model.provider)]:[])]:[]),
+ 'platform_toolsets:',
+ '  acp: ['+[...(web?['web']:[]),...(endpoint?['mcp-owla']:[])].join(', ')+']',
  'plugins:','  enabled: []','  disabled: []',
- 'mcp_servers: {}',
+ ...(endpoint?[
+  'mcp_servers:',
+  '  owla:',
+  '    url: '+JSON.stringify(endpoint.url),
+  '    headers:',
+  '      Authorization: '+JSON.stringify('Bearer '+endpoint.token),
+  '    connect_timeout: 20',
+  '    tool_timeout: 300',
+  '    lazy: false',
+ ]:['mcp_servers: {}']),
  'memory:','  memory_enabled: false','  user_profile_enabled: false',
  'skills:','  external_dirs: []',
  '',
@@ -143,7 +228,7 @@ export class HermesBridge implements ProviderBridge{
   return this.privateHome;
  }
 
- private ensurePrivateHome(executable:string,web:boolean):void{
+ private ensurePrivateHome(executable:string,web:boolean,endpoint?:{url:string;token:string}):void{
   void executable;
   const home=this.privateHomePath();
   mkdirSync(home,{recursive:true,mode:0o700});
@@ -153,9 +238,10 @@ export class HermesBridge implements ProviderBridge{
   if(existsSync(realHome)){
    for(const entry of readdirSync(realHome)){
     const target=join(home,entry),source=join(realHome,entry);
-    if(HERMES_PRIVATE_EXCLUDED.has(entry)||HERMES_PRIVATE_DB_PREFIXES.some(prefix=>entry.startsWith(prefix))){
-     // Remove a link an earlier build mirrored; never touch real files.
-     try{if(lstatSync(target).isSymbolicLink())unlinkSync(target);}catch{/* Not present. */}
+    if(hermesMirrorExcluded(entry)){
+     // Remove a link an earlier build mirrored; never touch real files. A stale
+     // gateway socket link would re-attach OWLA to the user's daemon.
+     unlinkMirror(target);
      continue;
     }
     if(existsSync(target))continue;
@@ -172,9 +258,21 @@ export class HermesBridge implements ProviderBridge{
     }
    }
   }
+  // `.env` is a filtered copy, never a link: see hermesEnvKeyBlocked.
+  const envFile=join(home,'.env');
+  unlinkMirror(envFile);
+  let userEnv='';
+  try{userEnv=readFileSync(join(realHome,'.env'),'utf8');}catch{/* No user .env. */}
+  const filteredEnv=hermesFilteredEnv(userEnv);
+  if(filteredEnv)writeFileSync(envFile,filteredEnv,{mode:0o600});
+  else try{unlinkSync(envFile);}catch{/* Not present. */}
+  unlinkMirror(join(home,'skills'));
   mkdirSync(join(home,'skills'),{recursive:true,mode:0o700});
   const configPath=join(home,'config.yaml');
-  writeFileSync(configPath,hermesPrivateConfig(web),{mode:0o600});
+  unlinkMirror(configPath);
+  let userConfig='';
+  try{userConfig=readFileSync(join(realHome,'config.yaml'),'utf8');}catch{/* No user config: Hermes uses its own default. */}
+  writeFileSync(configPath,hermesPrivateConfig(web,endpoint,hermesDefaultModel(userConfig)),{mode:0o600});
   const skillsDir=join(home,'skills');
   for(const skill of skillDefinitions()){
    const dir=join(skillsDir,skill.id);
@@ -215,7 +313,12 @@ export class HermesBridge implements ProviderBridge{
   request.setEncoding('utf8');
   for await(const chunk of request as AsyncIterable<string>){size+=chunk.length;if(size>32*1024*1024){response.writeHead(413);response.end();return;}parts.push(chunk);}
   let body:unknown;try{body=JSON.parse(parts.join('')||'{}');}catch{body={};}
-  const messages=list(body);
+  // Streamable HTTP carries one JSON-RPC message per request; a batch is an
+  // array. Treating an object as an empty batch answered 202 to `initialize`
+  // and `tools/list`, so Hermes discovered no OWLA tools and fell back to its
+  // own shell and file tools.
+  const messages=Array.isArray(body)?list(body):[body];
+  if(!messages.length){response.writeHead(400,{'content-type':'application/json'});response.end(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32600,message:'Empty batch.'}}));return;}
   const replies:Record<string,unknown>[]=[];
   for(const msg of messages){
    const reply=await this.dispatchMcp(msg);
@@ -350,12 +453,14 @@ export class HermesBridge implements ProviderBridge{
   try{this.version=(await runCliVersion(file)).trim();}catch{this.version='';}
   this.executable=file;
   const home=this.privateHomePath();
-  this.ensurePrivateHome(file,web);
+  // The loopback endpoint must exist before the config is written: Hermes reads
+  // its native MCP servers from that config when the session is created.
   await this.ensureCallback();
+  this.ensurePrivateHome(file,web,{url:'http://127.0.0.1:'+this.callbackPort+'/mcp',token:this.mcpToken});
   this.cwd=cwd||home;
   mkdirSync(this.cwd,{recursive:true,mode:0o700});
   // spawn
-  const child=spawnCli(file,['acp'],{cwd:home,env:{...env,HERMES_HOME:home,PATH:extendedPath(inheritedPath,defaultBinDirectories())},detached:process.platform!=='win32'});
+  const child=spawnCli(file,['acp'],{cwd:home,env:hermesChildEnv(env,home,extendedPath(inheritedPath,defaultBinDirectories())),detached:process.platform!=='win32'});
   this.child=child;
   child.stdout.setEncoding('utf8');
   child.stdout.on('data',(chunk:string)=>this.handleStdout(chunk));
@@ -368,7 +473,10 @@ export class HermesBridge implements ProviderBridge{
   void init;
   if(generation!==this.generation)throw Error('Hermes connection cancelled.');
   // session/new with mcp server
-  const sessionState=record(await this.sendRpc('session/new',{cwd:this.cwd,mcpServers:[{name:'owla',type:'http',url:'http://127.0.0.1:'+this.callbackPort+'/mcp',headers:[{name:'Authorization',value:'Bearer '+this.mcpToken}]}]}));
+  // OWLA's tools come from the private config's native `owla` server, so the
+  // model sees mcp__owla__<tool>. Passing them here too would register a second
+  // "editor" server under a hashed name the instructions never use.
+  const sessionState=record(await this.sendRpc('session/new',{cwd:this.cwd,mcpServers:[]}));
   if(generation!==this.generation)throw Error('Hermes connection cancelled.');
   this.sessionId=typeof sessionState.sessionId==='string'?sessionState.sessionId:'';
   if(!this.sessionId)throw Error('Hermes did not return a session ID.');
