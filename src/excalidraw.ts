@@ -37,13 +37,17 @@ export function isExcalidrawNote(text:string){
 export function isExcalidrawText(text:string){return isExcalidrawJson(text)||/^---[\s\S]*?excalidraw-plugin:/m.test(text.slice(0,2000))||DRAWING.test(text);}
 
 /** Reads the scene. Compressed drawings need the plugin's LZ-string decoder. */
+const sceneOf=(value:unknown):ExcalidrawScene=>{
+ const scene=record(value);
+ if(!Array.isArray(scene.elements))throw Error('The drawing data has no elements list.');
+ if(scene.elements.some(element=>!element||typeof element!=='object'))throw Error('The drawing data contains an element that is not an object; the file may be damaged.');
+ return scene as ExcalidrawScene;
+};
 export function parseExcalidraw(text:string,decompress?:(data:string)=>string):ExcalidrawFile{
  if(text.trimStart().startsWith('{')){
   let value:unknown;
   try{value=JSON.parse(text);}catch(error){throw Error('The drawing data is not valid JSON: '+(error instanceof Error?error.message:String(error)));}
-  const scene=record(value);
-  if(!Array.isArray(scene.elements))throw Error('The drawing data has no elements list.');
-  return {text,compressed:false,scene:scene as ExcalidrawScene};
+  return {text,compressed:false,scene:sceneOf(value)};
  }
  const match=text.match(DRAWING);
  if(!match)throw Error('This file has no Excalidraw drawing block. Open it once in Excalidraw so the plugin writes one.');
@@ -56,18 +60,18 @@ export function parseExcalidraw(text:string,decompress?:(data:string)=>string):E
  }
  let value:unknown;
  try{value=JSON.parse(json);}catch(error){throw Error('The drawing data is not valid JSON: '+(error instanceof Error?error.message:String(error)));}
- const scene=record(value);
- if(!Array.isArray(scene.elements))throw Error('The drawing data has no elements list.');
- return {text,compressed,scene:scene as ExcalidrawScene};
+ return {text,compressed,scene:sceneOf(value)};
 }
 
 const live=(scene:ExcalidrawScene)=>scene.elements.filter(element=>!element.isDeleted);
 const label=(element:ExcalidrawElement)=>element.originalText??element.text??'';
+/** boundElements as an array, tolerating a damaged drawing that stores something else. */
+const boundList=(element:ExcalidrawElement)=>Array.isArray(element.boundElements)?element.boundElements:[];
 
 /** Bound text of a container, or the element itself when it is text. */
 export function textOf(scene:ExcalidrawScene,element:ExcalidrawElement):ExcalidrawElement|undefined{
  if(element.type==='text')return element;
- const bound=element.boundElements?.find(item=>item.type==='text');
+ const bound=boundList(element).find(item=>item&&item.type==='text');
  return bound?scene.elements.find(item=>item.id===bound.id&&!item.isDeleted):undefined;
 }
 
@@ -83,7 +87,7 @@ export function describeElements(scene:ExcalidrawScene,files:Record<string,strin
   if(element.type==='arrow'||element.type==='line'){if(element.startBinding||element.endBinding)parts.push('from '+named(element.startBinding?.elementId)+' to '+named(element.endBinding?.elementId));}
   if(element.type==='frame')parts.push('frame '+JSON.stringify(element.name??''));
   if(element.frameId)parts.push('in frame ['+element.frameId+']');
-  if(element.groupIds?.length)parts.push('group '+element.groupIds.join('+'));
+  if(Array.isArray(element.groupIds)&&element.groupIds.length)parts.push('group '+element.groupIds.join('+'));
   if(element.type==='image')parts.push('image '+(element.fileId&&files[element.fileId]?files[element.fileId]:element.fileId??''));
   if(element.link)parts.push('link '+element.link);
   if(element.strokeColor&&element.strokeColor!=='#1e1e1e')parts.push('stroke '+element.strokeColor);
@@ -121,6 +125,10 @@ export interface ElementFactory{
 const STYLE_KEYS=new Set(['strokeColor','backgroundColor','fillStyle','strokeWidth','strokeStyle','roughness','opacity','fontSize','fontFamily','textAlign','roundness','startArrowHead','endArrowHead']);
 function style(value:unknown){const result:Record<string,unknown>={};for(const [key,item] of Object.entries(record(value)))if(STYLE_KEYS.has(key))result[key]=item;return result;}
 const num=(value:unknown,name:string,at:string)=>{if(typeof value!=='number'||!Number.isFinite(value))throw Error(at+': '+name+' must be a number.');return value;};
+/** Bounds model-supplied text and operations so a huge argument cannot leak into memory or the next turn. */
+export const EXCALIDRAW_TEXT_LIMIT=10_000;
+export const EXCALIDRAW_OPERATIONS_LIMIT=100_000;
+const requiredText=(value:unknown,at:string)=>{if(typeof value!=='string'||!value)throw Error(at+': text is required.');if(value.length>EXCALIDRAW_TEXT_LIMIT)throw Error(at+': text is too long (max '+EXCALIDRAW_TEXT_LIMIT+' characters).');return value;};
 
 /**
  * Marks an element as changed. An open Excalidraw editor merges a file changed on disk
@@ -138,6 +146,7 @@ function touch(element:ExcalidrawElement,random:()=>number){element.version=(ele
  */
 export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unknown,factory:ElementFactory,random:()=>number=Math.random):ExcalidrawScene{
  if(!Array.isArray(operations)||!operations.length||operations.length>200)throw Error('Provide between 1 and 200 drawing operations.');
+ if(JSON.stringify(operations).length>EXCALIDRAW_OPERATIONS_LIMIT)throw Error('The drawing operations are too large. Split them into smaller proposals.');
  factory.load(structuredClone(scene.elements));
  const find=(id:unknown,at:string)=>{const element=factory.elements().find(item=>item.id===id&&!item.isDeleted);if(!element)throw Error(at+': no element '+JSON.stringify(id)+'.');return element;};
  for(const [index,raw] of (operations as unknown[]).entries()){
@@ -146,30 +155,36 @@ export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unkno
    case 'add_shape':{
     const kind=operation.shape;
     if(kind!=='rectangle'&&kind!=='ellipse'&&kind!=='diamond')throw Error(at+': shape must be rectangle, ellipse or diamond.');
-    factory.shape(kind,num(operation.x,'x',at),num(operation.y,'y',at),num(operation.width,'width',at),num(operation.height,'height',at),style(operation.style),typeof operation.text==='string'&&operation.text?operation.text:undefined);
+    const width=num(operation.width,'width',at),height=num(operation.height,'height',at);
+    if(width<=0||height<=0)throw Error(at+': the size must be positive.');
+    const text=typeof operation.text==='string'&&operation.text?requiredText(operation.text,at):undefined;
+    factory.shape(kind,num(operation.x,'x',at),num(operation.y,'y',at),width,height,style(operation.style),text);
     break;
    }
    case 'add_text':{
-    if(typeof operation.text!=='string'||!operation.text)throw Error(at+': text is required.');
-    factory.text(num(operation.x,'x',at),num(operation.y,'y',at),operation.text,style(operation.style));
+    const text=requiredText(operation.text,at);
+    factory.text(num(operation.x,'x',at),num(operation.y,'y',at),text,style(operation.style));
     break;
    }
    case 'add_arrow':{
     const from=find(operation.from,at),to=find(operation.to,at);
-    factory.connect(from.id,to.id,style(operation.style),typeof operation.label==='string'&&operation.label?operation.label:undefined);
+    const label=typeof operation.label==='string'&&operation.label?requiredText(operation.label,at):undefined;
+    factory.connect(from.id,to.id,style(operation.style),label);
     break;
    }
    case 'add_frame':{
     const contains=Array.isArray(operation.contains)?operation.contains.map(id=>find(id,at).id):[];
-    factory.frame(num(operation.x,'x',at),num(operation.y,'y',at),num(operation.width,'width',at),num(operation.height,'height',at),typeof operation.name==='string'?operation.name:'Frame',contains);
+    const width=num(operation.width,'width',at),height=num(operation.height,'height',at);
+    if(width<=0||height<=0)throw Error(at+': the size must be positive.');
+    factory.frame(num(operation.x,'x',at),num(operation.y,'y',at),width,height,typeof operation.name==='string'?operation.name:'Frame',contains);
     break;
    }
    case 'update_text':{
-    if(typeof operation.text!=='string'||!operation.text)throw Error(at+': text is required.');
+    const newText=requiredText(operation.text,at);
     const element=find(operation.id,at),all={elements:factory.elements()} as ExcalidrawScene,text=textOf(all,element);
     if(!text)throw Error(at+': element '+element.id+' has no text. Use add_shape with text or add_text.');
-    text.text=text.originalText=text.rawText=operation.text;
-    if(!text.containerId){const size=factory.measure(operation.text,text);text.width=size.width;text.height=size.height;}
+    text.text=text.originalText=text.rawText=newText;
+    if(!text.containerId){const size=factory.measure(newText,text);text.width=size.width;text.height=size.height;}
     touch(text,random);
     break;
    }
@@ -177,7 +192,7 @@ export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unkno
     const element=find(operation.id,at);
     const dx=operation.x!==undefined?num(operation.x,'x',at)-element.x:operation.dx!==undefined?num(operation.dx,'dx',at):0;
     const dy=operation.y!==undefined?num(operation.y,'y',at)-element.y:operation.dy!==undefined?num(operation.dy,'dy',at):0;
-    const moved=[element,...(element.boundElements??[]).filter(item=>item.type==='text').map(item=>factory.elements().find(other=>other.id===item.id)).filter((item):item is ExcalidrawElement=>!!item)];
+    const moved=[element,...boundList(element).filter(item=>item.type==='text').map(item=>factory.elements().find(other=>other.id===item.id)).filter((item):item is ExcalidrawElement=>!!item)];
     for(const item of moved){item.x+=dx;item.y+=dy;touch(item,random);}
     break;
    }
@@ -196,11 +211,11 @@ export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unkno
    }
    case 'delete':{
     const element=find(operation.id,at),all=factory.elements();
-    const gone=new Set([element.id,...(element.boundElements??[]).filter(item=>item.type==='text').map(item=>item.id)]);
+    const gone=new Set([element.id,...boundList(element).filter(item=>item.type==='text').map(item=>item.id)]);
     if(element.type==='frame')for(const item of all)if(item.frameId===element.id)item.frameId=null;
     for(const item of all){
      if(gone.has(item.id)){item.isDeleted=true;touch(item,random);continue;}
-     if(item.boundElements?.some(bound=>gone.has(bound.id))){item.boundElements=item.boundElements.filter(bound=>!gone.has(bound.id));touch(item,random);}
+     if(Array.isArray(item.boundElements)&&item.boundElements.some(bound=>gone.has(bound.id))){item.boundElements=item.boundElements.filter(bound=>!gone.has(bound.id));touch(item,random);}
      if(item.startBinding&&gone.has(item.startBinding.elementId)){item.startBinding=null;touch(item,random);}
      if(item.endBinding&&gone.has(item.endBinding.elementId)){item.endBinding=null;touch(item,random);}
     }

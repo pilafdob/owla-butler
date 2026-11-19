@@ -106,10 +106,17 @@ export function noteHeadings(text:string):NoteHeading[]{
   }
   offset+=line.length+1;
  }
- return headings.map((item,index)=>{
-  const next=headings.slice(index+1).find(other=>other.level<=item.level);
-  return {...item,end:next?next.start:text.length};
- });
+ // One stack pass assigns each heading's end (the next heading of the same or
+ // a higher level): the old slice+find per heading was O(H²) on heading-dense
+ // notes (performance audit 10). Same ranges, linear time.
+ const ends:number[]=new Array<number>(headings.length);
+ const stack:number[]=[];
+ for(let i=0;i<headings.length;i++){
+  while(stack.length&&headings[stack[stack.length-1]].level>=headings[i].level)ends[stack.pop()!]=headings[i].start;
+  stack.push(i);
+ }
+ while(stack.length)ends[stack.pop()!]=text.length;
+ return headings.map((item,index)=>({...item,end:ends[index]}));
 }
 
 const normalizeHeading=(value:string)=>value.replace(/^#+\s*/,'').trim().replace(/\s+/g,' ').normalize('NFC').toLowerCase();
@@ -162,4 +169,43 @@ export function headingOutline(text:string,max=200):string{
  if(!headings.length)return '';
  const lines=headings.slice(0,max).map(item=>'  '.repeat(item.level-1)+'#'.repeat(item.level)+' '+item.title+' ('+(item.end-item.start)+' chars)');
  return '[Headings — read one with read_note heading, or continue with offset:\n'+lines.join('\n')+(headings.length>max?'\n… '+(headings.length-max)+' more':'')+']';
+}
+
+const FENCE=/^ {0,3}(`{3,}|~{3,})/;
+/** A Markdown table row: a line that starts with a pipe after optional indentation. */
+const TABLE_ROW=/^\s*\|/;
+/** A Markdown table delimiter row such as `| --- | --- |`, `|:-:|-:|` or a one-column `| - |`. */
+const TABLE_DELIMITER_CELL=/^\s*:?-+:?\s*$/;
+function isTableDelimiter(row:string):boolean{
+ const trimmed=row.trim();
+ if(!trimmed.includes('|')||!trimmed.includes('-'))return false;
+ const cells=trimmed.replace(/^\|/,'').replace(/\|$/,'').split('|');
+ return cells.length>0&&cells.every(cell=>TABLE_DELIMITER_CELL.test(cell));
+}
+
+/**
+ * The Markdown table that contains the given line, as its raw source text.
+ * A table is a run of contiguous pipe-leading rows that includes a delimiter
+ * row; fenced code blocks are skipped so `|`-looking lines inside them are not
+ * mistaken for a table. Returns null when the line is not inside a table.
+ */
+export function tableAt(text:string,line:number):{start:number;end:number;text:string}|null{
+ if(!Number.isInteger(line)||line<0)return null;
+ const lines=text.split('\n');
+ if(line>=lines.length)return null;
+ const inFence=new Array<boolean>(lines.length).fill(false);
+ let fence:string|null=null;
+ for(let i=0;i<lines.length;i++){
+  const marker=lines[i].match(FENCE)?.[1];
+  if(fence){inFence[i]=true;if(marker&&marker[0]===fence[0]&&marker.length>=fence.length)fence=null;}
+  else if(marker){fence=marker;inFence[i]=true;}
+ }
+ if(inFence[line]||!TABLE_ROW.test(lines[line]))return null;
+ let start=line;
+ while(start>0&&!inFence[start-1]&&TABLE_ROW.test(lines[start-1]))start--;
+ let end=line;
+ while(end<lines.length-1&&!inFence[end+1]&&TABLE_ROW.test(lines[end+1]))end++;
+ const block=lines.slice(start,end+1);
+ if(!block.some(isTableDelimiter))return null;
+ return {start,end,text:block.join('\n')};
 }

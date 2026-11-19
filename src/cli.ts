@@ -1,7 +1,7 @@
 import {ChildProcessWithoutNullStreams, spawn as nativeSpawn} from 'node:child_process';
 import {accessSync,constants,existsSync,statSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,extname,isAbsolute,join,win32} from 'node:path';
+import {basename,delimiter,extname,isAbsolute,join,win32} from 'node:path';
 import {clearTimeout as cancelTimeout,setTimeout as scheduleTimeout} from 'node:timers';
 import spawn from 'cross-spawn';
 
@@ -97,7 +97,15 @@ export const UNSAFE_EXECUTION_ENV=[
  'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH',
  'LD_PRELOAD','LD_LIBRARY_PATH','PYTHONPATH','PYTHONHOME','PYTHONSTARTUP',
  'PERL5LIB','PERL5OPT','RUBYOPT','RUBYLIB','BASH_ENV','ENV','ZDOTDIR',
+ // Git can execute commands from inherited config (core.sshCommand, aliases,
+ // pager, template hooks); editors/pagers launch programs of the variable's
+ // choosing; UV_PYTHON/VIRTUAL_ENV pick a foreign Python interpreter
+ // (SECURITY-AUDIT-3.6.2 L9).
+ 'GIT_CONFIG_COUNT','GIT_SSH_COMMAND','GIT_EXEC_PATH','GIT_TEMPLATE_DIR','GIT_PAGER',
+ 'PAGER','EDITOR','VISUAL','UV_PYTHON','VIRTUAL_ENV',
 ];
+/** Environment-key families stripped by prefix: git's inline config pairs. */
+export const UNSAFE_EXECUTION_ENV_PREFIXES=['GIT_CONFIG_KEY_','GIT_CONFIG_VALUE_'];
 
 /**
  * API keys and endpoint overrides. Codex and Claude Code sign in with their
@@ -187,7 +195,10 @@ export function sanitizedEnv(env:NodeJS.ProcessEnv=process.env,{keepCredentials=
  ].map(key=>key.toUpperCase()));
  // Windows treats environment names case-insensitively; a plain object does
  // not. Strip every spelling before Node picks which duplicate to forward.
- for(const key of Object.keys(result))if(blocked.has(key.toUpperCase()))delete result[key];
+ for(const key of Object.keys(result)){
+  const upper=key.toUpperCase();
+  if(blocked.has(upper)||UNSAFE_EXECUTION_ENV_PREFIXES.some(prefix=>upper.startsWith(prefix)))delete result[key];
+ }
  if(platform==='win32'){
   // Command shims, and anything the assistant itself runs, interpret through
   // ComSpec; it is pinned to the validated system cmd.exe rather than inherited.
@@ -218,7 +229,16 @@ export function spawnCli(file:string,args:string[],options:CliSpawnOptions={}):C
  if(shim&&!shimInterpreterTrusted())
   throw Error('OWLA cannot run this Windows command shim: the ComSpec variable names a program other than the system Command Prompt. Choose the program’s executable file in settings, or set ComSpec to the Windows cmd.exe.');
  const spawnChild=()=>spawn(file,args,{...options,shell:false,windowsHide:true,stdio:'pipe'}) as ChildProcessWithoutNullStreams;
- return shim?withPinnedShimInterpreter(spawnChild):spawnChild();
+ const child=shim?withPinnedShimInterpreter(spawnChild):spawnChild();
+ // A pipe error (EPIPE when the child dies mid-write, ERR_STREAM_DESTROYED on
+ // end after exit) is emitted asynchronously; with no listener it becomes an
+ // uncaught exception and takes the whole plugin host down. Every bridge still
+ // receives the event through its own listeners; this default only guarantees
+ // that a stream error can never crash Obsidian.
+ child.stdin.on('error',()=>{});
+ child.stdout.on('error',()=>{});
+ child.stderr.on('error',()=>{});
+ return child;
 }
 
 export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal:NodeJS.Signals,platform:NodeJS.Platform=process.platform):void{
@@ -232,10 +252,12 @@ export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal
   if(pid){
    const taskkill=trustedTaskkillPath();
    if(existsSync(taskkill)){
-    const killer=nativeSpawn(taskkill,['/PID',String(pid),'/T','/F'],{stdio:'ignore',windowsHide:true});
     const fallback=()=>{try{child.kill(signal);}catch{return;}};
-    killer.on('error',fallback);
-    killer.on('exit',code=>{if(code!==0)fallback();});
+    try{
+     const killer=nativeSpawn(taskkill,['/PID',String(pid),'/T','/F'],{stdio:'ignore',windowsHide:true});
+     killer.on('error',fallback);
+     killer.on('exit',code=>{if(code!==0)fallback();});
+    }catch{fallback();}
     return;
    }
   }
@@ -250,13 +272,19 @@ export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal
  }
 }
 
-export function runCli(file:string,args:string[],options:CliSpawnOptions&{
+export async function runCli(file:string,args:string[],options:CliSpawnOptions&{
  signal?:AbortSignal;timeout:number;maxBuffer:number
 }):Promise<string>{
+ // Async so an already-aborted signal rejects instead of throwing synchronously
+ // at callers that chain .catch() on the returned promise.
  options.signal?.throwIfAborted();
  return new Promise((resolve,reject)=>{
   const {signal,timeout,maxBuffer,...spawnOptions}=options;
   const child=spawnCli(file,args,spawnOptions);
+  // No runCli caller writes to the child; closing stdin at once lets a command
+  // that reads its input to EOF finish instead of hanging until the timeout.
+  child.stdin.end();
+  const name=basename(file);
   let stdout='',stderr='',settled=false;
   const finish=(error?:Error)=>{
    if(settled)return;
@@ -271,9 +299,10 @@ export function runCli(file:string,args:string[],options:CliSpawnOptions&{
   };
   const timer=scheduleTimeout(()=>{
    terminateProcessTree(child,'SIGKILL');
-   finish(Error('The command timed out after '+timeout+' ms.'));
+   finish(Error('The command '+name+' timed out after '+timeout+' ms.'));
   },timeout);
   const collect=(current:string,chunk:Buffer|string)=>{
+   if(settled)return current;
    const next=current+chunk.toString();
    if(Buffer.byteLength(next)>maxBuffer){
     terminateProcessTree(child,'SIGKILL');
@@ -284,10 +313,10 @@ export function runCli(file:string,args:string[],options:CliSpawnOptions&{
   };
   child.stdout.on('data',(chunk:Buffer|string)=>{stdout=collect(stdout,chunk);});
   child.stderr.on('data',(chunk:Buffer|string)=>{stderr=collect(stderr,chunk);});
-  child.on('error',error=>finish(error));
+  child.on('error',error=>finish(Error('Could not start '+name+': '+error.message)));
   child.on('close',(code,signal)=>{
    if(code===0)finish();
-   else finish(Error(stderr.trim()||'The command exited '+(signal?'after '+signal:'with code '+String(code))+'.'));
+   else finish(Error(stderr.trim()||'The command '+name+' exited '+(signal?'after '+signal:'with code '+String(code))+'.'));
   });
   if(signal?.aborted)abort();
   else signal?.addEventListener('abort',abort,{once:true});

@@ -297,3 +297,41 @@ test('diff lines map to their line in both the original and the proposed note',a
  assert.deepEqual(lines,[['unchanged','a',0,0],['removed','b',1,1],['added','B',2,1],['unchanged','c',2,2],['added','x',3,3],['unchanged','d',3,4]]);
  assert.equal(diffLineMap('', 'new\n')[0].afterLine,0);
 });
+
+test('migration keeps saved fields from a newer schema version instead of resetting them',async()=>{
+ const {migrateSettings,readSettings,writeSettings}=await import('../src/core');
+ const future={schemaVersion:4,provider:'hermes',hermesConnected:true,hermesExecutable:'/usr/local/bin/hermes',automaticProvider:true,fallback:'claude',models:{codex:{model:'gpt-6-astra',reasoning:'high'},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''},hermes:{model:'nous:hermes-4',reasoning:'default'}},webSearch:false,excludedFolders:'Private'};
+ const migrated=migrateSettings(future);
+ assert.equal(migrated.provider,'hermes');
+ assert.equal(migrated.hermesConnected,true);
+ assert.equal(migrated.hermesExecutable,'/usr/local/bin/hermes');
+ assert.equal(migrated.automaticProvider,true);
+ assert.equal(migrated.fallback,'claude');
+ assert.equal(migrated.models.hermes.model,'nous:hermes-4');
+ assert.equal(migrated.webSearch,false);
+ assert.equal(migrated.excludedFolders,'Private');
+ // A numeric-string version is still a version; consent stays a strict boolean.
+ assert.equal(migrateSettings({...future,schemaVersion:'3',hermesConnected:'true'}).hermesConnected,false);
+ assert.equal(migrateSettings({...future,schemaVersion:'3'}).hermesConnected,true);
+ // A round trip through writeSettings keeps every provider's saved model.
+ const saved=writeSettings(migrated,future,'mac');
+ assert.equal(readSettings(saved,'mac').models.hermes.model,'nous:hermes-4');
+ assert.equal(readSettings(saved,'mac').hermesExecutable,'/usr/local/bin/hermes');
+});
+
+test('a platforms block keeps modern settings readable when the top-level version was lost',async()=>{
+ const {readSettings,migrateSettings}=await import('../src/core');
+ const stored={platforms:{mac:{provider:'claude',claudeConnected:true,claudeExecutable:'/usr/local/bin/claude',models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'sonnet',reasoning:'medium'},hermes:{model:'',reasoning:''}}}}};
+ const mac=readSettings(stored,'mac');
+ assert.equal(mac.provider,'claude');
+ assert.equal(mac.claudeConnected,true);
+ assert.equal(mac.claudeExecutable,'/usr/local/bin/claude');
+ assert.equal(mac.models.claude.model,'sonnet');
+ // Without a platforms block the legacy path still applies: no modern fields,
+ // and the old local-inference model name stays out of the Codex record.
+ assert.equal(migrateSettings({claudeConnected:true}).claudeConnected,false);
+ assert.equal(migrateSettings({model:'qwen3:0.6b'}).models.codex.model,'');
+ // The v2 top-level model remains the Codex fallback; a record still wins.
+ assert.equal(migrateSettings({schemaVersion:2,model:'legacy-codex'}).models.codex.model,'legacy-codex');
+ assert.equal(migrateSettings({schemaVersion:2,model:'legacy-codex',models:{codex:{model:'chosen',reasoning:''}}}).models.codex.model,'chosen');
+});

@@ -1,3 +1,15 @@
+# OWLA Butler 3.7.0
+
+- **Tables to chat:** right-click a Markdown table and choose **Add table to OWLA Butler** to attach it, or use **Select table** to select it.
+- **PDF page citations:** **Copy link to page** copies a citation like `Kernbereiche Biologie 6,p.15`.
+- **Handwriting in drawings (macOS):** reading a Canvas or Excalidraw drawing also returns the handwriting recognised by macOS Vision. Requires Xcode or its command line tools; otherwise only the picture is used.
+- **Better model choice for drawings:** Hermes models report their real image support, and requests about an open drawing go to a model that can see it.
+- **More relevant vault search:** whole-word matching and a relevance floor keep unrelated notes out of answers.
+- **Reliability and security:** provider failures show their real cause, Codex usage limits are tracked like the other providers, a Hermes usage limit is reported in seconds instead of a long silent wait, a provider pipe error can no longer crash Obsidian, and Hermes, Claude Code and OpenCode are confined more tightly.
+- **Smaller download:** `main.js` is now minified (about 1 MB).
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually. Install and connect the provider CLI separately.
+
 # OWLA Butler 3.6.3
 
 This is a security patch. Please update.

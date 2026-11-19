@@ -57,20 +57,34 @@ export function opencodeDataHome(env:NodeJS.ProcessEnv=process.env,home=homedir(
   return null;
 }
 
+/** The OPENCODE_* variables OWLA itself sets; every other inherited one is dropped. */
+const OPENCODE_ISOLATED_ENV:Record<string,string>={
+ OPENCODE_DISABLE_PROJECT_CONFIG:'1',
+ OPENCODE_CONFIG_PROJECT_DISABLE:'1',
+ // OpenCode otherwise reads Claude Code's skills and instructions from the home folder.
+ OPENCODE_DISABLE_CLAUDE_CODE:'1',
+ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS:'1',
+ OPENCODE_DISABLE_AUTOUPDATE:'1',
+};
 export function isolatedOpencodeEnv(env:NodeJS.ProcessEnv,directory:string):NodeJS.ProcessEnv{
  const result:NodeJS.ProcessEnv={...sanitizedEnv(env,{keepCredentials:true}),
   XDG_CONFIG_HOME:join(directory,'config'),
-  OPENCODE_DISABLE_PROJECT_CONFIG:'1',
-  OPENCODE_CONFIG_PROJECT_DISABLE:'1',
-  // OpenCode otherwise reads Claude Code's skills and instructions from the home folder.
-  OPENCODE_DISABLE_CLAUDE_CODE:'1',
-  OPENCODE_DISABLE_CLAUDE_CODE_SKILLS:'1',
-  OPENCODE_DISABLE_AUTOUPDATE:'1',
+  ...OPENCODE_ISOLATED_ENV,
  };
  // Read the data store the user's OpenCode desktop app actually signs into.
  const dataHome=opencodeDataHome(env);
  if(dataHome)result.XDG_DATA_HOME=dataHome;
- for(const key of ['OPENCODE_CONFIG','OPENCODE_CONFIG_DIR','OPENCODE_CONFIG_CONTENT','OPENCODE_CLI_CONFIG_CONTENT','OPENCODE_PERMISSION'])delete result[key];
+ // Inherited OPENCODE_* behaviour variables (config paths, permission overrides,
+ // PTY handoff, simulate, models URL/path, git-bash path, client) change how the
+ // server executes or what it loads; only OWLA's own isolation switches stay
+ // (SECURITY-AUDIT-3.6.2 L12). The server password/username are added at spawn.
+ // Provider credentials such as OPENCODE_API_KEY are read from the environment
+ // by design (tests/provider-isolation.test.ts) and stay.
+ const credentialSuffix=/(?:API_KEY|AUTH_TOKEN|API_TOKEN|SECRET)$/;
+ for(const key of Object.keys(result)){
+  const upper=key.toUpperCase();
+  if(upper.startsWith('OPENCODE_')&&!(key in OPENCODE_ISOLATED_ENV)&&!credentialSuffix.test(upper))delete result[key];
+ }
  return result;
 }
 
@@ -110,7 +124,7 @@ export function friendlyOpencodeError(error:unknown):string{
  if(/insufficient (balance|credit|fund)|top up/i.test(text))return 'Your OpenCode console balance is empty, so its paid models are unavailable. Free models and other connected providers still work. Add credit in the OpenCode console to use paid models.';
  if(/^model unavailable/i.test(text.trim()))return 'This model is not available on your plan with that provider ('+text.trim().replace(/^model unavailable:?\s*/i,'').slice(0,120)+'). Choose another model.';
  if(/free-limit|Free usage limit/i.test(text))return 'OpenCode’s free models reached their shared usage limit. Wait for the reported reset time.';
- if(/429|quota|rate.limit/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
+ if(/usage limit|rate.?limit|quota|\b429\b|too many requests|limit reached/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
  if(/401|unauthorized|authentication|credential/i.test(text))return 'OpenCode needs you to sign in again. Check your OpenCode account.';
  if(opencodeRegionRestricted(text))
   return 'OpenCode hosts this model outside Europe and the United States, and your workspace’s privacy regions setting does not allow it. Choose another model, or select Global in the OpenCode console under Settings → Privacy → Regions.';
@@ -271,6 +285,8 @@ export class OpencodeBridge implements ProviderBridge{
  readonly availability=new OpencodeAvailability();
  /** What the last failed turn was refused for, so automatic selection can explain the retry. */
  lastFailure:OpencodeFailure|null=null;
+ /** The real cause of a connect-time child death, so it is not reported as a user cancel. */
+ private connectFailure:Error|null=null;
  /** True when OpenCode refused this model id for its hosting region. */
  isRegionRestricted(model:string):boolean{return this.availability.isRegionRestricted(model);}
  /**
@@ -326,7 +342,26 @@ export class OpencodeBridge implements ProviderBridge{
    if(this.connectionKey!==key)throw Error('Wait for the current OpenCode connection to finish.');
    return this.connecting;
   }
-  if(this.child&&this.connectionKey===key)return;
+  if(this.child&&this.connectionKey===key){
+   if(this.active)return;
+   // A resident server that stopped answering is stale: verify it before the
+   // turn spends its session request on a dead endpoint, and restart it once
+   // when it no longer replies. The probe is deduplicated like a connect.
+   const probe=call({port:this.port,path:'/api/info',password:this.password,timeout:2000}).then(reply=>reply.status>=200&&reply.status<300,()=>false);
+   const reusing=probe.then(async healthy=>{
+    if(healthy)return;
+    if(this.holders.size>1)throw Error('Wait for the current OpenCode operation to finish.');
+    this.disconnect('Restarting OpenCode…');
+    const generation=this.generation;
+    await this.closing;
+    if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
+    await this.start(executable,cwd,web,tools);
+   });
+   this.connecting=reusing;
+   try{await reusing;}
+   finally{if(this.connecting===reusing)this.connecting=null;}
+   return;
+  }
   if(this.child&&(this.active||this.holders.size>1))throw Error('Wait for the current OpenCode operation to finish.');
   if(this.child)this.disconnect('Switching OpenCode mode…');
   this.connectionKey=key;
@@ -339,6 +374,8 @@ export class OpencodeBridge implements ProviderBridge{
   try{await starting;}
   finally{if(this.connecting===starting)this.connecting=null;}
  }
+ /** Verify connection: the next connect starts a fresh server and re-reads the catalogue, without stopping a reply in progress. */
+ recheck(){if(!this.connecting)this.connectionKey='';}
  private connectionKey='';
 
  private digest(tools:ToolSpec[]):string{
@@ -349,6 +386,7 @@ export class OpencodeBridge implements ProviderBridge{
   const generation=this.generation;
   try{
    this.setStatus('Connecting…');
+   this.connectFailure=null;
    const file=executable||findOpencodeExecutable(process.env.PATH??'');
    if(!file||!isCliExecutable(file))throw Error('OpenCode was not found. Install it, or choose its executable in settings.');
    this.version=await this.readVersion(file);
@@ -381,9 +419,12 @@ export class OpencodeBridge implements ProviderBridge{
    child.stdout.setEncoding('utf8');
    child.stdout.on('data',()=>{});
    child.stderr.setEncoding('utf8');
-   child.stderr.on('data',()=>{});
-   child.on('error',error=>{if(this.child===child)this.fail(error);});
-   child.on('exit',()=>{if(this.child===child)this.fail(Error('OpenCode disconnected. Your draft is preserved; reconnect to retry.'));});
+   // A bounded stderr tail lets an unexpected exit name its cause instead of a
+   // bare disconnect (failure audit P2, the codex F4 bug class).
+   let stderrTail='';child.stderr.on('data',(chunk:string)=>{stderrTail=(stderrTail+chunk).slice(-4000);});
+   const stderrCause=()=>{const line=stderrTail.split('\n').map(item=>item.trim()).filter(Boolean).pop();return line?' Last error: '+line.slice(0,300):'';};
+   child.on('error',error=>{if(this.child===child)this.fail(Error('OpenCode could not be started: '+error.message+stderrCause()));});
+   child.on('exit',()=>{if(this.child===child)this.fail(Error('OpenCode disconnected. Your draft is preserved; reconnect to retry.'+stderrCause()));});
    await this.waitUntilReady(port,this.password);
    if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
    this.models=await this.readModels();
@@ -391,14 +432,21 @@ export class OpencodeBridge implements ProviderBridge{
    this.toolsDigest=this.digest(tools);
    this.setStatus('Connected to OpenCode');
   }catch(error){
-   if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
+   if(generation!==this.generation){
+    // A child death during connect is not a user cancellation: surface the
+    // recorded cause instead of the opaque "cancelled." (codex F2 bug class).
+    if(this.connectFailure)throw this.connectFailure;
+    throw Error('OpenCode connection cancelled.');
+   }
    this.disconnect(friendlyOpencodeError(error));
    throw error;
   }
  }
 
  private async readVersion(file:string):Promise<string>{
-  return (await runCli(file,['--version'],{timeout:10000,maxBuffer:100000})).trim();
+  // The probe runs before isolation applies; an inherited execution-hijack
+  // variable must not fire in it (SECURITY-AUDIT-3.6.2 L1).
+  return (await runCli(file,['--version'],{env:sanitizedEnv(),timeout:10000,maxBuffer:100000})).trim();
  }
 
  private writeWorkspace(directory:string,tools:ToolSpec[]):void{
@@ -474,7 +522,9 @@ export class OpencodeBridge implements ProviderBridge{
 
  private async waitUntilReady(port:number,password:string):Promise<void>{
   const deadline=Date.now()+20000;
-  while(Date.now()<deadline){
+  // A child that died during startup must not be polled for the full 20 s:
+  // fail() already recorded the cause; surface it now.
+  while(Date.now()<deadline&&this.child){
    try{
     const reply=await call({port,path:'/api/info',password,timeout:4000});
     if(reply.status>=200&&reply.status<300)return;
@@ -487,21 +537,20 @@ export class OpencodeBridge implements ProviderBridge{
  private async readModels():Promise<ProviderModel[]>{
   const reply=await call({port:this.port,path:'/api/model',password:this.password,timeout:20000});
   if(reply.status<200||reply.status>=300)throw Error('OpenCode did not return its model catalogue.');
-  const models=list(record(JSON.parse(reply.body)).data).map(decodeOpencodeModel).filter((model):model is ProviderModel=>!!model);
+  // The catalogue can list one model twice; OWLA offers each id once.
+  const models:ProviderModel[]=[];const seen=new Set<string>();
+  for(const value of list(record(JSON.parse(reply.body)).data)){
+   const model=decodeOpencodeModel(value);
+   if(model&&!seen.has(model.id)){seen.add(model.id);models.push(model);}
+  }
   return models;
  }
 
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
-  this.lastFailure=null;
-  this.toolHandler=options.tool;
-  this.toolNames=new Set(options.tools.map(tool=>tool.name));
-  const digest=this.digest(options.tools);
-  if(this.child&&this.toolsDigest&&this.toolsDigest!==digest){
-   this.disconnect('Updating OpenCode tools…');
-  }
   await this.connect(options.executable,options.cwd,options.web,options.tools);
   options.signal.throwIfAborted();
   if(this.active)throw Error('OpenCode is already responding.');
+  this.lastFailure=null;
   const model=this.models.find(item=>item.id===options.model);
   if(!model)throw Error('The selected OpenCode model is unavailable. Choose a model and retry.');
   if(options.images.length&&model.inputModalities&&!model.inputModalities.includes('image'))throw Error('This model cannot read images. Choose an image-capable model.');
@@ -509,6 +558,12 @@ export class OpencodeBridge implements ProviderBridge{
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
   options.signal.addEventListener('abort',onAbort,{once:true});
+  // The turn is reserved synchronously: a second run is refused here instead
+  // of racing this one for the session, the tool handler and the cleanup.
+  const turn:{sessionId:string;controller:AbortController}={sessionId:'',controller};
+  this.active=turn;
+  this.toolHandler=options.tool;
+  this.toolNames=new Set(options.tools.map(tool=>tool.name));
   let sessionId='';
   try{
    const created=await call({
@@ -517,6 +572,7 @@ export class OpencodeBridge implements ProviderBridge{
     method:'POST',
     password:this.password,
     timeout:30000,
+    signal:controller.signal,
     body:JSON.stringify({
      location:{directory:options.cwd},
      model:{providerID:model.providerID,id:model.model,...(variant&&variant!=='default'?{variant}:{})},
@@ -527,13 +583,16 @@ export class OpencodeBridge implements ProviderBridge{
    const data=record(record(JSON.parse(created.body)).data);
    sessionId=typeof data.id==='string'?data.id:'';
    if(!sessionId)throw Error('OpenCode did not return a session ID.');
+   turn.sessionId=sessionId;
    this.sessionId=sessionId;
-   this.active={sessionId,controller};
    const answer=await this.prompt(options,sessionId,controller,model);
    return answer;
+  }catch(error){
+   if(controller.signal.aborted)throw Error('Stopped.');
+   throw error;
   }finally{
    options.signal.removeEventListener('abort',onAbort);
-   if(this.sessionId===sessionId){
+   if(sessionId&&this.sessionId===sessionId){
     try{await call({port:this.port,path:'/api/session/'+sessionId,method:'DELETE',password:this.password,timeout:8000});}catch{/* The session is already gone. */}
    }
    this.sessionId='';
@@ -559,7 +618,10 @@ export class OpencodeBridge implements ProviderBridge{
   const handle=(event:Record<string,unknown>)=>{
    const type=typeof event.type==='string'?event.type:'';
    const data=record(event.data);
-   if(typeof data.sessionID==='string'&&data.sessionID!==sessionId)return;
+   // Every handled event is session-scoped: it must name THIS turn's session.
+   // Unscoped or foreign events must not stream text or settle the turn
+   // (SECURITY-AUDIT-3.6.2 L12).
+   if(data.sessionID!==sessionId)return;
    if(type==='session.text.delta'){
     const delta=typeof data.delta==='string'?data.delta:'';
     if(delta){text+=delta;options.onText(delta);}
@@ -664,14 +726,22 @@ export class OpencodeBridge implements ProviderBridge{
 
  async rest():Promise<void>{
   if(this.holders.size||this.active)return;
-  if(!this.child&&!this.connecting)return;
+  if(this.connecting){
+   // A rest must not cancel a connection in flight: wait for it, then rest
+   // only when no other operation took over while this rest waited.
+   try{await this.connecting;}catch{/* A failed connect leaves nothing to rest. */}
+   // Another operation may have reassigned the property while this rest waited.
+   const connecting=this.connecting as Promise<void>|null;
+   if(this.holders.size||this.active||connecting)return;
+  }
+  if(!this.child)return;
   this.disconnect('Connected to OpenCode · resting until needed');
   const generation=this.generation;
   await this.closing;
   if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus('Connected to OpenCode · resting until needed');
  }
 
- private fail(error:Error){this.disconnect(friendlyOpencodeError(error));}
+ private fail(error:Error){this.connectFailure=error;this.disconnect(friendlyOpencodeError(error));}
 
  disconnect(status='Disconnected',keepStartup=false):void{
   this.generation++;

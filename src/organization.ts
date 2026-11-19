@@ -154,6 +154,15 @@ export class Organization {
   if(!this.allowed(path))return false;
   return !this.ancestorSymlink(path)&&!this.hardlinked(path);
  }
+ /** Notes open in a Markdown editor may hold unsaved text; a closed note reads identically to its saved file. */
+ private openNotePaths():Set<string>{
+  const open=new Set<string>();
+  for(const leaf of this.app.workspace.getLeavesOfType('markdown')){
+   const path=(leaf.view as {file?:TFile}|undefined)?.file?.path;
+   if(path)open.add(path);
+  }
+  return open;
+ }
 
  private tree(path:string):string[][]{
   const result:string[][]=[];
@@ -186,9 +195,11 @@ export class Organization {
   const target=this.app.vault.getAbstractFileByPath(path);
   if(!validPath(path)||!target||!this.safeSource(path))throw Error('Choose an existing, allowed file or folder.');
   const tree=this.tree(path);
+  const open=this.openNotePaths();
   for(const [entry] of tree){
    const note=this.app.vault.getFileByPath(entry);
-   if(note?.extension.toLowerCase()==='md'&&await this.read(entry)!==await this.app.vault.read(note)){
+   // Only an open editor can hold unsaved changes; skip the redundant saved-file read for closed notes.
+   if(note?.extension.toLowerCase()==='md'&&open.has(entry)&&await this.read(entry)!==await this.app.vault.read(note)){
     throw Error('Save open changes before proposing deletion: '+entry);
    }
   }
@@ -244,18 +255,26 @@ export class Organization {
   if(new Set(targetFolders.map(key)).size!==targetFolders.length)throw Error('Destination folders conflict by capitalization.');
   const affected:string[]=[];
   const noteFingerprints:string[]=[];
+  const open=this.openNotePaths();
+  // Pre-fold the move roots once: under()/key() re-folded every note × move ×
+  // link comparison, ~0.5 s per preview on a 5k-note vault (performance audit 3).
+  // Semantics are identical: foldPath is deterministic and under() is
+  // equality-or-root+'/' prefix.
+  const moveRoots=moves.map(move=>key(move.from));
   for(const note of this.app.vault.getMarkdownFiles().sort((a,b)=>a.path.localeCompare(b.path))){
    const cached=this.app.metadataCache.getFileCache(note);
    if(!cached&&note.stat.size)throw Error('Obsidian is still indexing notes. Retry the organization preview after indexing.');
    const references=[...(cached?.links??[]),...(cached?.embeds??[]),...(cached?.frontmatterLinks??[])];
    const resolved=this.app.metadataCache.resolvedLinks[note.path]??{};
-   const potentiallyChanged=moves.some(move=>under(note.path,move.from)||Object.keys(resolved).some(target=>under(target,move.from)))
+   const noteKey=key(note.path);
+   const linkKeys=Object.keys(resolved).map(key);
+   const potentiallyChanged=moveRoots.some(root=>noteKey===root||noteKey.startsWith(root+'/')||linkKeys.some(target=>target===root||target.startsWith(root+'/')))
     ||references.some(reference=>movedNames.has(short(parseLinktext(reference.link).path)));
    if(!potentiallyChanged)continue;
    if(!this.safeSource(note.path))throw Error('Obsidian could update links in an excluded note or through a symbolic link. Review a smaller or different batch.');
    affected.push(note.path);
    const text=await this.read(note.path);
-   if(text!==await this.app.vault.read(note))throw Error('Save open changes before reviewing organization: '+note.path);
+   if(open.has(note.path)&&text!==await this.app.vault.read(note))throw Error('Save open changes before reviewing organization: '+note.path);
    noteFingerprints.push(hash([text,references.map(ref=>ref.link),resolved]));
   }
   const fingerprint=hash([moves,sources,targetFolders,affected,noteFingerprints]);

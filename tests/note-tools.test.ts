@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {brokenLinks,linkTargets,linkWarning,updateProperties,type Yaml} from '../src/note-tools';
+import {brokenLinks,linkTargets,linkWarning,tableAt,updateProperties,type Yaml} from '../src/note-tools';
 
 // JSON is valid YAML, which is enough to check the property logic without Obsidian.
 const yaml:Yaml={parse:text=>JSON.parse(text),stringify:value=>JSON.stringify(value)};
@@ -46,4 +46,32 @@ test('headings and block IDs are found in proposed text',async()=>{
  assert.ok(textHasSubpath(text,'#^abc-1'));
  assert.ok(!textHasSubpath(text,'#^abc'));
  assert.ok(!textHasSubpath(text,'#Missing'));
+});
+
+test('tableAt returns the full raw table from any row and null outside it',()=>{
+ const text='Intro\n| Name | Age |\n| --- | ---: |\n| Ana | 2 |\n| Bo | 4 |\nAfter\n';
+ const table='| Name | Age |\n| --- | ---: |\n| Ana | 2 |\n| Bo | 4 |';
+ assert.equal(tableAt(text,1)?.text,table);
+ assert.equal(tableAt(text,2)?.text,table);
+ assert.equal(tableAt(text,4)?.text,table);
+ assert.deepEqual(tableAt(text,1),{start:1,end:4,text:table});
+ assert.equal(tableAt(text,0),null);
+ assert.equal(tableAt(text,5),null);
+});
+
+test('tableAt skips fenced code that looks like a table',()=>{
+ const text='```\n| a | b |\n| --- | --- |\n```\n';
+ assert.equal(tableAt(text,1),null);
+ assert.equal(tableAt(text,2),null);
+});
+
+test('tableAt requires a delimiter row, not just pipe lines',()=>{
+ assert.equal(tableAt('| a | b |\n| c | d |\n',0),null);
+ assert.equal(tableAt('| a | b |\n| c | d |\n',1),null);
+});
+
+test('tableAt accepts GFM delimiter rows with single hyphens and one-column tables',()=>{
+ assert.equal(tableAt('| a | b |\n|-|:-:|\n| 1 | 2 |',2)?.start,0);
+ assert.equal(tableAt('| only |\n| --- |\n| x |',0)?.end,2);
+ assert.equal(tableAt('| a | b |\n| -1 | -2 |',0),null);
 });

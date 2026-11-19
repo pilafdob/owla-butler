@@ -23,7 +23,7 @@ import {randomUUID} from 'node:crypto';
 import {shell,webUtils} from 'electron';
 import {backupEdit,loadPendingEdits,readPendingRecord,removePendingRecord,savePendingEdits} from './recovery';
 import {readReference,taskReference} from './knowledge';
-import {pdfPageText,pdfPageNumber,pdfSource,PdfJs,PdfDocument,PdfPage,readPdfTextRange,searchPdfText} from './pdf';
+import {pdfPageText,pdfPageNumber,pdfSource,pdfPageReference,PdfJs,PdfDocument,PdfPage,readPdfTextRange,searchPdfText} from './pdf';
 import {record} from './validation';
 import {PluginChange,PluginTurn} from './plugin-api';
 import {BIRD_ICON} from './icon';
@@ -33,12 +33,13 @@ import {convertFile} from './attachments';
 import {editorDiff,refreshEditorDiff} from './editor-diff';
 import {Organization,OrganizationReview,RemovalReview,decodeMoves} from './organization';
 import {getAllTags,stringifyYaml} from 'obsidian';
-import {brokenLinks,findBlock,findSection,headingOutline,linkWarning,noteChunk,textHasSubpath,updateProperties} from './note-tools';
+import {brokenLinks,findBlock,findSection,headingOutline,linkWarning,noteChunk,tableAt,textHasSubpath,updateProperties} from './note-tools';
 import {sanitizeRenderedReply} from './render-sanitize';
 import {applyCanvasOperations,canvasProblems,parseCanvas,serializeCanvas,summarizeCanvas} from './canvas';
 import {baseProblems,parseBase,summarizeBase} from './bases';
 import {applyExcalidrawOperations,isExcalidrawJson,isExcalidrawJsonPath,isExcalidrawNote,isExcalidrawPath,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,revertExcalidraw,serializeExcalidraw,summarizeExcalidraw} from './excalidraw';
 import {basesAvailable,canvasAvailable,captureCanvas,excalidrawAvailable,excalidrawDecoder,excalidrawImage,excalidrawSceneImage,inspectBase,withExcalidrawFactory} from './visual';
+import {ocrImageDataUrl,ocrSection} from './ocr';
 import {MAX_TOOL_CALLS_HARD,ToolGuard} from './tool-guard';
 import {VAULT_GRAPH_TOOL,decodeGraphQuery,queryGraph,type GraphSource} from './vault-graph';
 const VIEW='owla-butler-chat';
@@ -121,6 +122,8 @@ export default class Butler extends Plugin {
   this.addRibbonIcon('owla-bird','Open OWLA Butler',()=>void this.open());
   this.addCommand({id:'open-chat',name:'Open chat',callback:()=>void this.open()});
   this.addCommand({id:'add-selection',name:'Add selection to chat',editorCallback:(editor,view)=>void this.selection(editor,view.file)});
+  this.addCommand({id:'select-table',name:'Select table',editorCheckCallback:(checking,editor)=>{const at=tableAt(editor.getValue(),editor.getCursor().line);if(checking)return !!at;if(!at)return;const last=editor.getLine(at.end);editor.setSelection({line:at.start,ch:0},{line:at.end,ch:last.length});editor.focus();}});
+  this.addCommand({id:'add-table',name:'Add table to chat',editorCallback:(editor,view)=>void this.table(editor,view.file)});
   this.addCommand({id:'image-to-note',name:'Turn an image into note content',callback:async()=>{const v=await this.open();v.composer.value='Transcribe the attached image into Obsidian Markdown with LaTeX math. Match the language of my note and propose where it belongs. Mark unclear symbols.';v.pickImage();}});
   this.addCommand({id:'review-latest-edit',name:'Review latest suggested edit',callback:()=>this.view?.reviewLatest()});
   this.addCommand({id:'undo-latest-edit',name:'Undo last accepted edit',callback:()=>void this.view?.undoLatest()});
@@ -161,7 +164,12 @@ export default class Butler extends Plugin {
   this.settingsTab=new ButlerSettingsTab(this.app,this);this.addSettingTab(this.settingsTab);
   this.registerEvent(this.app.workspace.on('active-leaf-change',leaf=>{if(leaf?.view instanceof MarkdownView)this.last=leaf.view;}));
   this.registerEvent(this.app.workspace.on('file-open',()=>{const v=this.app.workspace.getActiveViewOfType(MarkdownView);if(v)this.last=v;}));
-  this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{if(editor.getSelection())menu.addItem(item=>item.setTitle('Add selection to OWLA Butler').setIcon('message-square-plus').onClick(()=>void this.selection(editor,view.file)));}));
+  this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{
+   const cell=view instanceof MarkdownView&&editor!==view.editor?this.tableCellLine(editor,view.editor):null;
+   if(editor.getSelection()&&cell===null)menu.addItem(item=>item.setTitle('Add selection to OWLA Butler').setIcon('message-square-plus').onClick(()=>void this.selection(editor,view.file)));
+   else if(cell!==null&&view instanceof MarkdownView){const main=view.editor;menu.addItem(item=>item.setTitle('Add table to OWLA Butler').setIcon('table').onClick(()=>void this.table(main,view.file,cell)));}
+   else if(tableAt(editor.getValue(),editor.getCursor().line))menu.addItem(item=>item.setTitle('Add table to OWLA Butler').setIcon('table').onClick(()=>void this.table(editor,view.file)));
+  }));
   this.registerEvent(this.app.workspace.on('file-menu',(menu,file)=>{
    if(file instanceof TFolder&&this.allowedVaultFile(file.path)){
     this.addAttachmentMenu(menu,'Add folder to OWLA chat',[file]);
@@ -182,7 +190,7 @@ export default class Butler extends Plugin {
    const state=record(leaf.view.getState()),path=state.file,number=Number(page.dataset.pageNumber);
    if(typeof path!=='string'||!this.allowedPdf(path)||!Number.isInteger(number)||number<1)return;
    event.preventDefault();event.stopImmediatePropagation();
-   const menu=new Menu().setUseNativeMenu(false),link='[['+path+'#page='+number+']]';
+   const menu=new Menu().setUseNativeMenu(false),link=pdfPageReference(path,number);
    menu.addItem(item=>item.setTitle('Add page to OWLA').setIcon('file-plus').onClick(async()=>{try{const view=await this.open();view.attachVaultPdf(path+'#page='+number);}catch(error){new Notice(friendlyError(error));}}));
    menu.addItem(item=>item.setTitle('Copy link to page').setIcon('link').onClick(()=>void navigator.clipboard.writeText(link)));
    const selected=window.getSelection()?.toString();
@@ -293,11 +301,14 @@ export default class Butler extends Plugin {
  recordExhaustion(provider:ProviderId):ProviderExhaustion{
   const fresh:ProviderExhaustion={provider,exhausted:false,resetsAt:null,reason:'',scope:'provider'};
   let state=provider==='codex'
-   ?codexExhaustion(this.codexBridge.usage)
+   // A limit error records exhaustion on the bridge even when the meters read
+   // below 100%; prefer that record while it is live (providers audit U1).
+   ?(this.codexBridge.exhaustion?.exhausted?this.codexBridge.exhaustion:codexExhaustion(this.codexBridge.usage))
    :(provider==='opencode'?this.opencodeBridge.exhaustion:provider==='hermes'?this.hermesBridge.exhaustion:this.claudeBridge.exhaustion)??fresh;
-  // OpenCode and Claude Code report a reset time but cannot be polled for usage.
-  // Once that time has passed the provider is tried again.
-  if(provider!=='codex'&&state.exhausted&&state.resetsAt!==null&&state.resetsAt<=Date.now()/1000)state=fresh;
+  // A reported reset time lets any provider be tried again once it passes;
+  // Codex's error-based record carries a bounded retry reset, and its meter
+  // windows are already reset-filtered (providers audit P1/U1).
+  if(state.exhausted&&state.resetsAt!==null&&state.resetsAt<=Date.now()/1000)state=fresh;
   this.exhaustion[provider]=state;
   return state;
  }
@@ -308,6 +319,10 @@ export default class Butler extends Plugin {
   // Automatic selection never offers an exhausted provider, so no fallback is needed.
   if(this.prefs.automaticProvider){this.fallbackProvider=null;return null;}
   const primary=this.prefs.provider,fallback=this.prefs.fallback;
+  // Refresh both records first: a fallback whose reset passed must not stay
+  // "exhausted" from a stale stored state (providers audit U10).
+  this.recordExhaustion(primary);
+  if(fallback!=='none')this.recordExhaustion(fallback);
   if(fallback==='none'||fallback===primary||!this.fallbackUsable(fallback)){
    const returned=this.fallbackProvider!==null;
    this.fallbackProvider=null;
@@ -466,6 +481,19 @@ export default class Butler extends Plugin {
  }
  ownModal(modal:Modal){this.ownedModals.add(modal);const close=modal.onClose.bind(modal);modal.onClose=()=>{this.ownedModals.delete(modal);close();};}
  async selection(editor:Editor,file:TFile|null){if(!file||!editor.getSelection())return;const v=await this.open();v.selections.push({path:file.path,text:clip(editor.getSelection(),3000)});v.renderAttachments();v.composer.focus();}
+ /**
+  * In Live Preview a rendered table edits each cell in its own small editor, and
+  * right-clicking a cell opens the editor menu for that cell editor, whose text
+  * is only the cell. Map the cell's table widget back to its line in the note.
+  */
+ tableCellLine(cellEditor:Editor,main:Editor):number|null{
+  const cellDom=(cellEditor as unknown as {cm?:{dom?:HTMLElement}}).cm?.dom;
+  const widget=cellDom?.closest('.cm-table-widget');
+  const mainView=(main as unknown as {cm?:{posAtDOM?:(node:Node)=>number}}).cm;
+  if(!widget||typeof mainView?.posAtDOM!=='function')return null;
+  try{const line=main.offsetToPos(mainView.posAtDOM(widget)).line;return tableAt(main.getValue(),line)?line:null;}catch{return null;}
+ }
+ async table(editor:Editor,file:TFile|null,line=editor.getCursor().line){if(!file)return;const at=tableAt(editor.getValue(),line);if(!at){new Notice('Place the cursor inside a table to add it to the chat.');return;}const v=await this.open();v.selections.push({path:file.path,text:clip(at.text,3000)});v.renderAttachments();v.composer.focus();}
  capture():Captured|null {
   const leaves=this.app.workspace.getLeavesOfType('markdown');
   const current=this.app.workspace.getActiveViewOfType(MarkdownView);if(current)this.last=current;
@@ -543,7 +571,7 @@ export default class Butler extends Plugin {
   const view=views.find(v=>v instanceof MarkdownView&&v.file?.path===path) as MarkdownView|undefined;
   if(view)return view.editor.getValue();
   const f=this.app.vault.getAbstractFileByPath(path);
-  if(!(f instanceof TFile)||!this.allowedEditable(path))throw Error('This file is not available.');
+  if(!(f instanceof TFile))throw Error('This file is not available.');
   // An open Canvas or Bases view may hold changes not yet saved; Excalidraw saves its own scene, so its file is read.
   if(!isExcalidrawPath(path)){
    for(const leaf of this.app.workspace.getLeavesOfType(path.endsWith('.canvas')?'canvas':'bases')){
@@ -551,7 +579,9 @@ export default class Butler extends Plugin {
     if(other.file?.path===path&&typeof other.getViewData==='function')return other.getViewData();
    }
   }
-  return this.app.vault.read(f);
+  // cachedRead is the saved content Obsidian's metadata cache indexes; open
+  // editors already returned their unsaved text above (performance audit 7).
+  return this.app.vault.cachedRead(f);
  }
  /** Optional per-vault calibration override, kept in OWLA's private storage beside the routing history. */
  routingCalibrationPath(){return join(this.vaultStorage(),'routing-calibration.json');}
@@ -1284,10 +1314,20 @@ export class ButlerView extends ItemView {
  private async renderReply(content:HTMLElement, text:string, sourcePath=''){
   await MarkdownRenderer.render(this.app, displayMarkdown(text), content, sourcePath, this);
   sanitizeRenderedReply(content);
-  // Mermaid and MathJax can finish after render() resolves; sanitize what they add, too.
-  const observer=new MutationObserver(()=>sanitizeRenderedReply(content));
-  observer.observe(content,{childList:true,subtree:true});
-  this.register(()=>observer.disconnect());
+  // Mermaid and MathJax can finish after render() resolves and may also set
+  // attributes or text on inserted nodes; watch those mutations too, and
+  // coalesce the sanitize passes to one per frame instead of one per mutation
+  // batch (security audit P1, performance audit 8). Sanitize stays idempotent.
+  let sanitizeHandle:number|null=null;
+  let sanitizeIsFrame=false;
+  const observer=new MutationObserver(()=>{
+   if(sanitizeHandle!==null)return;
+   const run=()=>{sanitizeHandle=null;sanitizeRenderedReply(content);};
+   if(typeof window.requestAnimationFrame==='function'){sanitizeIsFrame=true;sanitizeHandle=window.requestAnimationFrame(run);}
+   else{sanitizeIsFrame=false;sanitizeHandle=window.setTimeout(run,16);}
+  });
+  observer.observe(content,{childList:true,subtree:true,attributes:true,characterData:true});
+  this.register(()=>{observer.disconnect();if(sanitizeHandle!==null){if(sanitizeIsFrame)window.cancelAnimationFrame(sanitizeHandle as number);else window.clearTimeout(sanitizeHandle as number);sanitizeHandle=null;}});
   // Rendered task checkboxes are read-only: a click must never edit a vault note.
   content.addEventListener('click',event=>{if(event.target instanceof Element&&event.target.closest('.task-list-item-checkbox'))event.preventDefault();},true);
 
@@ -1563,7 +1603,10 @@ export class ButlerView extends ItemView {
     properties:path=>{const fm=meta(path)?.frontmatter;if(!fm)return null;const props={...fm} as Record<string,unknown>;delete props.position;return props;},
     allowed:path=>this.butler.allowedNote(path),
    };
-   return JSON.stringify(queryGraph(source,decodeGraphQuery(args)));
+   // The per-note allowed() checks are statSync+realpath; the pass cache makes
+   // repeated graph queries in one turn ~1 ms instead of ~70-140 ms at 5k notes
+   // (performance audit 4). queryGraph is synchronous: the intended bounded pass.
+   return this.butler.withPathCheckCache(()=>JSON.stringify(queryGraph(source,decodeGraphQuery(args))));
   }
   if(name==='list_vault_paths'){
    const {folder='',offset=0}=args;
@@ -1671,6 +1714,7 @@ export class ButlerView extends ItemView {
    const {folder=''}=args;
    if(typeof folder!=='string'||(folder&&(!this.butler.allowedVaultFile(folder)||!this.app.vault.getFolderByPath(folder))))throw Error('Choose an allowed vault folder.');
    const found:{path:string;score:number}[]=[];
+   const scanned=new Map<string,string>();
    const files=this.butler.withPathCheckCache(()=>this.app.vault.getMarkdownFiles().filter(f=>(!folder||f.path.startsWith(folder+'/'))&&this.butler.allowedNote(f.path)));
    const openText=new Map<string,string>();
    for(const leaf of this.app.workspace.getLeavesOfType('markdown')){const view=leaf.view;if(view instanceof MarkdownView&&view.file)openText.set(view.file.path,view.editor.getValue());}
@@ -1682,11 +1726,22 @@ export class ButlerView extends ItemView {
      if(file.stat.size>250000)continue;
      const text=openText.has(file.path)?openText.get(file.path)!:await this.app.vault.cachedRead(file);
      const score=searchScore(file.path,text,query);
-     if(score>0){found.push({path:file.path,score});found.sort((a,b)=>b.score-a.score);if(found.length>5)found.pop();}
+     if(score>0){found.push({path:file.path,score});scanned.set(file.path,text);}
     }
    };
    await Promise.all(Array.from({length:Math.min(8,files.length)},()=>worker()));
-   const sources=[];for(const result of found.slice(0,2)){const content=await this.tool('read_note',{path:result.path},log,batches);sources.push({path:result.path,content:clip(typeof content==='string'?content:content.text,750)});}
+   // Sort once after the scan, not per match (tools audit R4).
+   found.sort((a,b)=>b.score-a.score);found.splice(5);
+   // The top two reuse the scanned text instead of a second full read; the
+   // snapshot side effect of read_note is preserved so propose_edit still works.
+   // A staged note keeps going through read_note (its preview is the source).
+   const sources=[];for(const result of found.slice(0,2)){
+    if(batches?.has(result.path)){const content=await this.tool('read_note',{path:result.path},log,batches);sources.push({path:result.path,content:clip(typeof content==='string'?content:content.text,750)});continue;}
+    const text=scanned.get(result.path)??'';
+    this.snapshots.set(result.path,text);
+    this.addVaultSource('Read note: '+result.path,result.path);
+    sources.push({path:result.path,content:clip(text,750)});
+   }
    return JSON.stringify({matches:found.map(f=>f.path),sources,note:'Top matches were read automatically. Source text may be shortened. Read a specific note for a longer passage.'});
   }
   if(name==='read_canvas'||name==='read_base'||name==='read_excalidraw'){
@@ -1712,7 +1767,8 @@ export class ButlerView extends ItemView {
     if(!file)return body+'\n[A new canvas has no picture until it is created.]';
     log.createDiv({text:'Took a background screenshot of '+path+(pending?' (staged version)':''),cls:'owla-activity'});
     const shot=await captureCanvas(this.app,file,pending?text:undefined);
-    return {text:body+'\n[Picture: the canvas as Obsidian draws it'+(pending?', with the staged changes':'')+'.]',imageUrl:shot.imageUrl};
+    const canvasOcr=ocrSection(await ocrImageDataUrl(shot.imageUrl,this.butler.vaultStorage()));
+    return {text:body+'\n[Picture: the canvas as Obsidian draws it'+(pending?', with the staged changes':'')+'.]'+canvasOcr,imageUrl:shot.imageUrl};
    }
    if(kind==='base'){
     const data=parseBase(text,parseYaml),problems=baseProblems(data);
@@ -1725,7 +1781,9 @@ export class ButlerView extends ItemView {
    if(!visual)return body;
    log.createDiv({text:'Rendered '+path+' with Excalidraw'+(pending?' (staged version)':''),cls:'owla-activity'});
    const image=pending||!file?await excalidrawSceneImage(drawing.scene.elements):await excalidrawImage(file);
-   return {text:body+'\n[Picture: the drawing as Excalidraw renders it'+(pending?', with the staged changes':'')+'.]',imageUrl:image};
+   const drawingOcrText=await ocrImageDataUrl(image,this.butler.vaultStorage());
+   if(drawingOcrText)log.createDiv({text:'Read handwriting in '+path+' with macOS Vision OCR',cls:'owla-activity'});
+   return {text:body+'\n[Picture: the drawing as Excalidraw renders it'+(pending?', with the staged changes':'')+'.]'+ocrSection(drawingOcrText),imageUrl:image};
   }
   if(name==='propose_canvas'||name==='propose_base'||name==='propose_excalidraw'){
    if(!batches)throw Error('No active request permits proposals.');
@@ -1787,7 +1845,9 @@ export class ButlerView extends ItemView {
    if (!pending) this.snapshots.set(path,text);
    const file=this.app.vault.getFileByPath(path);
    // Obsidian's cache describes the saved file; it is used only when the text read is that file.
-   const cache=!pending&&file&&await this.app.vault.read(file)===text?this.app.metadataCache.getFileCache(file):null;
+   // cachedRead is the content the metadata cache indexes; a second fresh
+   // vault.read doubled the I/O of every closed-note read (performance audit 6).
+   const cache=!pending&&file&&await this.app.vault.cachedRead(file)===text?this.app.metadataCache.getFileCache(file):null;
    const label=(fragment:string)=>pending?'Staged preview for this reply'+(fragment?' ('+fragment+')':'')+':\n':'Source: [['+path+fragment+']]\n';
    const logRead=(fragment:string)=>{
     if(pending)log.createDiv({text:'Read staged preview for '+path+fragment,cls:'owla-activity'});
@@ -2220,7 +2280,7 @@ export class ButlerView extends ItemView {
  if (inlineTitle===true) instructions+='\nObsidian already shows the filename above the note. Do not repeat it as a top Markdown heading. Preserve existing titles unless the user asks to change them.';
  if (inlineTitle===undefined) instructions+='\nThe Obsidian inline title setting is unavailable. Do not add, remove, or change the top title of the note. Edit the body instead.';
  if(images.length)instructions+='\n'+readReference('owla-ocr');if(pdfRefs.length)instructions+='\n'+readReference('owla-pdf');const formatting=taskReference(prompt);if(formatting)instructions+='\n'+formatting.text;
- {const features=this.butler.visualFeatures();if(features.canvas||features.bases||features.excalidraw)instructions+=' Obsidian Canvas, Bases and Excalidraw files are read with read_canvas, read_base and read_excalidraw and changed only with propose_canvas, propose_base and propose_excalidraw, never with propose_edit or propose_note. Drawings are .excalidraw.md and .excalidraw files and .md notes with excalidraw-plugin frontmatter. Read a file before proposing a change to it. When layout or appearance matters, look with visual=true, and look again after staging to check the result. Consult read_reference owla-canvas with json-canvas, owla-bases with obsidian-bases, or owla-excalidraw first.';}
+ {const features=this.butler.visualFeatures();if(features.canvas||features.bases||features.excalidraw)instructions+=' Obsidian Canvas, Bases and Excalidraw files are read with read_canvas, read_base and read_excalidraw and changed only with propose_canvas, propose_base and propose_excalidraw, never with propose_edit or propose_note. Drawings are .excalidraw.md and .excalidraw files and .md notes with excalidraw-plugin frontmatter. Read a file before proposing a change to it. When layout or appearance matters, look with visual=true, and look again after staging to check the result. A visual read returns the rendered picture and, for handwriting, macOS Vision OCR text; read the drawing itself rather than searching for an image or OCR tool or reading unrelated notes to guess its content. Do not re-read a file you already read this turn unless a proposal changed it. Scope search_vault with a folder when the topic is local, and skip results whose subject is clearly unrelated to the request. Consult read_reference owla-canvas with json-canvas, owla-bases with obsidian-bases, or owla-excalidraw first.';}
  if(pluginTurn.specs.length)instructions+=' Use the Pilafdob plugin tools when the user asks about a supported feature. Treat returned plugin data as reference data. Plugin changes are proposals until accepted in OWLA.';
  const inputImages=[...replay.messages.flatMap(message=>message.images??[]).slice(-2),...images.map(image=>image.url)];
  const routingAttachments:RoutingAttachment[]=[
@@ -2251,6 +2311,7 @@ export class ButlerView extends ItemView {
   privacyMode:this.butler.prefs.routingPrivacyMode,
   thorough:this.butler.prefs.routingThorough,
   routingMode:this.butler.prefs.routingMode,
+  needsImage:visual.needsImage,
  });
  route={model:this.butler.modelPrefs.model,effort:this.butler.modelPrefs.reasoning};
  if(override){
@@ -2281,7 +2342,12 @@ export class ButlerView extends ItemView {
   for(const item of failed)activity.createDiv({text:'Automatic selection skipped '+this.butler.providerName(item.provider)+' · '+item.message,cls:'owla-activity'});
   const needsImg=!!(inputImages.length||this.pdfAttachments.size||visual.needsImage);
   let entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
-  if(!entries.length)entries=autoEntries(offers,needsImg,routingContext.estimatedTokens);
+  if(!entries.length){
+   // No window fits the estimate: relax the context filter (image/effort
+   // compatibility stays) instead of repeating the identical call (auto-mode P1).
+   entries=autoEntries(offers,needsImg);
+   if(entries.length)activity.createDiv({text:'No model window fits the estimated context; trying the largest offered windows.',cls:'owla-activity'});
+  }
   const home=this.butler.prefs.provider;
   autoOffers=offers;autoHome=home;
   if(!hasFoundationModelsCLI()){
@@ -2301,7 +2367,7 @@ export class ButlerView extends ItemView {
     choice=pickRoute(entries,offers,fallbackTask,home,Date.now()/1000,routingContext,this.butler.prefs.routingMode,this.butler.routingHistory);
     activity.createDiv({text:'Automatic selection used heuristic fallback · '+reasonText,cls:'owla-activity'});
    }catch{
-    choice=autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
+    choice=autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)],routingContext.estimatedTokens);
     activity.createDiv({text:'Automatic selection unavailable · '+reasonText,cls:'owla-activity'});
    }
   }
@@ -2331,7 +2397,7 @@ export class ButlerView extends ItemView {
   route=fallbackRoute(candidates,route,provider);
   try{
    // Clear-cut requests are settled locally in milliseconds; Apple's model decides the rest.
-   const quick=quickPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory);
+   const quick=quickPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory,bridge.usage);
    if(quick){route={model:quick.model,effort:quick.effort};autoTask=quick.task;}
    else {autoTask=heuristicTaskClass(prompt,routingContext,true)!;route=await routeWithFoundationModels(prompt,candidates,signal,routingContext,provider);}
    activity.createDiv({text:'Automatic selection · '+route.model+' · '+route.effort+(quick?' · local':''),cls:'owla-activity'});
@@ -2342,7 +2408,7 @@ export class ButlerView extends ItemView {
    const reasonText=friendlyError(error);
    this.degradationNotifier.notifyOnce(reasonText,msg=>new Notice(msg));
    try{
-    const heur=heuristicPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory);
+    const heur=heuristicPerProviderRoute(prompt,candidates,provider,routingContext,this.butler.routingHistory,bridge.usage);
     route={model:heur.model,effort:heur.effort};
     autoTask=heur.task;
    }catch{/* Keep fallbackRoute result. */}
@@ -2408,7 +2474,7 @@ export class ButlerView extends ItemView {
       mode:this.butler.prefs.routingMode,
       history:this.butler.routingHistory,
      })
-     :await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
+     :await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:needsImg,estimatedTokens:routingContext.estimatedTokens,context:routingContext,failed:failedRoutes,specs,signal});
     if(escalated){
      qualityEscalations++;
      if(escalated.provider!==provider){
@@ -2459,7 +2525,7 @@ export class ButlerView extends ItemView {
    const failedModel=route.model,failureReason=(provider==='opencode'&&this.butler.opencodeFailure?.reason)?this.butler.opencodeFailure.reason:friendlyError(error).slice(0,160);
    let next:AutoRoute|null=null;
    if(retryable){
-    next=await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size),estimatedTokens:routingContext.estimatedTokens,failed:failedRoutes,specs,signal});
+    next=await this.pickRetryRoute({provider,route:route,choosesProvider,offers:autoOffers,task:autoTask,candidates:autoCandidates,home:autoHome,needsImage:!!(inputImages.length||this.pdfAttachments.size||visual.needsImage),estimatedTokens:routingContext.estimatedTokens,context:routingContext,failed:failedRoutes,specs,signal});
    }
    if(!next)throw error;
    autoAttempts++;
@@ -2571,7 +2637,7 @@ export class ButlerView extends ItemView {
  }else if(reviewStatus){
   text=reviewStatus;
   content.createDiv({text});
- }else throw Error('Codex returned no answer. Your draft is preserved.');
+ }else throw Error(this.butler.providerName(provider)+' returned no answer. Your draft is preserved.');
  for(const error of errors)content.createDiv({text:error,cls:'owla-error'});
  if(signal.aborted||epoch!==this.attachmentEpoch||this.closing)throw Error('Stopped.');
  for(const change of pluginTurn.enabled()?pluginChanges:[]){
@@ -2591,7 +2657,7 @@ export class ButlerView extends ItemView {
  }
  if(!this.turnSources.size&&!result.sources.length&&!activity.childElementCount)disclosure.createDiv({text:'No sources or activity for this reply.'});
  footer.append(disclosure);
- this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text,...(captured?{sourcePath:captured.path}:{})});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('Codex now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);
+ this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text,...(captured?{sourcePath:captured.path}:{})});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('OWLA now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);
  this.copyButton(footer,stripFence(text),'Copy Markdown');
  if (captured && !batches.size && !organization.review && !organization.removals?.length && !pluginChanges.length) {
   actions.createEl('button',{text:captured.start===captured.end?'Insert at cursor…':'Replace selection…'}).onclick =
@@ -2613,7 +2679,7 @@ export class ButlerView extends ItemView {
  else{this.status.setText('Earlier draft available · '+message);const restore=actions.createEl('button',{text:'Restore draft'});restore.onclick=()=>{if(this.controller||!this.canRestoreDraft()){new Notice('Send or clear the current draft before restoring this one.');return;}this.restoreDraft(draft);restore.remove();this.composer.focus();this.status.setText('Draft restored');};}}
  finally{this.offeredToolNames=null;heading.removeClass('is-working');summary.setText('Sources & activity');if(disclosure.hasClass('owla-working')){disclosure.removeClass('owla-working');disclosure.open=false;if(!activity.childElementCount)disclosure.remove();}if(streamTimer)clearNodeTimeout(streamTimer);await releaseReply();this.releaseReply=undefined;this.controller=null;this.sendBtn.setText('Send');if(override)this.automaticLabel.setText('Automatic selection');this.refreshModel();this.renderConnection();this.renderAttachments();this.butler.view?.renderPendingEdits();}
  }
- private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
+ private async pickRetryRoute(opts:{provider:ProviderId;route:CodexRoute;choosesProvider:boolean;offers:ProviderOffer[];task:TaskClass|undefined;candidates:ProviderModel[];home:ProviderId;needsImage:boolean;estimatedTokens?:number;context?:RoutingContext;failed:{provider:ProviderId;model:string}[];specs:ToolSpec[];signal:AbortSignal}):Promise<AutoRoute|null>{
   const {provider,choosesProvider,task,home,needsImage,failed}=opts;
   const failedKey=(p:ProviderId,m:string)=>failed.some(item=>item.provider===p&&item.model===m);
   // The bridges know what was refused since the offers were collected: a
@@ -2630,8 +2696,8 @@ export class ButlerView extends ItemView {
    const same=sameModelRoute(entries,{provider,model:opts.route.model,effort:opts.route.effort});
    if(same)return same;
    try{
-    if(task)return pickRoute(entries,offers,task,home,Date.now()/1000,undefined,this.butler.prefs.routingMode,this.butler.routingHistory);
-    return autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)]);
+    if(task)return pickRoute(entries,offers,task,home,Date.now()/1000,opts.context,this.butler.prefs.routingMode,this.butler.routingHistory);
+    return autoFallbackRoute(offers,entries,[home,...PROVIDER_IDS.filter(id=>id!==home)],opts.estimatedTokens);
    }catch{return null;}
   }
   const state=this.butler.recordExhaustion(provider);

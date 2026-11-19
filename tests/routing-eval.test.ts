@@ -93,3 +93,40 @@ test('routing evaluation fixture suite validates calibrated FM and heuristic acc
  assert.ok(fmAccuracy>=0.95,`Expected >=95% calibrated FM kind accuracy, got ${(fmAccuracy*100).toFixed(1)}%`);
  assert.ok(heurAccuracy>=0.85,`Expected >=85% heuristic kind accuracy, got ${(heurAccuracy*100).toFixed(1)}%`);
 });
+
+// 3.7.0 RC auto-mode audit: cost/overflow/exhaustion eval cases on the same
+// offers, complementing the 30 recorded prompts above.
+test('auto-mode efficiency eval: cost tiers, drained plans, large-note edits and context overflow',()=>{
+ const entries=autoEntries(evalOffers,false);
+ const ctx:RoutingContext={attachments:[],activeNote:false,selections:0,recentMessages:0,previousImages:0,previousPdfs:0,webSearch:false};
+ // Light work in Cost mode goes to a free model.
+ const cheap=pickRoute(entries,evalOffers,{difficulty:1,kind:'lookup',tools:false,effort:'low'},'codex',now,ctx,'cost');
+ assert.equal(cheap.provider,'opencode');
+ // The hardest reasoning in Intelligence mode stays on frontier tier.
+ const hard=pickRoute(entries,evalOffers,{difficulty:5,kind:'reasoning',tools:false,effort:'high'},'codex',now,ctx,'intelligence');
+ assert.ok(['gpt-6-astra','opus','fable'].includes(hard.model));
+ // Balance-mode note edits avoid tool-unproven free models.
+ const edit=pickRoute(entries,evalOffers,{difficulty:1,kind:'edit',tools:true,effort:'low'},'codex',now,ctx);
+ assert.notEqual(edit.provider,'opencode');
+ // A nearly empty Claude plan hands multi-step work to another provider.
+ const drainedClaude:ProviderOffer[]=[evalOffers[0],evalOffers[1],{...evalOffers[2],usage:usage(10)}];
+ const drained=pickRoute(autoEntries(drainedClaude,false),drainedClaude,{difficulty:3,kind:'synthesis',tools:true,effort:'medium'},'codex',now,ctx);
+ assert.notEqual(drained.provider,'claude');
+ // Both paid plans drained: light writing falls back to the free tier.
+ const bothDrained:ProviderOffer[]=[{...evalOffers[0],usage:usage(10)},evalOffers[1],{...evalOffers[2],usage:usage(10)}];
+ const freeFallback=pickRoute(autoEntries(bothDrained,false),bothDrained,{difficulty:2,kind:'writing',tools:false,effort:'low'},'codex',now,ctx);
+ assert.equal(freeFallback.provider,'opencode');
+ // Editing a 61k-character note stays off free models outside Cost mode.
+ const largeCtx:RoutingContext={...ctx,activeNote:true,activeNoteChars:61_376};
+ const largeEdit=pickRoute(entries,evalOffers,{difficulty:3,kind:'writing',tools:true,effort:'medium',writes:true},'codex',now,largeCtx);
+ assert.notEqual(largeEdit.provider,'opencode');
+ assert.ok(['sonnet','gpt-6.1-terra'].includes(largeEdit.model));
+ // Exhausted providers never reach the offers (automaticOffers drops them);
+ // with only OpenCode left, even hard work routes there.
+ const onlyFree=pickRoute(autoEntries([evalOffers[1]],false),[evalOffers[1]],{difficulty:5,kind:'reasoning',tools:false,effort:'high'},'codex',now,ctx);
+ assert.equal(onlyFree.provider,'opencode');
+ // Context overflow: a 300k-token estimate exceeds every offered 200k window,
+ // so no entry survives. main.ts must relax or explain, not retry identically.
+ assert.equal(autoEntries(evalOffers,false,300_000).length,0);
+ assert.ok(autoEntries(evalOffers,false,30_000).length>0);
+});

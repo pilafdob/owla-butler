@@ -1,0 +1,135 @@
+name: Bug report
+description: Report an error in OWLA Butler so it can be reproduced and fixed.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. A clear, minimal report is the fastest route to a fix.
+
+        **Before you paste anything:** remove account identifiers, tokens, private note text and local paths. Never post `data.json`, provider credentials, raw quota payloads or unsanitised `work/` logs. The full rules are in [CONTRIBUTING.md](https://github.com/pilafdob/owla-butler/blob/main/CONTRIBUTING.md).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before reporting
+      options:
+        - label: I searched the [existing issues](https://github.com/pilafdob/owla-butler/issues?q=is%3Aissue) and this is not a duplicate.
+          required: true
+        - label: I am running the latest OWLA Butler release, or I state my exact version below.
+          required: true
+        - label: I removed personal data (note text, local paths, tokens, account identifiers) from everything in this report.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What went wrong?
+      description: What did you see, and what did you expect to happen instead? Quote the exact error wording if OWLA showed one.
+      placeholder: "Example: I asked OWLA to edit the open note. The review card showed an error and the edit was never applied."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps from a clean start. Prefer a minimal example in a disposable vault — never your real notes.
+      placeholder: |
+        1. Open a disposable vault with a note containing …
+        2. Connect Codex and open the OWLA chat.
+        3. Ask "…"
+        4. See error …
+    validations:
+      required: true
+
+  - type: input
+    id: owla-version
+    attributes:
+      label: OWLA Butler version
+      description: Settings → Community plugins → OWLA Butler, or the release tag you installed manually.
+      placeholder: "e.g. 3.6.3"
+    validations:
+      required: true
+
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian version
+      description: Settings → About.
+      placeholder: "e.g. 1.14.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: OWLA Butler supports desktop macOS and Windows. Linux and mobile are not supported yet.
+      options:
+        - macOS
+        - Windows
+        - Linux (not supported yet)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: "e.g. macOS 27.3 or Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which assistant were you using?
+      description: The provider selected in the OWLA chat, or Automatic.
+      options:
+        - Codex
+        - OpenCode
+        - Claude Code
+        - Hermes Agent
+        - Apple Foundation Models (automatic selection)
+        - Not sure / happens with every provider
+    validations:
+      required: true
+
+  - type: input
+    id: provider-version
+    attributes:
+      label: Assistant CLI version (if known)
+      description: "e.g. the output of `codex --version`, `opencode --version`, `claude --version` or `hermes --version`."
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages and logs
+      description: |
+        Paste the exact error from the chat, or from Obsidian's developer console (Cmd/Ctrl+Shift+I → Console).
+        Sanitise first: no `data.json`, credentials, tokens, raw quota payloads or unsanitised `work/` logs.
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag and drop images here. Crop or blur anything personal (note text, paths, account names).
+
+  - type: checkboxes
+    id: isolation
+    attributes:
+      label: Extra context (optional, but it speeds up triage)
+      options:
+        - label: The error still happens with all other community plugins disabled.
+        - label: The error happens in a fresh disposable vault, not only in my main vault.
+        - label: The error involves Plugin Interconnectivity (Nicons, Pinup or Folder and Graphs Plus).
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        The more of the fields above you fill in, the faster this can be fixed. Reports without versions or reproduction steps are hard to act on.

@@ -15,6 +15,8 @@ const NODE_TYPES=new Set(['text','file','link','group']);
 const SIDES=new Set(['top','right','bottom','left']);
 const ENDS=new Set(['none','arrow']);
 const COLOR=/^(?:[1-6]|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})$/;
+/** Bounds the model-supplied operations payload so a huge argument cannot leak into memory or the next turn. */
+export const CANVAS_OPERATIONS_LIMIT=100_000;
 
 /** Parses canvas text. An empty file is an empty canvas, as Obsidian treats it. */
 export function parseCanvas(text:string):CanvasData{
@@ -67,17 +69,22 @@ const inside=(node:CanvasNode,group:CanvasNode)=>node!==group&&node.x>=group.x&&
 
 /** A model-readable description: every node with its group, every edge with its ends. */
 export function summarizeCanvas(data:CanvasData):string{
- const groups=data.nodes.filter(node=>node.type==='group');
- const byId=new Map(data.nodes.map(node=>[node.id,node]));
+ // A damaged canvas can hold non-object entries; describe them instead of crashing
+ // with an opaque TypeError, so read_canvas still returns something actionable.
+ const isNode=(value:unknown):value is CanvasNode=>!!value&&typeof value==='object';
+ const groups=data.nodes.filter(node=>isNode(node)&&node.type==='group');
+ const byId=new Map(data.nodes.filter(isNode).map(node=>[node.id,node]));
  const name=(node:CanvasNode|undefined)=>!node?'?':node.type==='text'?JSON.stringify((node.text??'').split('\n')[0].slice(0,60)):node.type==='file'?node.file+(node.subpath??''):node.type==='link'?node.url:'group '+JSON.stringify(node.label??'');
  const lines=['Canvas: '+data.nodes.length+' nodes ('+groups.length+' groups), '+data.edges.length+' edges. Coordinates are canvas pixels; x grows right, y grows down.'];
- for(const node of data.nodes){
+ for(const [index,node] of data.nodes.entries()){
+  if(!isNode(node)){lines.push('- invalid node #'+index+' (not an object)');continue;}
   const parents=groups.filter(group=>inside(node,group)).sort((a,b)=>a.width*a.height-b.width*b.height);
   const head='- ['+node.id+'] '+node.type+' at ('+node.x+','+node.y+') '+node.width+'×'+node.height+(node.color?' color '+node.color:'')+(parents.length?' in group '+parents[0].id:'');
   const body=node.type==='text'?'\n  text: '+JSON.stringify(node.text??''):node.type==='file'?'\n  file: '+node.file+(node.subpath??''):node.type==='link'?'\n  url: '+node.url:'\n  label: '+JSON.stringify(node.label??'');
   lines.push(head+body);
  }
- for(const edge of data.edges){
+ for(const [index,edge] of data.edges.entries()){
+  if(!edge||typeof edge!=='object'){lines.push('- invalid edge #'+index+' (not an object)');continue;}
   lines.push('- edge ['+edge.id+'] '+edge.fromNode+(edge.fromSide?'.'+edge.fromSide:'')+' → '+edge.toNode+(edge.toSide?'.'+edge.toSide:'')+' ('+name(byId.get(edge.fromNode))+' → '+name(byId.get(edge.toNode))+')'+(edge.label?' label '+JSON.stringify(edge.label):'')+(edge.toEnd==='none'?' no arrow':'')+(edge.color?' color '+edge.color:''));
  }
  return lines.join('\n');
@@ -104,6 +111,7 @@ export function canvasId(taken:Set<string>,random:()=>number=Math.random):string
  */
 export function applyCanvasOperations(data:CanvasData,operations:unknown,random:()=>number=Math.random):CanvasData{
  if(!Array.isArray(operations)||!operations.length||operations.length>200)throw Error('Provide between 1 and 200 canvas operations.');
+ if(JSON.stringify(operations).length>CANVAS_OPERATIONS_LIMIT)throw Error('The canvas operations are too large. Split them into smaller proposals.');
  const next:CanvasData=structuredClone(data);
  const taken=new Set([...next.nodes.map(node=>node.id),...next.edges.map(edge=>edge.id)]);
  const protectedKeys=new Set(['id']);
@@ -149,8 +157,15 @@ export function applyCanvasOperations(data:CanvasData,operations:unknown,random:
  return next;
 }
 
-/** Serialises like Obsidian (tab-indented JSON), keeping the file's own indentation when it differs. */
+/** Serialises the way Obsidian writes canvas: tab-indented top-level keys with no
+ * space after the colon, each node or edge a compact single-line object, and no
+ * trailing newline. An untouched file round-trips byte-identically, so a proposal
+ * diffs only the changed cards instead of reformatting the whole file. A source
+ * that ends with a newline keeps it. */
 export function serializeCanvas(data:CanvasData,original=''):string{
- const indent=original.match(/^\{\r?\n([ \t]+)"/)?.[1]??'\t';
- return JSON.stringify(data,null,indent);
+ const compact=(value:unknown)=>JSON.stringify(value);
+ const array=(items:unknown[])=>items.length?'[\n'+items.map(item=>'\t\t'+compact(item)).join(',\n')+'\n\t]':'[]';
+ const entries=Object.entries(data).map(([key,value])=>'\t'+JSON.stringify(key)+':'+(Array.isArray(value)?array(value):compact(value)));
+ const text='{\n'+entries.join(',\n')+'\n}';
+ return original.endsWith('\n')?text+'\n':text;
 }

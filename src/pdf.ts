@@ -10,6 +10,8 @@ export function pdfPageText(items:unknown[]):string{
 }
 export function pdfPageNumber(value:string,total:number):number{if(!/^\d+$/.test(value))throw Error('Enter a page number.');const page=Number(value);if(page<1||page>total)throw Error(`Choose a page from 1 to ${total}.`);return page;}
 export function pdfSource(name:string,page:number):string{return name.replace(/\p{Cc}/gu,' ')+', p. '+page;}
+/** Clipboard citation for a PDF page: file name without folders or extension, then ',p.' and the page number. */
+export function pdfPageReference(path:string,page:number):string{const name=(path.split('/').pop()||path).replace(/\.pdf$/i,'').replace(/\p{Cc}/gu,' ');return name+',p.'+page;}
 
 export function markdownSource(value:string):string{return value.replace(/([\\`*_[\]<>])/g,'\\$1');}
 

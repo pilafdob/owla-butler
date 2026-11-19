@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,readdirSync,readFileSync,rmSync,writeFileSync,statSync} from 'node:fs';import {join} from 'node:path';import {tmpdir} from 'node:os';import {backupEdit,rotateLog} from '../src/recovery';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {existsSync,mkdtempSync,mkdirSync,readdirSync,readFileSync,rmSync,writeFileSync,statSync} from 'node:fs';import {join} from 'node:path';import {tmpdir} from 'node:os';import {backupEdit,rotateLog} from '../src/recovery';
 test('edit recovery retains original contents with bounded private backups',()=>{const root=mkdtempSync(join(tmpdir(),'owla-recovery-'));try{for(let i=0;i<25;i++)backupEdit(root,{path:'A.md',before:'original '+i,after:'new',reason:'test'});const files=readdirSync(join(root,'edit-backups'));assert.equal(files.length,20);for(const f of files){const path=join(root,'edit-backups',f);assert.equal(JSON.parse(readFileSync(path,'utf8')).path,'A.md');if(process.platform!=='win32')assert.equal(statSync(path).mode&0o777,0o600);}}finally{rmSync(root,{recursive:true,force:true});}});
 test('logs rotate before subsequent runtime starts',()=>{const root=mkdtempSync(join(tmpdir(),'owla-log-'));try{const file=join(root,'log');writeFileSync(file,'x'.repeat(1_000_001));rotateLog(file);assert.equal(statSync(file+'.previous').size,1_000_001);}finally{rmSync(root,{recursive:true,force:true});}});
 
@@ -73,5 +73,67 @@ test('clearing an unloadable record restores allowed applied edits and keeps fai
   await bad.butler.clearPendingEdits();
   assert.deepEqual(readPendingRecord(root).map((e:any)=>e.edit.path),['Notes/C.md','Notes/D.md']);
   assert.match(bad.butler.pendingLoadError,/kept/);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+// Failure-resilience audit: the journal must fail closed and name its cause.
+
+test('an oversized pending record is never silently discarded by recovery',async()=>{
+ const {readPendingRecord,loadPendingEdits}=await import('../src/recovery');
+ const root=mkdtempSync(join(tmpdir(),'owla-pending-big-'));
+ try{
+  const file=join(root,'pending-edits.json');
+  writeFileSync(file,'["'+'x'.repeat(10_000_001)+'"]');
+  // Returning [] here would let clearPendingEdits delete a journal it never
+  // read, losing the record of which notes carry unreviewed edits.
+  assert.throws(()=>readPendingRecord(root),/too large to recover automatically/);
+  assert.throws(()=>loadPendingEdits(root),/too large/);
+  assert.ok(existsSync(file));
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('a corrupt pending record reports the read failure with its cause',async()=>{
+ const {loadPendingEdits,readPendingRecord}=await import('../src/recovery');
+ const root=mkdtempSync(join(tmpdir(),'owla-pending-corrupt-'));
+ try{
+  writeFileSync(join(root,'pending-edits.json'),'[{"edit":');
+  assert.throws(()=>loadPendingEdits(root),/could not be read/);
+  // Nothing parseable to recover: the raw reader still yields no entries.
+  assert.deepEqual(readPendingRecord(root),[]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('pending journal write and removal failures name the journal and keep the cause',async()=>{
+ const {savePendingEdits,removePendingRecord}=await import('../src/recovery');
+ const root=mkdtempSync(join(tmpdir(),'owla-pending-fs-'));
+ try{
+  // A regular file where the storage root should be: the write fails and the
+  // error must say which record could not be saved.
+  const fileRoot=join(root,'not-a-dir');writeFileSync(fileRoot,'x');
+  assert.throws(()=>savePendingEdits(fileRoot,[]),/Could not save the pending edit record/);
+  // A failed rename (the target is a directory) must not leave a temp file.
+  const other=mkdtempSync(join(tmpdir(),'owla-pending-fs2-'));
+  try{
+   mkdirSync(join(other,'pending-edits.json'));
+   assert.throws(()=>savePendingEdits(other,[{edit:{path:'A.md',before:'a',after:'b',reason:'r'},reasons:['r']}]),/Could not save the pending edit record/);
+   assert.deepEqual(readdirSync(other).filter(f=>f.endsWith('.tmp')),[]);
+  }finally{rmSync(other,{recursive:true,force:true});}
+  // A directory in place of the journal cannot be unlinked.
+  mkdirSync(join(root,'pending-edits.json'));
+  assert.throws(()=>removePendingRecord(root),/Could not remove the pending edit record/);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('backup retention cannot fail an edit when an old backup is undeletable',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'owla-backup-locked-'));
+ try{
+  const dir=join(root,'edit-backups');mkdirSync(dir,{recursive:true});
+  // A directory wearing a backup filename passes the retention filter but
+  // cannot be unlinked; retention is best-effort once the new backup exists.
+  mkdirSync(join(dir,'1-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.json'));
+  assert.doesNotThrow(()=>{for(let i=0;i<25;i++)backupEdit(root,{path:'A.md',before:'original '+i,after:'new',reason:'test'});});
+  const files=readdirSync(dir).filter(f=>statSync(join(dir,f)).isFile());
+  assert.ok(files.length>=1);
+  assert.ok(files.some(f=>JSON.parse(readFileSync(join(dir,f),'utf8')).before==='original 24'));
  }finally{rmSync(root,{recursive:true,force:true});}
 });

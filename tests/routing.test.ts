@@ -234,3 +234,10 @@ test('automatic routing only offers reasoning efforts compatible with OWLA’s s
  assert.deepEqual(fallbackRoute([candidate],{model:'general',effort:'ultra'}),{model:'general',effort:'medium'});
  assert.throws(()=>decodeRoute('{"model":1,"effort":"ultra"}',[candidate]));
 });
+
+test('buildRoutingContext carries the active-drawing needsImage flag for vision routing',()=>{
+ const base={prompt:'add a graph, describing this calculation',attachments:[],selections:[],recentMessages:[],previousImages:0,previousPdfs:0,webSearch:false};
+ assert.equal(buildRoutingContext({...base,needsImage:true}).needsImage,true);
+ assert.equal(buildRoutingContext({...base,needsImage:false}).needsImage,undefined);
+ assert.equal(buildRoutingContext(base).needsImage,undefined);
+});

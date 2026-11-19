@@ -137,7 +137,7 @@ export class OpencodeAvailability{
   for(const [id,bucket] of Object.entries(usage?.rateLimitsByLimitId??{})){
    if(!id.startsWith('opencode-go-'))continue;
    const window=bucket.primary;
-   if(!window||window.usedPercent<100)continue;
+   if(!window||typeof window.usedPercent!=='number'||!Number.isFinite(window.usedPercent)||window.usedPercent<100)continue;
    const reset=typeof window.resetsAt==='number'?window.resetsAt:null;
    if(reset!==null&&reset<=now)continue;
    any=true;

@@ -3,13 +3,17 @@ import {mkdirSync,writeFileSync,readdirSync,readFileSync,renameSync,unlinkSync,s
 type SavedMessage={role:'user'|'assistant';content:string;sourcePath?:string};
 export type SavedChat={id:string;title:string;created:string;messages:SavedMessage[]};
 export class ChatStore{
- constructor(private root:string){}
+ constructor(private root:string,private readonly maxReads=100){}
  private folder(){return join(this.root,'saved-chats');}
  list():SavedChat[]{
   let files:string[];try{files=readdirSync(this.folder());}catch(e){if(record(e).code==='ENOENT')return [];throw e;}
-  const chats:SavedChat[]=[];
+  const chats:SavedChat[]=[];let reads=0;
   for(const file of files.filter(f=>/^[a-f0-9-]{36}\.json$/.test(f))){try{
    const path=join(this.folder(),file);if(statSync(path).size>100000)continue;
+   // A damaged folder can hold far more candidates than the 20 chats OWLA
+   // keeps; bound how many files one list call reads into memory. Oversized
+   // files are skipped by stat first, so they never spend this budget.
+   if(reads>=this.maxReads)break;reads++;
    const data=record(JSON.parse(readFileSync(path,'utf8')));const {id,title,created}=data;
    if(typeof id!=='string'||id+'.json'!==file||typeof title!=='string'||typeof created!=='string'||!Array.isArray(data.messages))continue;
    const raw=list(data.messages);if(raw.length>6)continue;

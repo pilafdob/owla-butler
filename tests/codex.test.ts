@@ -475,3 +475,40 @@ test('Codex child environment pins CODEX_HOME to the private home and turns off 
  const source=(await import('node:fs')).readFileSync(new URL('../src/codex.ts',import.meta.url),'utf8');
  assert.ok(source.includes("'skills.include_instructions=false'"));
 });
+
+// Failure-resilience audit: error wording, sign-in links and protocol intake.
+
+test('Hermes errors keep their own wording instead of Codex quota or sign-in text',()=>{
+ assert.equal(friendlyError(Error('Hermes usage limit reached. Wait for your provider allowance to reset.')),'Hermes usage limit reached. Wait for your provider allowance to reset.');
+ assert.equal(friendlyError(Error('Hermes: 429 quota exceeded')),'Hermes: 429 quota exceeded');
+ assert.equal(friendlyError(Error('Hermes authentication failed')),'Hermes authentication failed');
+ // Raw errors without a provider name still map to Codex wording.
+ assert.match(friendlyError(Error('HTTP 429 rate limit')),/^Codex usage limit/);
+});
+
+test('a malformed sign-in link fails with a clear message, not a raw URL error',async()=>{
+ const b=new CodexBridge() as any;
+ b.child={stdin:{write:()=>{},end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};
+ for(const authUrl of ['not a url','http://example.com/login',42]){
+  b.request=async()=>({authUrl});
+  await assert.rejects(b.signIn(()=>{},()=>{}),/sign-in link/);
+  assert.equal(b.signInPending,false);
+ }
+ b.child=null;
+});
+
+test('invalid protocol lines are quoted in the disconnect status; handler failures keep their cause',()=>{
+ const bridge=new CodexBridge() as any;
+ const child={stdin:{end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};
+ bridge.child=child;
+ bridge.receiveChunk(child,'{"broken":\n');
+ assert.equal(bridge.child,null);
+ assert.match(bridge.status,/invalid protocol message: .*broken/);
+ // A throwing handler is not reported as bad JSON.
+ const other=new CodexBridge() as any;
+ other.child={stdin:{end:()=>{}},kill:()=>{},exitCode:0,signalCode:null};
+ other.receive=()=>{throw Error('handler exploded');};
+ other.receiveChunk(other.child,'{}\n');
+ assert.equal(other.child,null);
+ assert.match(other.status,/protocol handling failed: handler exploded/);
+});

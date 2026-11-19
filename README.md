@@ -3,7 +3,7 @@
 <h1 align="center">OWLA Butler</h1>
 
 <p align="center">
-  <strong>Your Codex, OpenCode or Claude Code assistant, inside Obsidian.</strong><br>
+  <strong>Your Codex, OpenCode, Claude Code or Hermes Agent assistant, inside Obsidian.</strong><br>
   Chat with your open note, attach images and PDFs, search your vault and the web,<br>
   and review every edit before it lands.
 </p>
@@ -23,7 +23,7 @@ OWLA Butler is a native Obsidian sidebar assistant that runs on an assistant CLI
 
 ### Why OWLA Butler?
 
-- **Works with what you have.** Reuses Codex, OpenCode or Claude Code instead of adding another API key or subscription.
+- **Works with what you have.** Reuses Codex, OpenCode, Claude Code or Hermes Agent instead of adding another API key or subscription.
 - **Vault-aware, not vault-wide.** Reads your open note (including unsaved text), selections, attachments and allowed notes on demand. No background index, no whole-vault upload.
 - **Review before write.** Edits, moves, renames and deletions are staged for approval, with diffs and recovery snapshots.
 - **Same flow everywhere.** Switch providers without learning a new interface; the review flow and bundled Obsidian skills stay the same.
@@ -39,7 +39,7 @@ OWLA Butler is a native Obsidian sidebar assistant that runs on an assistant CLI
 ## Requirements and cost
 
 - **Desktop Obsidian 1.14.5 or newer on macOS or Windows.** Linux and mobile are not yet supported.
-- **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, or Claude Code 2.1.322 or newer**, installed separately, and an eligible account. An internet connection is required for answers, sign-in, model discovery and quota checks.
+- **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, Claude Code 2.1.322 or newer, or Hermes Agent**, installed separately, and an eligible account. An internet connection is required for answers, sign-in, model discovery and quota checks.
 - OWLA is free and MIT licensed. OpenAI may require a paid plan or credits for your chosen model or usage; access and limits depend on your account. OpenCode may serve free models and may charge for the providers you connect there. Anthropic applies the limits of your Claude plan. There is no OWLA subscription or API-key billing integration. Check [current Codex access and pricing](https://learn.chatgpt.com/docs/pricing).
 
 OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or Anthropic. Install **OWLA Butler** from Community plugins, or use the three files from the [latest GitHub release](https://github.com/pilafdob/owla-butler/releases/latest).
@@ -156,7 +156,7 @@ Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA
 
 OWLA stores each pending decision and a private recovery snapshot before writing. Pending decisions return when you reopen the sidebar or restart Obsidian. Decline only restores a note that still matches the applied text. If you edit the note while deciding, you can accept the current text. The Undo command for an accepted edit also checks the applied snapshot before restoring. Snapshots retain at most 20 entries within 5 MB per vault. The pending record is capped at 10 MB.
 
-Hidden/configuration files, excluded paths, traversal and symlinks escaping the vault are denied. Configure excluded vault-relative folders in settings. Shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions on both providers.
+Hidden/configuration files, excluded paths, traversal and symlinks escaping the vault are denied. Configure excluded vault-relative folders in settings. Shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions on every provider.
 
 ### Organize files and folders
 
@@ -196,7 +196,7 @@ There are no downloaded models, Ollama servers or native OCR runtimes. Typing in
 
 Original Obsidian Markdown, Bases and JSON Canvas skills, all references and licence are bundled. OWLA also includes guidance for Mermaid diagrams and native note formatting, including coloured highlights. OWLA PDF, MathJax and image/transcription guidance is also retained and available through read_reference. These are instructions, not model training. Codex reads them through the read_reference tool; OpenCode receives the same content as registered skills, and Claude Code receives the same content through the bundled tools, so every provider works from identical guidance.
 
-See CAPABILITY-CHECKLIST.md and TESTING.md for the eight requested checks, real question results and limits. AUDIT.md and RELEASE-CANDIDATE.md identify the candidate and release gate.
+See audits/1.0.0/CAPABILITY-CHECKLIST.md and TESTING.md for the eight requested checks, real question results and limits. AUDIT.md and audits/1.0.1/RELEASE-CANDIDATE.md identify the candidate and release gate.
 
 ## Examples
 
@@ -240,7 +240,7 @@ Drop files into chat or use Attach. PDFs and vault folders appear immediately as
 
 Word DOCX, PowerPoint PPTX, Excel XLSX and OpenDocument files provide extracted text. On macOS, Pages, Keynote and Numbers use an installed Apple app to export a temporary copy to Office format. macOS may request Automation permission. The original file is never opened for conversion. Temporary copies and exports are deleted afterward. If full extraction fails, an embedded or Quick Look preview is labelled **Preview only**. Unsupported files stay attached with **Content unavailable**, so the assistant can explain the limitation. Audio, video and arbitrary binary formats do not gain full understanding from an attachment alone.
 
-Extraction retains paragraph, slide and sheet source names. It does not preserve every diagram, chart or page layout. Text is bounded and explicitly labelled when shortened. Large originals are converted locally. Codex can request the prepared text when needed. Screenshots and document previews use Codex image input.
+Extraction retains paragraph, slide and sheet source names. It does not preserve every diagram, chart or page layout. Text is bounded and explicitly labelled when shortened. Large originals are converted locally. The assistant can request the prepared text when needed. Screenshots and document previews use the provider's image input.
 
 Choose **Highlights in editor**, **None** or **Split diff view** in the Diff view setting. Highlights in editor shows temporary subtle green additions and red removed-text blocks in the Markdown editor. Split diff view opens the same source diff as View diff in a normal Obsidian split to the right of the note. When it opens, the diff and the note both scroll to the first change; clicking any diff line scrolls the note to that line. Scrolling never moves the cursor. Accept and Decline in chat decide the whole batch, and resolving the last pending edit closes the diff pane. The overlay uses theme colors, clears on Accept/Decline, and hides when the pending text changes. It never writes markers into the Markdown. Source View diff remains available in chat.
 
@@ -248,7 +248,7 @@ Ask OWLA to create a note from the conversation. If you leave the location unspe
 
 ### PDFs
 
-Attach or drop a PDF to give Codex access to the whole document. Each PDF appears as a file chip. Codex can search the PDF’s text layer, read page ranges or request a rendered image of a scan or diagram. For a single page, use **Add page to OWLA** in the PDF viewer or include a reference such as `[[Books/Study.pdf#page=3]]`. OCR uses Codex’s visual input and leaves the PDF unchanged.
+Attach or drop a PDF to give the assistant access to the whole document. Each PDF appears as a file chip. The assistant can search the PDF’s text layer, read page ranges or request a rendered image of a scan or diagram. For a single page, use **Add page to OWLA** in the PDF viewer or include a reference such as `[[Books/Study.pdf#page=3]]`. OCR uses the provider’s visual input and leaves the PDF unchanged.
 
 Right-click a PDF page in the Obsidian viewer to add it to OWLA, copy its page link, or copy selected text. This plugin menu provides those actions for PDF pages. The ordinary PDF toolbar remains available.
 

@@ -133,7 +133,10 @@ export class PluginTurn {
    if(!validValue(feature,value))throw Error(plugin.name+' returned an invalid option value.');
    return JSON.stringify({key:feature.key,path,value});
   }
-  const {value,reason}=args;
+  const {value:rawValue,reason}=args;
+  // A colour is accepted with surrounding whitespace; normalise it before the
+  // plugin preview is compared, since the plugin returns the trimmed form.
+  const value=feature.kind==='color'&&typeof rawValue==='string'?rawValue.trim():rawValue;
   if(name!==PROPOSE||!validValue(feature,value)||typeof reason!=='string'||!reason.trim()||reason.length>300)throw Error('Provide a supported value and a short reason.');
   const key=JSON.stringify([plugin.id,feature.key,path]);
   if(this.drafts.size>=8&&!this.drafts.has(key))throw Error('Review up to eight plugin changes per reply.');

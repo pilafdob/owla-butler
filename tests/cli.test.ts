@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chmodSync,mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {delimiter,join,win32} from 'node:path';
+import {delimiter,join,win32,basename} from 'node:path';
 import {defaultCliDirectories,defaultStorageDirectory,envPath,extendedPath,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,shimInterpreterTrusted,terminateProcessTree,taskkillPath,trustedComSpecPath,trustedSystemDirectory,windowsSystemDirectory,comSpecPath,withPinnedShimInterpreter} from '../src/cli';
 
 test('Windows storage defaults to local per-user application data',()=>{
@@ -217,4 +217,69 @@ test('envPath finds PATH regardless of key casing on a plain object',()=>{
  assert.equal(envPath({}),'');
  // The spread of a normal Windows-style env is where env.PATH would be undefined.
  assert.equal(envPath({...{Path:'C:\bin',ComSpec:'C:\Windows\System32\cmd.exe'}}),'C:\bin');
+});
+
+// Failure-resilience audit: runCli names the failing command, cancels and
+// bounds its children, and a provider stream error can never crash the host.
+
+test('runCli names the command in launch, exit and timeout errors',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'owla-cli-fail-'));
+ try{
+  const missing=join(root,'missing-cli');
+  await assert.rejects(runCli(missing,[],{timeout:5000,maxBuffer:1000}),/Could not start missing-cli/);
+  const name=basename(process.execPath).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const fail=join(root,'fail.mjs');
+  writeFileSync(fail,'process.exit(3);');
+  await assert.rejects(runCli(process.execPath,[fail],{timeout:5000,maxBuffer:1000}),new RegExp(name+' exited with code 3'));
+  const stderrFail=join(root,'stderr.mjs');
+  writeFileSync(stderrFail,'console.error("the real cause");process.exit(2);');
+  await assert.rejects(runCli(process.execPath,[stderrFail],{timeout:5000,maxBuffer:1000}),/the real cause/);
+  const hang=join(root,'hang.mjs');
+  writeFileSync(hang,'setTimeout(()=>{},30000);');
+  await assert.rejects(runCli(process.execPath,[hang],{timeout:300,maxBuffer:1000}),new RegExp(name+' timed out after 300 ms'));
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('runCli abort kills the child and reports the cancel reason',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'owla-cli-abort-'));
+ try{
+  const hang=join(root,'hang.mjs');
+  writeFileSync(hang,'setTimeout(()=>{},30000);');
+  const plain=new AbortController();
+  const pending=runCli(process.execPath,[hang],{timeout:30000,maxBuffer:1000,signal:plain.signal});
+  plain.abort();
+  await assert.rejects(pending,/aborted/);
+  const reasoned=new AbortController();
+  const second=runCli(process.execPath,[hang],{timeout:30000,maxBuffer:1000,signal:reasoned.signal});
+  reasoned.abort(Error('user stopped'));
+  await assert.rejects(second,/user stopped/);
+  // An already-aborted signal never spawns the command.
+  const third=new AbortController();third.abort();
+  await assert.rejects(runCli(process.execPath,[hang],{timeout:30000,maxBuffer:1000,signal:third.signal}),/aborted/);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('runCli closes stdin so a command reading to EOF is not left waiting',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'owla-cli-eof-'));
+ try{
+  const script=join(root,'eof.mjs');
+  writeFileSync(script,'let n=0;process.stdin.on("data",c=>n+=c.length);process.stdin.on("end",()=>console.log("eof:"+n));');
+  assert.equal((await runCli(process.execPath,[script],{timeout:5000,maxBuffer:1000})).trim(),'eof:0');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('runCli kills a command whose output exceeds the buffer limit',async()=>{
+ await assert.rejects(runCli(process.execPath,['-e','process.stdout.write("x".repeat(5000));setTimeout(()=>{},30000);'],{timeout:5000,maxBuffer:1000}),/1000 byte limit/);
+});
+
+test('a provider child stream error never crashes the host and still reaches bridge listeners',async()=>{
+ // The child never reads stdin and dies while a large write is in flight: the
+ // pending write completes with EPIPE. Without spawnCli's default listener
+ // that is an uncaught exception and takes the whole plugin host down.
+ const child=spawnCli(process.execPath,['-e','setTimeout(()=>process.exit(0),60)']);
+ let seen=false;
+ child.stdin.on('error',()=>{seen=true;});
+ child.stdin.write('x'.repeat(1024*1024));
+ await new Promise(resolve=>setTimeout(resolve,400));
+ assert.equal(seen,true);
 });

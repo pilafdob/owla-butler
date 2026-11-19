@@ -1,18 +1,19 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
-import {randomBytes} from 'node:crypto';
+import {copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,readlinkSync,rmSync,statSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
+import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {createServer,IncomingMessage,Server} from 'node:http';
 import {homedir} from 'node:os';
-import {join} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {prefixToolNames,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import {ProviderExhaustion} from './exhaustion';
 import {UsageSnapshot} from './usage';
 import {list,record} from './validation';
 import {skillDefinitions} from './knowledge';
-import {defaultCliDirectories,envPath,extendedPath,findCliExecutable,isCliExecutable,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
+import {defaultCliDirectories,envPath,extendedPath,findCliExecutable,isCliExecutable,sanitizedEnv,spawnCli,terminateProcessTree,UNSAFE_EXECUTION_ENV,UNSAFE_EXECUTION_ENV_PREFIXES} from './cli';
 import {defaultStorageDirectory} from './cli';
 import {imageBlock} from './claude';
+import {RecordSplitter} from './stream';
 
 const HERMES_NO_EFFORT='default';
 /** How long a reported usage limit keeps Hermes out of automatic selection. */
@@ -33,7 +34,12 @@ export function friendlyHermesError(error:unknown):string{
  const text=error instanceof Error?error.message:String(error);
  if(/rate.?limit|usage limit|429|quota|limit reached/i.test(text))return 'Hermes usage limit reached. Wait for your provider allowance to reset.';
  if(/no llm provider|not configured|sign in|login|authentication|credential/i.test(text))return 'Hermes needs you to connect a provider first. Run hermes setup or hermes model in your terminal, then reconnect.';
- return text.slice(0,800);
+ // Gateway detail can carry the loopback bearer token, other credentials or
+ // user-home paths; chat and status are not the place for any of them
+ // (SECURITY-AUDIT-3.6.2 L15).
+ return text.replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi,'Bearer [redacted]')
+  .replace(/\b(token|api[_-]?key|authorization|password|secret)\s*[:=]\s*["']?[^\s"',}]+/gi,'$1=[redacted]')
+  .split(homedir()).join('~').slice(0,800);
 }
 
 function adaptSkillContent(content:string):string{
@@ -44,15 +50,55 @@ function adaptSkillContent(content:string):string{
  * Entries of the user's Hermes home that are never mirrored into OWLA's private
  * home: configuration, skills, plugins, shell hooks, memory, persona and
  * scheduled jobs would otherwise reach (or run inside) OWLA's sessions.
+ * Writable state (caches, registries, backups, UI preferences) is excluded too:
+ * a directory symlink shares read-write state, so Hermes' own writes would land
+ * in the user's real home and OWLA artifacts would leak into it
+ * (SECURITY-AUDIT-3.6.2 M9). Kept mirrored: the install (installs, hermes-agent,
+ * hermes-setup, tools, assets), the sign-ins (auth.json, shared) with the locks
+ * that serialize their refresh, and the read-mostly model caches.
  */
 export const HERMES_PRIVATE_EXCLUDED=new Set([
  'config.yaml','skills','plugins','hooks','memories','SOUL.md','cron',
  'shell-hooks-allowlist.json','desktop-plugins','sessions','state.db','logs',
  '.hermes_history','kanban.db','telemetry','gateway','gateway_state.json',
  'pairing','pending_messages','terminal-sessions',
+ // Live messaging and platform state (platforms/ holds pairing and rosters).
+ 'kanban','bot_relay','platforms','channel_directory.json','import-sync.json',
+ // Backups and snapshots: a private config backup would copy OWLA's loopback
+ // MCP token into the user's real, synced backup folders.
+ 'backups','.curator_backups','state-snapshots','.skills_prompt_snapshot.json',
+ // Writable caches and runtime state: OWLA scratch must stay private.
+ 'cache','audio_cache','image_cache','bootstrap-cache','lsp','source-checks',
+ 'plugin-update-checks','ui-preferences.json','install_id','log_hash_salt',
+ '.auto_prune_estimate.json',
+ // An interrupted user update must not make OWLA's launch run a git-restore
+ // against the user's real checkout (acp_adapter/entry.py _early_recovery).
+ '.hermes-update-in-progress.lock',
+ // Locks of excluded files; locks of shared files (auth, model caches) stay.
+ '.env.lock','.mcp-discovery.lock','.install_id.lock',
 ]);
-/** State files whose `-shm` and `-wal` sidecars must stay private too. */
-const HERMES_PRIVATE_DB_PREFIXES=['state.db','kanban.db','projects.db','spawn-ledger.json'];
+/** State files whose `-shm`, `-wal` and `.lock` sidecars must stay private too.
+ * `processes.json` is the background-process crash-recovery checkpoint
+ * (tools/process_registry.py): through a link, OWLA's gateway would adopt the
+ * user's live PIDs and could signal them on reset (SECURITY-AUDIT-3.6.2 M9). */
+/**
+ * The text of a JSON-RPC error from `hermes acp`. The ACP library answers any
+ * exception in a handler with the generic -32603 "Internal error" and puts the
+ * real cause in `data.details` (acp/connection.py), e.g. a provider's 429 usage
+ * limit. Without it the user sees only "Internal error" and OWLA's limit
+ * detection never marks the provider exhausted.
+ */
+export function hermesRpcErrorMessage(error:unknown):string{
+ const failure=record(error),data=record(failure.data);
+ const message=typeof failure.message==='string'?failure.message.trim():'';
+ const details=typeof data.details==='string'?data.details.trim():typeof failure.data==='string'?failure.data.trim():'';
+ const text=details&&(!message||/^internal error$/i.test(message))?details:message&&details&&!details.includes(message)?message+': '+details:message||details;
+ return (text||'Hermes error.').slice(0,2000);
+}
+
+/** Written once the first mirror pass has removed stale copies from the private home. */
+const HERMES_MIRROR_MARKER='.owla-mirror-cleaned';
+const HERMES_PRIVATE_DB_PREFIXES=['state.db','kanban.db','projects.db','spawn-ledger.json','processes.json'];
 /**
  * Live daemon endpoints and session state. `hermes acp` is a *viewer* of the
  * gateway that owns its HERMES_HOME (acp_adapter/entry.py), and the control
@@ -76,13 +122,21 @@ export function hermesMirrorExcluded(entry:string):boolean{
 
 /**
  * Keys of the user's Hermes `.env` that never reach OWLA's private home. Hermes
- * loads `<HERMES_HOME>/.env` with override semantics, and
- * `HERMES_TUI_GATEWAY_URL` dials a remote gateway directly, past the private
- * home; `HERMES_ACP_*` changes approval and sign-in behaviour. Provider keys
- * (including AI gateway keys such as AI_GATEWAY_API_KEY) stay, so the user's
- * sign-ins keep working.
+ * loads `<HERMES_HOME>/.env` with override semantics (hermes_cli/env_loader.py,
+ * override=True), so a kept line beats the spawn environment:
+ * `HERMES_TUI_GATEWAY_URL` dials a remote gateway directly past the private
+ * home, `HERMES_ACP_*` changes approval and sign-in behaviour, and an
+ * execution-hijack key (NODE_OPTIONS, DYLD_INSERT_LIBRARIES, …) would re-inject
+ * exactly what sanitizedEnv stripped. OTEL_* is dropped so no mirrored line can
+ * turn on prompt telemetry. Provider keys (including AI gateway keys such as
+ * AI_GATEWAY_API_KEY) stay, so the user's sign-ins keep working.
  */
-export const hermesEnvKeyBlocked=(key:string):boolean=>/^HERMES_/i.test(key);
+const HERMES_ENV_EXECUTION_BLOCKED=new Set(UNSAFE_EXECUTION_ENV.map(key=>key.toUpperCase()));
+export const hermesEnvKeyBlocked=(key:string):boolean=>{
+ const upper=key.toUpperCase();
+ return /^HERMES_/i.test(key)||/^OTEL_/i.test(key)||HERMES_ENV_EXECUTION_BLOCKED.has(upper)
+  ||UNSAFE_EXECUTION_ENV_PREFIXES.some(prefix=>upper.startsWith(prefix));
+};
 /** The user's `.env` with every blocked key (and every comment) removed. */
 export function hermesFilteredEnv(content:string):string{
  const kept:string[]=[];
@@ -97,6 +151,36 @@ export function hermesChildEnv(env:NodeJS.ProcessEnv,home:string,path:string):No
  const result:NodeJS.ProcessEnv={};
  for(const [key,value] of Object.entries(env))if(!hermesEnvKeyBlocked(key)&&key.toLowerCase()!=='path')result[key]=value;
  return {...result,HERMES_HOME:home,PATH:path};
+}
+
+/**
+ * Hermes loads instruction files from the session cwd and its ancestors: the
+ * AGENTS.override.md/AGENTS.md/agents.md chain from the git root down, plus
+ * CLAUDE.md/claude.md and .cursorrules (+ .cursor/rules/*.mdc) in the cwd and
+ * .hermes.md/HERMES.md walking up (agent/prompt_builder.py). A storage root
+ * inside a shared folder would feed those files into every OWLA turn — the
+ * refusal Codex already has (inheritedInstructions). Files at or above the
+ * home directory are the user's own and never a reason to refuse.
+ */
+export function hermesInheritedInstructions(directory:string,home=homedir(),platform:NodeJS.Platform=process.platform):string[]{
+ const found=new Map<string,string>();
+ const normalize=(value:string)=>platform==='linux'?value:value.toLowerCase();
+ const stop=normalize(resolve(home));
+ let current=resolve(directory);
+ while(normalize(current)!==stop&&current!==dirname(current)){
+  for(const name of ['AGENTS.override.md','AGENTS.md','agents.md','CLAUDE.md','claude.md','.cursorrules','.hermes.md','HERMES.md']){
+   const path=join(current,name);
+   // Case-insensitive filesystems match several spellings of one file; keep
+   // the first so the refusal names the file as written.
+   if(existsSync(path)&&!found.has(normalize(path)))found.set(normalize(path),path);
+  }
+  current=dirname(current);
+ }
+ try{
+  const rules=join(resolve(directory),'.cursor','rules');
+  for(const file of readdirSync(rules))if(file.endsWith('.mdc'))found.set(normalize(join(rules,file)),join(rules,file));
+ }catch{/* No cursor rules. */}
+ return [...found.values()];
 }
 
 /** Removes a mirrored link so a write lands in OWLA's home, never through to the user's. */
@@ -120,6 +204,56 @@ export function hermesDefaultModel(userConfig:string):{model:string;provider:str
 }
 
 /**
+ * models.dev catalog, the SAME capability source Hermes itself uses for image
+ * routing (agent/models_dev.py), cached per private home until the file changes. The file is
+ * mirrored from the user's Hermes home, so OWLA and Hermes agree on which
+ * models can see. null when it is absent or unreadable.
+ */
+const modelsDevCatalogCache=new Map<string,{stamp:string;catalog:Record<string,unknown>|null}>();
+function loadModelsDevCatalog(home:string):Record<string,unknown>|null{
+ const file=join(home,'models_dev_cache.json');
+ // Keyed by size and mtime (through the mirror link), so a catalog Hermes
+ // refreshes or first downloads mid-session is picked up on the next connect
+ // instead of an absent or stale read sticking until Obsidian reloads.
+ let stamp:string;
+ try{const info=statSync(file);stamp=info.size+':'+info.mtimeMs;}catch{modelsDevCatalogCache.delete(home);return null;}
+ const cached=modelsDevCatalogCache.get(home);
+ if(cached?.stamp===stamp)return cached.catalog;
+ let parsed:Record<string,unknown>|null=null;
+ try{parsed=record(JSON.parse(readFileSync(file,'utf8')));}catch{parsed=null;}
+ modelsDevCatalogCache.set(home,{stamp,catalog:parsed});
+ return parsed;
+}
+/** Hermes's rule: explicit modalities.input wins; the attachment flag is a fallback. */
+function modelsDevEntryVision(entry:Record<string,unknown>):boolean{
+ const input=record(entry.modalities).input;
+ if(Array.isArray(input))return input.includes('image');
+ return entry.attachment===true;
+}
+/**
+ * Real input modalities for a Hermes model. Earlier builds hard-coded
+ * ['text','image'] for every model, so automatic selection routed handwriting
+ * and drawing tasks to text-only models (e.g. beam-free) that received the
+ * rendered picture as an unreadable MEDIA path. Resolve vision from the catalog
+ * instead; an unknown model is treated as text-only, which only excludes it
+ * from image-required tasks (fail closed, matching Hermes's own gate).
+ */
+export function hermesModelModalities(providerID:string,modelID:string,home:string):string[]{
+ const catalog=loadModelsDevCatalog(home);
+ if(catalog){
+  const providers=[providerID,...Object.keys(catalog).filter(key=>key!==providerID)];
+  for(const provider of providers){
+   const models=record(record(catalog[provider]).models);
+   const entry=models[modelID];
+   if(entry!==undefined)return modelsDevEntryVision(record(entry))?['text','image']:['text'];
+  }
+ }
+ return ['text'];
+}
+/** For tests: drop the cached catalog so a fixture file is re-read. */
+export function resetModelsDevCatalogCacheForTests():void{modelsDevCatalogCache.clear();}
+
+/**
  * The private config: no built-in toolsets, no plugins, no user MCP servers, no
  * memory. OWLA's own tools are registered as a NATIVE MCP server named `owla`.
  *
@@ -133,6 +267,13 @@ export const hermesPrivateConfig=(web:boolean,endpoint?:{url:string;token:string
  ...(model?.model?['model:','  default: '+JSON.stringify(model.model),...(model.provider?['  provider: '+JSON.stringify(model.provider)]:[])]:[]),
  'platform_toolsets:',
  '  acp: ['+[...(web?['web']:[]),...(endpoint?['mcp-owla']:[])].join(', ')+']',
+ // OWLA's whole tool surface is the point of the session: keep every tool's
+ // schema visible instead of deferring it behind tool_search. Deferral made the
+ // model search for tools it already had and guess argument names it could not
+ // see (list_vault_paths folder, read_attachment name), wasting turn rounds.
+ 'tools:',
+ '  tool_search:',
+ '    enabled: off',
  'plugins:','  enabled: []','  disabled: []',
  ...(endpoint?[
   'mcp_servers:',
@@ -146,6 +287,11 @@ export const hermesPrivateConfig=(web:boolean,endpoint?:{url:string;token:string
  ]:['mcp_servers: {}']),
  'memory:','  memory_enabled: false','  user_profile_enabled: false',
  'skills:','  external_dirs: []',
+ // One API attempt per model call. Hermes otherwise waits up to 600 s between
+ // three attempts on a usage limit (agent/turn_recovery.py) while OWLA shows
+ // only "responding…"; a single attempt hands the limit error back, so OWLA's
+ // own exhaustion tracking and fallback pick another model or provider.
+ 'agent:','  api_max_retries: 1','  auto_recovery_cycles: 0',
  '',
 ].join('\n');
 
@@ -185,8 +331,7 @@ export class HermesBridge implements ProviderBridge{
  private toolNames=new Set<string>();
  private mcpToken='';
  private nextId=1;
- private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void}>();
- private buffer='';
+ private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer?:ReturnType<typeof setTimeout>}>();
  models:ProviderModel[]=[];
  usage:UsageSnapshot|null=null;
  lastFailure:Error|null=null;
@@ -201,8 +346,10 @@ export class HermesBridge implements ProviderBridge{
  executable='';
  onStatus:(status:string)=>void=()=>{};
  private cwd='';
+ private sessionCwd='';
  private privateHome='';
- private jsonBuffer='';
+ private lines=new RecordSplitter('\n',16*1024*1024);
+ private closing:Promise<void>|null=null;
 
  get ready(){return !!this.child&&!!this.sessionId&&this.models.length>0;}
  get running(){return !!this.child;}
@@ -222,29 +369,53 @@ export class HermesBridge implements ProviderBridge{
  async signIn():Promise<void>{throw Error('Hermes uses your existing sign-in. Run hermes setup or hermes model in your terminal and connect a provider, then reconnect.');}
 
  private privateHomePath():string{
-  if(this.privateHome)return this.privateHome;
-  const base=defaultStorageDirectory();
-  this.privateHome=join(base,'Hermes Private');
-  return this.privateHome;
+  // Per vault: the session directory sits under vaultStorage(), keyed by the
+  // vault path. A machine-global home let two vaults share one config.yaml
+  // (MCP token and endpoint) and one session state, so vault A's model could
+  // drive vault B's tools (SECURITY-AUDIT-3.6.2 M1).
+  const base=this.sessionCwd?join(dirname(this.sessionCwd),'hermes-private'):join(defaultStorageDirectory(),'Hermes Private');
+  this.privateHome=base;
+  return base;
  }
 
- private ensurePrivateHome(executable:string,web:boolean,endpoint?:{url:string;token:string}):void{
+ private ensurePrivateHome(executable:string,web:boolean,endpoint?:{url:string;token:string},realHome=join(homedir(),'.hermes')):void{
   void executable;
   const home=this.privateHomePath();
+  // A planted link at the home itself would redirect every write below it.
+  try{if(lstatSync(home).isSymbolicLink())unlinkSync(home);}catch{/* Not present. */}
   mkdirSync(home,{recursive:true,mode:0o700});
-  const realHome=join(homedir(),'.hermes');
+  const mirrorMarker=join(home,HERMES_MIRROR_MARKER);
+  const firstMirror=!existsSync(mirrorMarker);
   // Mirror the user's Hermes home so Hermes sees an existing install (no runtime
   // preparation) and keeps auth/state. Override only config.yaml and skills/.
   if(existsSync(realHome)){
    for(const entry of readdirSync(realHome)){
     const target=join(home,entry),source=join(realHome,entry);
     if(hermesMirrorExcluded(entry)){
-     // Remove a link an earlier build mirrored; never touch real files. A stale
-     // gateway socket link would re-attach OWLA to the user's daemon.
+     // Remove a link an earlier build mirrored; never touch real files in the
+     // user's home. A stale gateway socket link would re-attach OWLA to the
+     // user's daemon; a regular file copied by the Windows fallback (a
+     // processes.json checkpoint, state.db) would adopt the user's PIDs or
+     // leak their session state into the private home (L13).
      unlinkMirror(target);
+     // Only once per private home: after that these names hold OWLA's OWN
+     // live Hermes state (state.db and its -wal/-shm, processes.json, gateway
+     // state), and deleting them under the running private gateway makes it
+     // refuse every new session ("state.db was replaced underneath the gateway").
+     if(firstMirror)try{if(lstatSync(target).isFile())unlinkSync(target);}catch{/* Not present. */}
      continue;
     }
-    if(existsSync(target))continue;
+    // A mirrored link must point at the real home entry. A planted or dangling
+    // link is replaced, never read or written through (SECURITY-AUDIT-3.6.2 M3);
+    // a regular file (the Windows copy fallback) is kept.
+    let kept=false;
+    try{
+     const info=lstatSync(target);
+     if(!info.isSymbolicLink())kept=true;
+     else if(readlinkSync(target)===source)kept=true;
+     else unlinkSync(target);
+    }catch{/* Not present. */}
+    if(kept)continue;
     // Windows normally refuses symlink creation without Developer Mode or an
     // elevated process (EPERM). Fall back to copying so the private home still
     // sees the user's auth/state instead of silently appearing signed out.
@@ -258,6 +429,7 @@ export class HermesBridge implements ProviderBridge{
     }
    }
   }
+  if(firstMirror)try{writeFileSync(mirrorMarker,'1\n',{mode:0o600});}catch{/* Retried on the next connect. */}
   // `.env` is a filtered copy, never a link: see hermesEnvKeyBlocked.
   const envFile=join(home,'.env');
   unlinkMirror(envFile);
@@ -266,14 +438,20 @@ export class HermesBridge implements ProviderBridge{
   const filteredEnv=hermesFilteredEnv(userEnv);
   if(filteredEnv)writeFileSync(envFile,filteredEnv,{mode:0o600});
   else try{unlinkSync(envFile);}catch{/* Not present. */}
-  unlinkMirror(join(home,'skills'));
-  mkdirSync(join(home,'skills'),{recursive:true,mode:0o700});
+  // OWLA owns skills/ entirely: rebuild it so a planted directory or a nested
+  // symlink can never receive OWLA's writes (M3). It is never mirrored.
+  const skillsDir=join(home,'skills');
+  try{
+   const info=lstatSync(skillsDir);
+   if(info.isSymbolicLink())unlinkSync(skillsDir);
+   else rmSync(skillsDir,{recursive:true,force:true});
+  }catch{/* Not present. */}
+  mkdirSync(skillsDir,{recursive:true,mode:0o700});
   const configPath=join(home,'config.yaml');
   unlinkMirror(configPath);
   let userConfig='';
   try{userConfig=readFileSync(join(realHome,'config.yaml'),'utf8');}catch{/* No user config: Hermes uses its own default. */}
   writeFileSync(configPath,hermesPrivateConfig(web,endpoint,hermesDefaultModel(userConfig)),{mode:0o600});
-  const skillsDir=join(home,'skills');
   for(const skill of skillDefinitions()){
    const dir=join(skillsDir,skill.id);
    mkdirSync(dir,{recursive:true,mode:0o700});
@@ -305,20 +483,27 @@ export class HermesBridge implements ProviderBridge{
 
  private async handleMcp(request:IncomingMessage,response:import('node:http').ServerResponse):Promise<void>{
   if(request.method==='OPTIONS'){response.writeHead(204,{'access-control-allow-origin':'*','access-control-allow-headers':'content-type,authorization,mcp-session-id','access-control-allow-methods':'POST,GET,DELETE,OPTIONS'});response.end();return;}
-  const auth=request.headers.authorization;
-  if(auth!=='Bearer '+this.mcpToken){response.writeHead(401,{'content-type':'application/json'});response.end(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32000,message:'Unauthorized'}}));return;}
+  // Constant-time compare: the token guards every OWLA tool on this loopback
+  // port (SECURITY-AUDIT-3.6.2 L2).
+  const presented=Buffer.from(request.headers.authorization??'');
+  const expected=Buffer.from('Bearer '+this.mcpToken);
+  if(presented.length!==expected.length||!timingSafeEqual(presented,expected)){response.writeHead(401,{'content-type':'application/json'});response.end(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32000,message:'Unauthorized'}}));return;}
+  // The streamable-HTTP client opens this GET SSE stream and retries on error,
+  // so it stays open by design; disconnect() closes every held connection.
   if(request.method==='GET'){response.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});response.write(':\n\n');return;}
   if(request.method!=='POST'){response.writeHead(405);response.end();return;}
   const parts:string[]=[];let size=0;
   request.setEncoding('utf8');
-  for await(const chunk of request as AsyncIterable<string>){size+=chunk.length;if(size>32*1024*1024){response.writeHead(413);response.end();return;}parts.push(chunk);}
-  let body:unknown;try{body=JSON.parse(parts.join('')||'{}');}catch{body={};}
+  for await(const chunk of request as AsyncIterable<string>){size+=Buffer.byteLength(chunk,'utf8');if(size>32*1024*1024){response.writeHead(413);response.end();return;}parts.push(chunk);}
+  const invalid=(code:number,message:string)=>{response.writeHead(400,{'content-type':'application/json'});response.end(JSON.stringify({jsonrpc:'2.0',id:null,error:{code,message}}));};
+  let body:unknown;try{body=JSON.parse(parts.join(''));}catch{invalid(-32700,'Parse error.');return;}
   // Streamable HTTP carries one JSON-RPC message per request; a batch is an
   // array. Treating an object as an empty batch answered 202 to `initialize`
   // and `tools/list`, so Hermes discovered no OWLA tools and fell back to its
   // own shell and file tools.
   const messages=Array.isArray(body)?list(body):[body];
-  if(!messages.length){response.writeHead(400,{'content-type':'application/json'});response.end(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32600,message:'Empty batch.'}}));return;}
+  if(!messages.length){invalid(-32600,'Empty batch.');return;}
+  if(messages.some(msg=>Array.isArray(msg)||typeof msg!=='object'||msg===null)){invalid(-32600,'Invalid request.');return;}
   const replies:Record<string,unknown>[]=[];
   for(const msg of messages){
    const reply=await this.dispatchMcp(msg);
@@ -346,8 +531,11 @@ export class HermesBridge implements ProviderBridge{
    const args=record(params.arguments);
    const handler=this.toolHandler;
    if(!handler||!this.toolNames.has(name)){return {jsonrpc:'2.0',id,error:{code:-32602,message:'Tool not offered.'}};}
+   const generation=this.generation;
    try{
     const output=await handler(name,args);
+    // A disconnect while the tool ran must not deliver its result afterwards.
+    if(generation!==this.generation)return {jsonrpc:'2.0',id,error:{code:-32000,message:'Hermes disconnected.'}};
     const text=typeof output==='string'?output:output.text;
     const content:Record<string,unknown>[]=[{type:'text',text}];
     const image=typeof output!=='string'?imageBlock(output.imageUrl):null;
@@ -378,25 +566,27 @@ export class HermesBridge implements ProviderBridge{
   const id=this.nextId++;
   const payload=JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n';
   return new Promise((resolve,reject)=>{
-   this.pending.set(id,{resolve,reject});
-   try{this.child!.stdin.write(payload);}catch(error){this.pending.delete(id);reject(error instanceof Error?error:Error(String(error)));}
-   if(timeout!==null)setTimeout(()=>{const entry=this.pending.get(id);if(entry){this.pending.delete(id);entry.reject(Error('Hermes timed out.'));}},timeout);
+   // The timer is stored so a response or disconnect clears it; otherwise every
+   // request holds its closure until the timeout fires (stream-leaks audit U2).
+   const timer=timeout!==null?setTimeout(()=>{const entry=this.pending.get(id);if(entry){this.pending.delete(id);entry.reject(Error('Hermes timed out.'));}},timeout):undefined;
+   this.pending.set(id,{resolve,reject,timer});
+   try{this.child!.stdin.write(payload);}catch(error){this.pending.delete(id);if(timer)clearTimeout(timer);reject(error instanceof Error?error:Error(String(error)));}
   });
  }
 
  private handleStdout(chunk:string):void{
-  this.jsonBuffer+=chunk;
-  let idx;
-  while((idx=this.jsonBuffer.indexOf('\n'))>=0){
-   const line=this.jsonBuffer.slice(0,idx).trim();
-   this.jsonBuffer=this.jsonBuffer.slice(idx+1);
+  // RecordSplitter keeps parsing linear-time and caps one message at 16 MiB,
+  // like the other three bridges (performance audit rank 1: the old
+  // buffer+=chunk / indexOf / slice loop was quadratic and unbounded).
+  for(const raw of this.lines.push(chunk)){
+   const line=raw.trim();
    if(!line)continue;
    let msg:Record<string,unknown>;try{msg=record(JSON.parse(line));}catch{continue;}
    if(typeof msg.method!=='string'){
     // A response to one of OWLA's requests.
     const id=typeof msg.id==='number'?msg.id:0;
     const p=this.pending.get(id);
-    if(p){this.pending.delete(id);const failure=record(msg.error);if(msg.error)p.reject(Error(typeof failure.message==='string'?failure.message:'Hermes error.'));else p.resolve(msg.result);}
+    if(p){this.pending.delete(id);if(p.timer)clearTimeout(p.timer);if(msg.error)p.reject(Error(hermesRpcErrorMessage(msg.error)));else p.resolve(msg.result);}
     continue;
    }
    if(msg.method==='session/update'){
@@ -418,6 +608,7 @@ export class HermesBridge implements ProviderBridge{
     try{this.child?.stdin.write(JSON.stringify({jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'This operation is not permitted in OWLA Butler.'}})+'\n');}catch{ /* ignore */ }
    }
   }
+  if(this.lines.overflow)this.fail(Error('Hermes sent a protocol message that was too large.'));
  }
 
  private lastUpdate:unknown=null;
@@ -432,19 +623,35 @@ export class HermesBridge implements ProviderBridge{
   this.connectionKey=key;
   const generation=this.generation;
   void generation;
-  const starting=this.start(executable,cwd,web,tools);
+  // The reservation stays synchronous; waiting for a resting disconnect's
+  // process tree happens inside it so two connects cannot both spawn (U9).
+  const starting=(async()=>{
+   if(this.closing){const closing=this.closing;await closing;if(this.closing===closing)this.closing=null;}
+   await this.start(executable,cwd,web,tools);
+  })();
   this.connecting=starting;
-  try{await starting;}catch(e){this.setStatus(friendlyHermesError(e));throw e;}
+  try{await starting;}catch(e){
+   // fail() records the real cause (child death, protocol overflow); the RPC
+   // rejection alone would say only "Hermes disconnected." (codex F2 class).
+   const cause=this.lastFailure??(e instanceof Error?e:Error(String(e)));
+   // A start that fails after spawning (initialize or session/new refused)
+   // must not leave a half-connected child: the next connect with the same
+   // key would return early with no models and no session.
+   if(this.child&&this.connecting===starting)this.disconnect(friendlyHermesError(cause));
+   this.setStatus(friendlyHermesError(cause));throw cause;
+  }
   finally{if(this.connecting===starting)this.connecting=null;}
  }
 
  private async start(executable:string,cwd:string,web:boolean,tools:ToolSpec[]):Promise<void>{
   void web;
+  this.sessionCwd=cwd;
   // Hermes reads tools/list while the session is created, so the specs must be known now.
   this.setToolSpecs(tools);
   const generation=this.generation;
   void generation;
   this.setStatus('Connecting…');
+  this.lastFailure=null;
   const env=sanitizedEnv();
   const inheritedPath=envPath(env);
   const file=executable||findHermesExecutable(inheritedPath);
@@ -459,15 +666,20 @@ export class HermesBridge implements ProviderBridge{
   this.ensurePrivateHome(file,web,{url:'http://127.0.0.1:'+this.callbackPort+'/mcp',token:this.mcpToken});
   this.cwd=cwd||home;
   mkdirSync(this.cwd,{recursive:true,mode:0o700});
+  const inheritedFiles=hermesInheritedInstructions(this.cwd);
+  if(inheritedFiles.length)throw Error('Hermes would read project instructions from '+inheritedFiles.slice(0,3).join(', ')+'. Remove those files or move the OWLA storage folder, then reconnect.');
   // spawn
   const child=spawnCli(file,['acp'],{cwd:home,env:hermesChildEnv(env,home,extendedPath(inheritedPath,defaultBinDirectories())),detached:process.platform!=='win32'});
   this.child=child;
   child.stdout.setEncoding('utf8');
   child.stdout.on('data',(chunk:string)=>this.handleStdout(chunk));
   child.stderr.setEncoding('utf8');
-  child.stderr.on('data',()=>{});
-  child.on('error',error=>{if(this.child===child)this.fail(error);});
-  child.on('exit',()=>{if(this.child===child)this.fail(Error('Hermes disconnected.'));});
+  // A bounded stderr tail lets an unexpected exit name its cause instead of a
+  // bare "Hermes disconnected." (failure audit P1, the codex F4 bug class).
+  let stderrTail='';child.stderr.on('data',(chunk:string)=>{stderrTail=(stderrTail+chunk).slice(-4000);});
+  const stderrCause=()=>{const line=stderrTail.split('\n').map(item=>item.trim()).filter(Boolean).pop();return line?' Last error: '+line.slice(0,300):'';};
+  child.on('error',error=>{if(this.child===child)this.fail(Error('Hermes could not be started: '+error.message+stderrCause()));});
+  child.on('exit',()=>{if(this.child===child)this.fail(Error('Hermes disconnected.'+stderrCause()));});
   // initialize
   const init=await this.sendRpc('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'owla',version:'1'}});
   void init;
@@ -485,9 +697,11 @@ export class HermesBridge implements ProviderBridge{
   const available=list(modelsState.availableModels).map(record);
   const currentModelId=typeof modelsState.currentModelId==='string'?modelsState.currentModelId:'';
   const models:ProviderModel[]=[];
+  const seen=new Set<string>();
   for(const entry of available){
    const id=typeof entry.modelId==='string'?entry.modelId:'';
-   if(!id)continue;
+   if(!id||seen.has(id))continue;
+   seen.add(id);
    const colon=id.indexOf(':');
    const providerID=colon>0?id.slice(0,colon):'hermes';
    const modelID=colon>0?id.slice(colon+1):id;
@@ -498,7 +712,7 @@ export class HermesBridge implements ProviderBridge{
     isDefault:id===currentModelId,
     defaultReasoningEffort:HERMES_NO_EFFORT,
     supportedReasoningEfforts:[{reasoningEffort:HERMES_NO_EFFORT,description:''}],
-    inputModalities:['text','image'],
+    inputModalities:hermesModelModalities(providerID,modelID,home),
    });
   }
   this.models=models;
@@ -507,7 +721,7 @@ export class HermesBridge implements ProviderBridge{
   this.setStatus('Connected to Hermes Agent');
  }
 
- private fail(error:Error){this.disconnect(friendlyHermesError(error));}
+ private fail(error:Error){this.lastFailure=error;this.disconnect(friendlyHermesError(error));}
 
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
   this.lastFailure=null;
@@ -555,7 +769,10 @@ export class HermesBridge implements ProviderBridge{
   controller.signal.addEventListener('abort',stop,{once:true});
   try{
    // set model
-   try{await this.sendRpc('session/set_model',{sessionId:this.sessionId,modelId:model.id});}catch{/* ignore */}
+   // A refused model switch must fail the turn: running the session default
+   // while OWLA reports the chosen model is a silent wrong-model turn (U8).
+   try{await this.sendRpc('session/set_model',{sessionId:this.sessionId,modelId:model.id});}
+   catch{if(controller.signal.aborted)throw Error('Stopped.');throw Error('Hermes could not select the chosen model. Reconnect and retry.');}
    // ACP has no system prompt field; OWLA's instructions lead the prompt, as with Codex's developer text.
    const images=options.images.map(imageBlock).filter((image):image is {mediaType:string;data:string}=>!!image);
    const prompt=[{type:'text',text:'OWLA INSTRUCTIONS (follow these over any other guidance):\n'+options.instructions+'\n\n'+options.text},...images.map(image=>({type:'image',data:image.data,mimeType:image.mediaType}))];
@@ -581,6 +798,12 @@ export class HermesBridge implements ProviderBridge{
    await this.rest();
   }
   if(failure){
+   // Hermes's gateway fails a turn with the opaque `admitted_turn_failed` and
+   // streams the real reason (a provider's 429 usage limit, a refused model)
+   // as reply text just before it. Surface that text as the error, so the user
+   // reads the cause and the limit check below can see it.
+   if(/^(?:admitted_turn_failed|internal error|hermes error\.)$/i.test(failure.message.trim())&&text.trim())
+    failure=new Error(text.trim().slice(-1500));
    // Hermes reports plan limits only as errors. The limit holds Hermes back for
    // a while (OWLA retries it once the time passes); the same model can still
    // be served through another provider meanwhile.
@@ -598,24 +821,45 @@ export class HermesBridge implements ProviderBridge{
 
  async rest():Promise<void>{
   if(this.holders.size||this.active)return;
-  if(!this.child&&!this.connecting)return;
+  // A rest must not cancel an in-flight connect (the opencode P5 class):
+  // wait for it, then re-check whether anything took over.
+  if(this.connecting){try{await this.connecting;}catch{/* A failed connect leaves nothing to rest. */}
+   const connecting=this.connecting as Promise<void>|null;
+   if(this.holders.size||this.active||connecting)return;}
+  if(!this.child)return;
   this.disconnect('Connected to Hermes Agent · resting until needed');
-  const generation=this.generation;
-  await new Promise(r=>setTimeout(r,100));
-  if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus('Connected to Hermes Agent · resting until needed');
+  // Await the actual process-tree exit instead of a fixed 100 ms sleep that
+  // could overlap the next connect with the dying gateway (providers U9).
+  const closing=this.closing;
+  if(closing)await closing;
+  if(!this.connecting&&!this.child)this.setStatus('Connected to Hermes Agent · resting until needed');
  }
 
  disconnect(status='Disconnected',keepStartup=false):void{
   this.generation++;
   if(!keepStartup)this.connecting=null;
-  const child=this.child;this.child=null;this.port=0;this.sessionId='';this.active=null;this.toolHandler=null;this.toolNames=new Set();
-  for(const entry of this.pending.values())entry.reject(Error('Hermes disconnected.'));
-  this.pending.clear();this.jsonBuffer='';
-  if(this.callback){this.callback.close();this.callback=null;this.callbackPort=0;}
+  const child=this.child;this.child=null;this.port=0;this.sessionId='';this.sessionCwd='';this.active=null;this.toolHandler=null;this.toolNames=new Set();
+  // Stale models/accountType would keep selectableModels populated and
+  // needsSignIn false while disconnected (providers U6; claude clears both).
+  this.models=[];this.accountType='';
+  for(const entry of this.pending.values()){if(entry.timer)clearTimeout(entry.timer);entry.reject(Error('Hermes disconnected.'));}
+  this.pending.clear();this.lines=new RecordSplitter('\n',16*1024*1024);
+  // close() alone waits for held SSE connections; closeAllConnections ends them.
+  if(this.callback){this.callback.close();this.callback.closeAllConnections();this.callback=null;this.callbackPort=0;}
+  this.closing=null;
   if(child){
    const kill=(signal:NodeJS.Signals)=>terminateProcessTree(child,signal);
    if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');}
-   else{const force=setTimeout(()=>{kill('SIGKILL');},2000);child.once('exit',()=>clearTimeout(force));child.stdin.end();kill('SIGTERM');}
+   else{
+    // Bounded: a child that never reports 'exit' (stuck in the kernel, or its
+    // exit event lost) must not hang every later rest() and connect().
+    this.closing=new Promise<void>(resolve=>{
+     let giveUp:ReturnType<typeof setTimeout>|undefined;
+     const force=setTimeout(()=>{kill('SIGKILL');giveUp=setTimeout(resolve,3000);},2000);
+     child.once('exit',()=>{clearTimeout(force);if(giveUp)clearTimeout(giveUp);resolve();});
+    });
+    child.stdin.end();kill('SIGTERM');
+   }
   }
   this.setStatus(status);
  }
@@ -624,4 +868,7 @@ export class HermesBridge implements ProviderBridge{
 }
 
 // helpers
-async function runCliVersion(file:string):Promise<string>{const {runCli}=await import('./cli');return runCli(file,['--version'],{timeout:10000,maxBuffer:100000});}
+// The version probe runs with the sanitized environment too: an inherited
+// execution-hijack variable must not fire before isolation applies
+// (SECURITY-AUDIT-3.6.2 L1).
+async function runCliVersion(file:string):Promise<string>{const {runCli}=await import('./cli');return runCli(file,['--version'],{env:sanitizedEnv(),timeout:10000,maxBuffer:100000});}

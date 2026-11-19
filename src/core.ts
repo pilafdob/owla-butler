@@ -67,9 +67,15 @@ export const DEFAULTS:ButlerSettings={
 export function migrateSettings(value:unknown):ButlerSettings{
  const data=record(value);
  const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
- const modern=data.schemaVersion===2||data.schemaVersion===3;
+ // Any schema from 2 on keeps the modern fields; a newer version's saved
+ // values must survive a read by this build instead of resetting to defaults.
+ const version=typeof data.schemaVersion==='number'?data.schemaVersion:Number(data.schemaVersion);
+ const modern=Number.isFinite(version)&&version>=2;
+ // The v2 top-level model/reasoning are the Codex fallback. Older local-inference
+ // settings (no schema version) named models OWLA no longer serves, so they stay
+ // out of the Codex record (tests/codex.test.ts migration contract).
  const legacyModel=modern?string('model'):'',legacyReasoning=modern?string('reasoning'):'';
- const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude);
+ const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude),hermes=record(models.hermes);
  const providers:ProviderId[]=['codex','opencode','claude','hermes'];
  const provider:ProviderId=providers.find(id=>id===data.provider)??'codex';
  // The fallback replaces the earlier Codex-only "switch to OpenCode" toggle.
@@ -91,7 +97,7 @@ export function migrateSettings(value:unknown):ButlerSettings{
    codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
    opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
    claude:{model:typeof claude.model==='string'?claude.model:'',reasoning:typeof claude.reasoning==='string'?claude.reasoning:''},
-   hermes:{model:typeof (record(models.hermes) as {model?:unknown}).model==='string'?(record(models.hermes) as {model?:unknown}).model as string:'',reasoning:typeof (record(models.hermes) as {reasoning?:unknown}).reasoning==='string'?(record(models.hermes) as {reasoning?:unknown}).reasoning as string:''}
+   hermes:{model:typeof hermes.model==='string'?hermes.model:'',reasoning:typeof hermes.reasoning==='string'?hermes.reasoning:''}
   },
   ...(modern?{
    codexConnected:data.codexConnected===true,
@@ -122,7 +128,10 @@ export const platformKey=():string=>process.platform==='darwin'?'mac':process.pl
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
  const data=record(value),own=record(record(data.platforms)[platform]);
- return migrateSettings({...data,...own,schemaVersion:data.schemaVersion});
+ // A platforms block is only ever written by schema 3+, so its presence keeps
+ // the modern fields readable even when the top-level version was lost in sync.
+ const schemaVersion=data.schemaVersion??(Object.keys(record(data.platforms)).length?3:undefined);
+ return migrateSettings({...data,...own,schemaVersion});
 }
 /** Stored form: shared settings at the top level, this platform's AI settings under `platforms`, other platforms untouched. */
 export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platformKey()):Record<string,unknown>{

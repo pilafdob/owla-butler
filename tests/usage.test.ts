@@ -9,3 +9,14 @@ test('malformed Codex usage data does not fabricate or coerce counters',async()=
  const actual=decodeUsage({rateLimits:{limitId:'codex',primary:{usedPercent:'80'},secondary:{usedPercent:45,windowDurationMins:10080,resetsAt:1794000000}},rateLimitResetCredits:{availableCount:2}});
  const rows=usageWindows(updateUsage(null,actual??{}));assert.deepEqual(rows.map(row=>[row.used,row.resetsAt]),[[45,1794000000]]);assert.equal(actual?.rateLimitResetCredits?.availableCount,2);
 });
+test('a sparse bucket report keeps the windows and buckets it does not mention',()=>{
+ const initial=updateUsage(null,{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:10},secondary:{usedPercent:20}},other:{primary:{usedPercent:5}}}});
+ const next=updateUsage(initial,{rateLimitsByLimitId:{codex:{primary:{usedPercent:12}}}});
+ const rows=usageWindows(next);
+ assert.equal(rows.length,3);
+ assert.deepEqual(rows.map(row=>row.used),[12,20,5]);
+ // An explicit null window clears that window; a replace report starts fresh.
+ const cleared=updateUsage(next,{rateLimitsByLimitId:{codex:{secondary:null}}});
+ assert.deepEqual(usageWindows(cleared).map(row=>row.used),[12,5]);
+ assert.deepEqual(usageWindows(updateUsage(cleared,{rateLimitsByLimitId:{fresh:{primary:{usedPercent:1}}}},true)).map(row=>row.used),[1]);
+});

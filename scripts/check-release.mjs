@@ -29,9 +29,34 @@ for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/CROSS-SPAWN-LI
 }
 for (const name of ['obsidian-markdown', 'obsidian-bases', 'json-canvas', 'owla-pdf', 'owla-math', 'owla-ocr', 'owla-formatting', 'owla-mermaid', 'owla-excalidraw', 'owla-canvas', 'owla-bases']) assert.ok(main.includes(name), `missing embedded guide: ${name}`);
 const referencePack = JSON.parse(read('assets/reference-pack.json'));
-const literal = main.match(/var reference_pack_default = (\{[\s\S]*?\n\});/);
-assert.ok(literal, 'embedded reference table missing');
-const embedded = runInNewContext('(' + literal[1] + ')', Object.create(null), { timeout: 1000 });
+// Unminified builds keep the import name and pretty layout; minified builds
+// rename the variable and compact the literal. Locate the object by its first
+// pack key, then scan to the matching brace while respecting string literals.
+let literal = null;
+const legacy = main.match(/var reference_pack_default = (\{[\s\S]*?\n\});/);
+if (legacy) literal = legacy[1];
+else {
+  const firstKey = Object.keys(referencePack)[0];
+  const head = main.match(new RegExp('\\bvar\\s+[A-Za-z_$][\\w$]*=\\{' + JSON.stringify(firstKey).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':'));
+  assert.ok(head, 'embedded reference table missing');
+  const begin = head.index + head[0].indexOf('{'); // at the object's opening brace
+  let depth = 0, quote = null, escaped = false, end = -1;
+  for (let i = begin; i < main.length; i++) {
+    const ch = main[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  assert.ok(end > begin, 'embedded reference table missing');
+  literal = main.slice(begin, end);
+}
+const embedded = runInNewContext('(' + literal + ')', Object.create(null), { timeout: 1000 });
 for (const [name, content] of Object.entries(referencePack)) {
   assert.equal(embedded[name], content, `reference not fully embedded: ${name}`);
 }

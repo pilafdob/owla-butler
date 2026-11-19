@@ -171,3 +171,39 @@ test('missing OpenCode limits are explained, with the free-limit reset when know
  assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:null,reason:'',scope:'provider'},1000),/did not say/);
  assert.match(opencodeNoLimitsMessage({provider:'opencode',exhausted:true,resetsAt:500,reason:'',scope:'provider'},1000),/did not say/);
 });
+
+test('a Codex window whose reset has passed no longer blocks, and the latest full reset decides',()=>{
+ const now=1_000_000;
+ const past={rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:100,resetsAt:now-1}}}};
+ assert.equal(codexExhaustion(past,undefined,now).exhausted,false);
+ const both={rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:100,resetsAt:now+600},secondary:{usedPercent:100,resetsAt:now+7200}}}};
+ const state=codexExhaustion(both,undefined,now);
+ assert.equal(state.exhausted,true);
+ assert.equal(state.resetsAt,now+7200);
+ // A full window without a reset still blocks; a non-finite percentage is unknown, not full.
+ assert.equal(codexExhaustion({rateLimits:{primary:{usedPercent:100}}},undefined,now).exhausted,true);
+ assert.equal(codexExhaustion({rateLimits:{primary:{usedPercent:NaN}}},undefined,now).exhausted,false);
+});
+
+test('a Codex limit error without a readable window holds back for a bounded retry',()=>{
+ const now=1_000_000;
+ for(const error of ['429 Too Many Requests','rate_limit_exceeded','You have reached your usage limit','quota exceeded','too many requests']){
+  const state=codexExhaustion(null,error,now);
+  assert.equal(state.exhausted,true,error);
+  assert.equal(state.resetsAt,now+15*60);
+ }
+ assert.equal(codexExhaustion(null,'network unreachable',now).exhausted,false);
+ // A readable full window keeps its own (later) reset instead of the retry window.
+ const usage={rateLimitsByLimitId:{codex:{primary:{usedPercent:100,resetsAt:now+86400}}}};
+ assert.equal(codexExhaustion(usage,'429',now).resetsAt,now+86400);
+});
+
+test('OpenCode limit errors are recognised across their wordings',()=>{
+ for(const error of ['rate_limit_error','rate-limit exceeded','quota exceeded','HTTP 429','too many requests','limit reached']){
+  assert.equal(opencodeExhaustion(error,2000000000).exhausted,true,error);
+ }
+ assert.equal(opencodeExhaustion('Free usage limit reached.',2000000000).scope,'free models');
+ assert.equal(opencodeExhaustion('socket hang up',null).exhausted,false);
+ assert.match(friendlyOpencodeError(Error('Your usage limit was reached')),/usage limit/i);
+ assert.match(friendlyOpencodeError(Error('rate_limit_error')),/usage limit/i);
+});

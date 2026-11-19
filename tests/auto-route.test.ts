@@ -103,7 +103,11 @@ test('remaining plan usage shifts the choice and nearly empty plans are avoided'
  assert.equal(route(task(2,'edit',true),offers(20,80)).provider,'claude');
  assert.notEqual(route(task(2,'edit',true),offers(60,10)).provider,'claude');
  assert.equal(remainingUsage(usage(42),now)?.remaining,42);
- assert.equal(remainingUsage({rateLimitsByLimitId:{a:{primary:{usedPercent:100,resetsAt:now-1}}}},now),null);
+ // Intentional change (3.7.0 RC audit): a window whose reset has passed is full
+ // again, not unknown — a just-reset plan must not carry the unknown-usage penalty.
+ assert.equal(remainingUsage({rateLimitsByLimitId:{a:{primary:{usedPercent:100,resetsAt:now-1}}}},now)?.remaining,100);
+ // An expired window never masks a still-open tighter one.
+ assert.equal(remainingUsage({rateLimitsByLimitId:{a:{primary:{usedPercent:100,resetsAt:now-1}},b:{primary:{usedPercent:70,resetsAt:now+3600}}}},now)?.remaining,30);
 });
 
 test('the reason states the classification, the choice and the plan left',()=>{
@@ -657,4 +661,20 @@ test('the OpenCode shortlist takes turns across sources and fills slots a small 
  assert.equal(picked.filter(model=>model.id.startsWith('big/')).length,5);
  const single=currentModels('opencode',models.filter(model=>model.providerID==='big') as never,6);
  assert.equal(single.length,6);
+});
+
+test('an active drawing makes a visual request vision/edit work, not a cheap text lookup',async()=>{
+ const {heuristicTaskClass}=await import('../src/auto-route');
+ // The real failure: "add a graph, describing this calculation" with an active
+ // Excalidraw drawing but no drawing keyword in the prompt.
+ const addGraph=heuristicTaskClass('add a graph, describing this calculation',{attachments:[],needsImage:true} as never);
+ assert.ok(addGraph);assert.equal(addGraph!.kind,'edit');assert.ok(addGraph!.difficulty>=2);
+ const interpret=heuristicTaskClass('what does this show?',{attachments:[],needsImage:true} as never);
+ assert.ok(interpret);assert.equal(interpret!.kind,'vision');
+ // Without an active drawing the same prompt is not forced into visual work.
+ const noDrawing=heuristicTaskClass('add a graph, describing this calculation',{attachments:[]} as never,true);
+ assert.ok(noDrawing);assert.notEqual(noDrawing!.kind,'vision');
+ // An unrelated question while a drawing happens to be open stays a lookup.
+ const unrelated=heuristicTaskClass('What is the capital of France?',{attachments:[],needsImage:true} as never,true);
+ assert.ok(unrelated);assert.equal(unrelated!.kind,'lookup');
 });

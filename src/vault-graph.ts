@@ -24,6 +24,15 @@ export type GraphQuery={
 };
 
 const PAGE=100;
+const VALUE_LIMIT=500;
+/** Truncates long frontmatter values so one huge property cannot balloon the tool result into the next turn. */
+function shortValue(value:unknown,depth=0):unknown{
+ if(typeof value==='string')return value.length>VALUE_LIMIT?value.slice(0,VALUE_LIMIT)+'… [truncated]':value;
+ if(depth>8)return '[nested value omitted]';
+ if(Array.isArray(value))return value.slice(0,20).map(item=>shortValue(item,depth+1));
+ if(value&&typeof value==='object'){const out:Record<string,unknown>={};for(const [key,item] of Object.entries(value).slice(0,40))out[key]=shortValue(item,depth+1);return out;}
+ return value;
+}
 
 function page<T>(items:T[],offset:number){
  const slice=items.slice(offset,offset+PAGE);
@@ -54,7 +63,7 @@ export function noteGraph(source:GraphSource,path:string){
   .filter(([from,targets])=>from!==path&&targets[path]&&source.allowed(from))
   .map(([from,targets])=>({path:from,count:targets[path]}))
   .sort((a,b)=>b.count-a.count||a.path.localeCompare(b.path));
- return {path,tags:source.tags(path),properties:source.properties(path)??{},outgoing,unresolved,backlinks:backlinks.slice(0,PAGE),backlinkCount:backlinks.length};
+ return {path,tags:source.tags(path).slice(0,PAGE),properties:shortValue(source.properties(path)??{}) as Record<string,unknown>,outgoing:outgoing.slice(0,PAGE),outgoingCount:outgoing.length,unresolved:unresolved.slice(0,PAGE),unresolvedCount:unresolved.length,backlinks:backlinks.slice(0,PAGE),backlinkCount:backlinks.length};
 }
 
 export function queryGraph(source:GraphSource,query:GraphQuery){
@@ -69,7 +78,7 @@ export function queryGraph(source:GraphSource,query:GraphQuery){
   const matches=notes.flatMap(note=>{
    const props=source.properties(note)??{};
    const entry=Object.entries(props).find(([name])=>name.toLowerCase()===key);
-   return entry&&valueMatches(entry[1],query.value)?[{path:note,value:entry[1]}]:[];
+   return entry&&valueMatches(entry[1],query.value)?[{path:note,value:shortValue(entry[1])}]:[];
   });
   return {property:query.property,...(query.value!==undefined?{value:query.value}:{}),...page(matches,offset)};
  }
@@ -100,6 +109,6 @@ export function decodeGraphQuery(value:Record<string,unknown>):GraphQuery{
  const query:GraphQuery={};
  for(const key of ['path','tag','property','value'] as const){const v=value[key];if(v!==undefined){if(typeof v!=='string')throw Error(key+' must be text.');query[key]=v;}}
  if(value.report!==undefined){if(value.report!=='unresolved'&&value.report!=='orphans'&&value.report!=='tags')throw Error('report must be unresolved, orphans or tags.');query.report=value.report;}
- if(value.offset!==undefined){if(typeof value.offset!=='number')throw Error('offset must be a number.');query.offset=value.offset;}
+ if(value.offset!==undefined){if(typeof value.offset!=='number'||!Number.isSafeInteger(value.offset)||value.offset<0)throw Error('offset must be a nonnegative integer.');query.offset=value.offset;}
  return query;
 }
