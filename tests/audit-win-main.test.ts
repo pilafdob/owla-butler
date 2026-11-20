@@ -146,8 +146,26 @@ test('search_vault snapshots are normalized so propose_edit matches',async()=>{
 test('writeEdit accepts an LF snapshot against a CRLF file (closed note)',async()=>{
  const butler=makeButler();
  await butler.apply({path:'Notes/CRLF.md',before:'alpha\nbeta\ngamma\n',after:'alpha\nBETA\ngamma\n',reason:'r'});
- assert.equal(raw['Notes/CRLF.md'],'alpha\nBETA\ngamma\n');
+ // The note keeps its CRLF line endings; only the changed line differs.
+ assert.equal(raw['Notes/CRLF.md'],'alpha\r\nBETA\r\ngamma\r\n');
  raw['Notes/CRLF.md']='alpha\r\nbeta\r\ngamma\r\n';
+});
+
+test('apply then decline leaves a closed CRLF note byte-identical',async()=>{
+ const butler=makeButler();
+ const original='alpha\r\nbeta\r\ngamma\r\n';
+ raw['Notes/CRLF.md']=original;
+ const edit={path:'Notes/CRLF.md',before:'alpha\nbeta\ngamma\n',after:'alpha\nBETA\ngamma\n',reason:'r'};
+ await butler.apply(edit);
+ await butler.restoreEdit(edit);
+ assert.equal(raw['Notes/CRLF.md'],original);
+});
+
+test('an LF note is still written byte-for-byte (POSIX unchanged)',async()=>{
+ const butler=makeButler();
+ await butler.apply({path:'Notes/LF.md',before:'alpha\nbeta\n',after:'alpha\nBETA\n',reason:'r'});
+ assert.equal(raw['Notes/LF.md'],'alpha\nBETA\n');
+ raw['Notes/LF.md']='alpha\nbeta\n';
 });
 
 test('writeEdit still rejects a real content change despite normalization',async()=>{

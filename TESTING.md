@@ -1,5 +1,67 @@
 # OWLA Butler verification
 
+## 3.7.0 RC — macOS live release checks (2026-11-20, Agentbrain test vault)
+
+The post-review checks from `audits/3.7.0-rc/windows-independent-followup.md`
+§6, run on macOS against the installed build in the running app.
+
+- **Host and install:** macOS, Obsidian 1.15.1, Node 24.15.0. The exact
+  `main.js`, `manifest.json` and `styles.css` were installed in Agentbrain
+  (previous files and `data.json` backed up first), the plugin was reloaded
+  with `obsidian plugin:reload`, and the running copy was confirmed by its
+  SHA-256 and the new PDF cache budget (`maxBytes` 67,108,864). No console errors.
+- **Driver:** `obsidian eval` called the real `ButlerView.send`, `tool`,
+  `decideEdit` and `stop`. Fixtures are in `OWLA Butler Test/3.7.0 live/`.
+- **Providers (connect, one read_note tool turn, Stop mid-reply, disconnect and
+  reconnect):**
+  - Claude Code 2.1.328 (Claude Pro): all pass. Tool turn 7 s, reconnect 3 s,
+    no Claude child left after Stop or turn end.
+  - Hermes, via its private home with `nous:anthropic/claude-haiku-5.5`: all
+    pass. 141 models, 97 with image input, 132 with a models.dev context
+    window. The user's `~/.hermes/sessions` was not written; the private home
+    has no `vault/` entry and its `.env` has no PATH/ComSpec/PATHEXT lines.
+    The user's Hermes default (`opencode-go:qwen/qwen4-max:free`) was refused
+    by OpenCode Go (HTTP 400); OWLA showed the provider's cause.
+  - Codex: connect and reconnect pass; no model turn possible (usage limit,
+    reset 22/11/2026), reported correctly.
+  - OpenCode: connect (74 models) and reconnect pass, no server left running;
+    no model turn possible (paid balance empty, free models at the shared limit).
+  - Automatic selection (macOS): one real turn routed to OpenCode, survived two
+    provider refusals by retrying, and answered correctly in 13.6 s.
+- **CRLF Markdown (closed and open note):** highlights mark exactly the changed
+  line with no stray `\r`. **Found and fixed live:** for a closed CRLF note the
+  provisional apply wrote LF, so a proposal that was then declined still
+  rewrote every line ending. Closed CRLF notes now keep their CRLF (`writeEdit`).
+  Re-verified live: Decline and Undo leave the file byte-identical (same
+  SHA-1), Accept changes one line and keeps CRLF, and a note changed on disk
+  after the proposal refuses the decline ("your newer text was preserved"). An
+  open note goes through Obsidian's editor, which saves LF itself.
+- **Path guards:** a case alias (`owla butler test/readme.md`) reads the real
+  file. Excluded folders, also through aliases, are refused, as is `../`
+  traversal. Backslash folders get the forward-slash hint. A CRLF canvas reads
+  correctly and stays byte-identical.
+- **PDF cache:** continuation reads reuse one parsed document; an external
+  rewrite invalidates it (re-parse on the next read); Stop and New chat empty
+  it; the 111 MB `Annotation QA.pdf` is read but not kept; a damaged PDF
+  ("Invalid PDF structure") and a qpdf AES-256 password PDF ("The PDF is
+  password-protected…") fail clearly and are not cached.
+- **View lifecycle:** closing and reopening the OWLA view left no observers and
+  no errors.
+- **Gates (final tree):** `npm run check`, `npm run lint`, `npm test`
+  (**782 total / 776 pass / 0 fail / 6 skipped**, the Windows-only tests, run
+  twice), `npm run build` (993.2 kb), `npm run check:release`,
+  `npm run guard:test`, `git diff --check` pass. `node scripts/package.mjs`
+  produced a 43-file ZIP whose `main.js` matches the build; no sources, tests or
+  secrets inside.
+- **Settings:** test turns persisted temporary provider overrides into
+  `data.json`; the backup was restored byte-identically and reloaded. A
+  model-refusal record the Automatic turn wrote (`groq/allam-2-7b` rejects
+  reasoning settings) was kept, since OWLA uses it to skip that model.
+- **Not verified here:** everything that needs Windows hardware (npm `claude.cmd`
+  multiline turn, Automatic staying unavailable on Windows, NTFS/junction
+  behaviour), Codex and OpenCode model turns (account limits), and the remote
+  CI/release assets.
+
 ## 3.7.0 RC — Windows independent verification (2026-11-20)
 
 This entry supersedes Windows gate assertions from the earlier hardening

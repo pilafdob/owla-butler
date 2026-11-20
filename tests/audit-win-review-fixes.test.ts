@@ -125,7 +125,8 @@ test('a closed CRLF plain note still accepts an LF snapshot (Markdown normalizat
  const butler=makeButler(app);
  const view=new ButlerView({app},butler);
  await (butler as any).writeEdit({path:'note.md',before:'alpha\nbeta\n',after:'alpha\nBETA\n',reason:'r'});
- assert.equal(stored,'alpha\nBETA\n');
+ // Accepted against the LF snapshot, written back in the note's own CRLF style.
+ assert.equal(stored,'alpha\r\nBETA\r\n');
 });
 
 // ---- L3: lock retry works where Atomics.wait throws (Electron renderer) -----

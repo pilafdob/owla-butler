@@ -683,7 +683,9 @@ export default class Butler extends Plugin {
   } else {
    await this.app.vault.process(file,current => {
     prepare(current);
-    return edit.after;
+    // A closed CRLF note keeps its own line endings: provisional apply, accept
+    // and decline (which writes the original back) must not rewrite every line.
+    return plain&&current.includes('\r\n')?noteText(edit.after).replace(/\n/g,'\r\n'):edit.after;
    });
   }
  }
