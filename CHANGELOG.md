@@ -63,7 +63,7 @@
 - OCR helper: needs Xcode or its command line tools and never opens the macOS install dialog; it is compiled once per version, shared by parallel reads, and a failed or interrupted build never leaves a broken binary.
 - Hermes model image support is re-read when the models.dev catalogue file changes, so a catalogue downloaded or refreshed mid-session is used on the next connect.
 
-### Windows hardening (3.7.0 release candidate)
+### Windows hardening
 
 - **Provider launch and teardown:** Windows environment keys are read case-insensitively; `.cmd`/`.bat` arguments with unsafe control characters fail closed. Standard npm Claude shims launch their validated JavaScript entry point directly through Node so multiline instructions arrive intact. Process-tree teardown rechecks exit state before targeting a PID, and failed launches release listeners and timers.
 - **Private provider homes:** Hermes uses the Windows local-application-data home, excludes its credential vault and gateway/runtime state, removes dangling excluded entries, and replaces planted hard links. Reconnects still validate the mirror but avoid unnecessary rewrites. Codex credential links must match the intended sign-in file; instruction-file checks use canonical paths.
@@ -72,8 +72,9 @@
 - **Bounded tools and reads:** vault-graph output enforces its byte budget even for expanded YAML aliases. Filesystem-confirmed case aliases share exclusion, scope and read-size checks. Tool reasons are bounded and property proposals reject non-Markdown formats.
 - **Reliability:** bounded lock retries cover chat writes/deletes and binary reads; journal stat failures preserve recovery data and read-only journal replacement retries safely. OpenCode startup retries bind collisions without reviving a disconnected connection; invalid reset times cannot block a provider indefinitely, and limit detection is shared.
 - **Performance and context:** parsed PDFs are reused through refcounted cache leases and invalidated on modification/stop/close; pending-review rendering is coalesced; detached reply observers are released. Routing-history pruning no longer repeatedly serializes the whole history. Context trimming uses literal, position-checked replacement and conservative estimates; Hermes reads catalogue context windows. Automatic selection remains macOS-only, and macOS Vision OCR/supporting code is preserved.
+- **Release verification fixes:** a closed note with Windows (CRLF) line endings keeps them when an edit is proposed, accepted, declined or undone, so declining no longer rewrites every line. Parsed PDFs kept between reads are limited to 64 MB in total, and a cached continuation no longer reads the whole file again. Closing tags of the untrusted-content wrapper written with spaces are escaped too.
 
-### Audits and review (3.7.0 release candidate)
+### Audits and review
 
 - **Seven-area audit** of the 3.6.3 code: failure handling, stream and resource leaks, security and token leakage, automatic-mode efficiency, providers and usage limits, tools and context, and performance. Reports are in `audits/3.7.0-rc/` (`failure-resilience.md`, `stream-leaks.md`, `security-leaks.md`, `auto-mode-efficiency.md`, `providers-usage.md`, `tools-context.md`, `performance.md`), with the consolidated handoff in `REVIEW-rc-hardening-pass.md`.
 - **Feature reviews:** tables to chat, PDF page citations, handwriting OCR and vision routing, and the documentation reorganisation each have a review note in the same folder.
@@ -82,6 +83,7 @@
 - **Windows round:** eight area reports (`windows-failure-process.md`, `windows-stream-leaks.md`, `windows-security-leaks.md`, `windows-auto-mode.md`, `windows-providers-usage.md`, `windows-tools-context.md`, `windows-attachments-vision.md`, `windows-performance-main.md`) plus `windows-consolidation-log.md` and `REVIEW-windows-hardening-pass.md` in `audits/3.7.0-rc/`. Consolidation O1–O6 resolved cross-area interactions and the earlier independent review's six logic findings, with regression coverage.
 - **Independent follow-up (2026-11-20):** three fresh reviewers re-examined the Windows tree and reproduced fourteen further defects (recovery-journal read failures, npm-shim cwd hijack, stale Hermes credential copies, lone-CR `.env` bypass, system-directory trust, CRLF apply/rollback offsets, external-PDF cache collisions, graph pagination, UTF-8 sample boundaries, case-alias unsaved reads, observer retention, post-trim routing eligibility, history-write atomicity, PDF lease capacity). All were fixed with regressions; final gates **774 tests / 773 pass / 0 fail / 1 designed skip**, build/check/lint/release/guard checks green. A second delegated fix review was cut short by the account's daily usage limit, so the parent completed and verified the remaining fixes directly. Details in `AUDIT.md`.
 - The earlier macOS release check recorded 488 passing tests; the Windows fan-out baseline separately recorded 479 tests (467 pass, 12 fixture failures). These are different snapshots, not a single test-count progression. The current independent Windows rerun and remaining release checks are recorded in `TESTING.md` and `AUDIT.md`.
+- **macOS live release check (2026-11-20):** in a test vault, Claude Code and Hermes passed connect, a tool turn, Stop and reconnect; Codex and OpenCode connected and reconnected but were at their usage limits. Automatic selection, CRLF review flows, path guards and the PDF cache were exercised in the running app, and the CRLF line-ending bug above was found and fixed. Final gates **782 tests / 776 pass / 0 fail / 6 Windows-only skips**. Details in `TESTING.md`.
 
 ### Documentation
 
@@ -91,9 +93,9 @@
 
 ### Known limits
 
-- Not verified on Windows in a running vault, and no Codex turn was run live (usage limit).
+- Not verified on Windows in a running vault (including a multi-line turn through the npm-installed Claude Code). Codex and OpenCode model turns were not run live (usage limits).
 - With strong providers limited, automatic selection can pick a free model that uses many tool calls; the 40/50 tool-call guard stops it.
-- The Windows round implements the previously deferred PDF cache, review render coalescing, Hermes rewrite gating, selection trimming, catalogue context-window lookup and untrusted-output delimiters. Remaining work includes live installed-provider/Obsidian verification, prompt PDF-parse cancellation, snapshot-consistent PDF cache identity, Excalidraw export limits, organization checkpoint optimization and the other scoped items in `audits/3.7.0-rc/REVIEW-windows-hardening-pass.md` §5. No Windows Automatic-mode enablement is included.
+- The Windows round implements the previously deferred PDF cache, review render coalescing, Hermes rewrite gating, selection trimming, catalogue context-window lookup and untrusted-output delimiters. Remaining work includes a live Windows pass, prompt PDF-parse cancellation, snapshot-consistent PDF cache identity, Excalidraw export limits, organization checkpoint optimization and the other scoped items in `audits/3.7.0-rc/REVIEW-windows-hardening-pass.md` §5. No Windows Automatic-mode enablement is included.
 
 ## 3.6.3
 
