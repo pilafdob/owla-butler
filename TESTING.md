@@ -1,5 +1,26 @@
 # OWLA Butler verification
 
+## 3.7.0 — GitHub release (2026-11-20)
+
+- **Source:** tag `3.7.0` on `main` at `a1e4f27` (PR #2 merged the RC, PR #3 the
+  release notes). "Check plugin" CI passed on that commit; the `3.7.0-RC` branch
+  was deleted after it was fully merged.
+- **Local gates on that tree (macOS):** check, lint, `npm test` (782 / 776 pass /
+  0 fail / 6 Windows-only skips), guard:test, build, `RELEASE_TAG=3.7.0
+  check:release`, the workflow's metadata check, ZIP packaging (43 files) and
+  `npm audit --omit=dev` (0 vulnerabilities).
+- **Release workflow:** passed and created a draft with only `main.js`,
+  `manifest.json` and `styles.css`. The downloaded assets match the local build
+  by SHA-256 (`main.js` `e6a53c76…adbbf2`), and `gh attestation verify` passed
+  for all three (signed by `.github/workflows/release.yml` at `refs/tags/3.7.0`).
+- **Installed draft assets:** copied into Agentbrain and reloaded: version 3.7.0,
+  no console errors, `data.json` unchanged; one Automatic turn read a note and
+  answered correctly through Claude Code (23 s).
+- **Published:** non-draft, marked Latest; asset downloads and the default-branch
+  `manifest.json` (3.7.0) are publicly reachable.
+- **Not verified:** Windows live pass, Codex and OpenCode model turns (usage
+  limits), and that the Community directory has picked up the update.
+
 ## 3.7.0 RC — macOS live release checks (2026-11-20, Agentbrain test vault)
 
 The post-review checks from `audits/3.7.0-rc/windows-independent-followup.md`
