@@ -63,13 +63,6 @@ Remaining scoped risks and designs stay in
 [the Windows handoff §5](audits/3.7.0-rc/REVIEW-windows-hardening-pass.md#5-deferred-backlog-risk-tiers-designs-in-the-per-agent-reports).
 
 
-
-## Sensitive-data audit and history rewrite — 2026-11-19
-
-- **Scope:** the staged 3.7.0 tree, the built `main.js`/`manifest.json`/`styles.css`, the release ZIP, the local `work/` folder (gitignored, never committed or packaged), and the full public GitHub history (branches, 35 tags, commit and tag metadata).
-- **Found:** an OpenCode organisation ID in two test files (public since 3.1.4); the developer's macOS username in a once-tracked `node_modules` link, in ten commit messages and in two 3.7.0-RC audit reports; a personal author/tagger email in ten commits and two annotated tags; a Hermes session ID in a review note. No passwords, API keys or tokens anywhere.
-- **Fixed:** the working tree uses a placeholder ID, `~` paths and no session ID. History was rewritten in a separate mirror (`git filter-branch` with a five-blob replacement map, message and email filters, re-created tagger lines) and force-pushed with explicit owner approval. Every branch tip and tag differs from before only in those files; commit count unchanged (101); all 33 GitHub releases keep their assets. A fresh clone has zero hits.
-- **Limits:** GitHub keeps one pull-request ref (`refs/pull/…`) that still reaches the old commits, and may cache old commit pages; only GitHub Support can purge those. Other existing clones still hold the old history until re-cloned.
 ## macOS + Windows security audit — 2026-11-18 (released in 3.6.3)
 
 Triggered by the School-vault debug bundle (`work/school-chat-debug-2026-11-18/`). The
