@@ -8,4 +8,4 @@ const notices = ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/CROSS-SPAWN-LICEN
 const licenseBanner = '/*\n' + notices.map(path => path + ':\n' +
   readFileSync(new URL('./' + path, import.meta.url), 'utf8')).join('\n')
   .replace(/\*\//g, '* /') + '\n*/';
-await esbuild.build({entryPoints:['src/main.ts'],bundle:true,platform:'node',format:'cjs',target:'es2022',external:['obsidian','electron','@codemirror/state','@codemirror/view'],outfile:'main.js',banner:{js:licenseBanner},logLevel:'info'});
+await esbuild.build({entryPoints:['src/main.ts'],bundle:true,minify:true,platform:'node',format:'cjs',target:'es2022',external:['obsidian','electron','@codemirror/state','@codemirror/view'],outfile:'main.js',banner:{js:licenseBanner},logLevel:'info'});

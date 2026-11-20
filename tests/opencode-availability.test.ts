@@ -111,3 +111,11 @@ test('SessionModelAvailability.clear lifts all session refusals', async () => {
  gate.clear();
  assert.equal(gate.available('codex', 'gpt-6-astra'), true);
 });
+
+test('a non-finite Go meter percentage is unknown, not a full meter',()=>{
+ const availability=new OpencodeAvailability();
+ availability.applyUsage({rateLimitsByLimitId:{'opencode-go-weekly':{limitId:'opencode-go-weekly',primary:{usedPercent:NaN}}}},NOW);
+ assert.equal(availability.available(goPaid,NOW),true);
+ availability.applyUsage({rateLimitsByLimitId:{'opencode-go-weekly':{limitId:'opencode-go-weekly',primary:{usedPercent:100,resetsAt:NOW-1}}}},NOW);
+ assert.equal(availability.available(goPaid,NOW),true,'a meter whose reset passed no longer blocks');
+});

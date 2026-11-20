@@ -7,11 +7,18 @@ import {applyCanvasOperations,canvasProblems,parseCanvas,serializeCanvas,summari
 import {baseProblems,baseReferences,parseBase,summarizeBase} from '../src/bases';
 import {applyExcalidrawOperations,revertExcalidraw,isExcalidrawJsonPath,isExcalidrawNote,isExcalidrawPath,isExcalidrawText,newExcalidrawFile,parseExcalidraw,readableExcalidraw,serializeExcalidraw,summarizeExcalidraw,type ElementFactory,type ExcalidrawElement} from '../src/excalidraw';
 
-const canvasText=JSON.stringify({nodes:[
- {id:'g1',type:'group',label:'Trip',x:-40,y:-60,width:800,height:360},
- {id:'a1',type:'text',text:'# Idea\nPlan',x:0,y:0,width:260,height:140,color:'4'},
- {id:'b2',type:'file',file:'Notes/Plan.md',x:400,y:0,width:320,height:240},
-],edges:[{id:'e1',fromNode:'a1',fromSide:'right',toNode:'b2',toSide:'left',label:'links to'}]},null,'\t');
+// Obsidian's canonical canvas format: tab-indented top-level keys, each node/edge
+// a compact single-line object, no trailing newline (matches serializeCanvas).
+const canvasText=`{
+\t"nodes":[
+\t\t{"id":"g1","type":"group","label":"Trip","x":-40,"y":-60,"width":800,"height":360},
+\t\t{"id":"a1","type":"text","text":"# Idea\\nPlan","x":0,"y":0,"width":260,"height":140,"color":"4"},
+\t\t{"id":"b2","type":"file","file":"Notes/Plan.md","x":400,"y":0,"width":320,"height":240}
+\t],
+\t"edges":[
+\t\t{"id":"e1","fromNode":"a1","fromSide":"right","toNode":"b2","toSide":"left","label":"links to"}
+\t]
+}`;
 
 test('canvas: a valid canvas parses, summarises with groups and edges, and round-trips its formatting',()=>{
  const data=parseCanvas(canvasText);

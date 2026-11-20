@@ -21,7 +21,7 @@ const staging = mkdtempSync(join(tmpdir(), 'owla-package-'));
 try {
   const folder = join(staging, 'owla-butler');
   mkdirSync(folder);
-  for (const name of ['main.js', 'manifest.json', 'styles.css', 'LICENSE', 'README.md', 'TESTING.md', 'AUDIT.md', 'RELEASE-CANDIDATE.md', 'CAPABILITY-CHECKLIST.md', 'CHANGELOG.md', 'RELEASE-NOTES.md', 'THIRD-PARTY-NOTICES.md', 'COMMUNITY-RELEASE.md', 'assets']) {
+  for (const name of ['main.js', 'manifest.json', 'styles.css', 'LICENSE', 'README.md', 'TESTING.md', 'AUDIT.md', 'audits/1.0.1/RELEASE-CANDIDATE.md', 'audits/1.0.0/CAPABILITY-CHECKLIST.md', 'CHANGELOG.md', 'RELEASE-NOTES.md', 'THIRD-PARTY-NOTICES.md', 'COMMUNITY-RELEASE.md', 'assets']) {
     const source = join(root, name);
     if (!existsSync(source) || (statSync(source).isFile() && !statSync(source).size)) throw Error(`Missing package content: ${name}`);
     cpSync(source, join(folder, name), { recursive: true });

@@ -67,9 +67,15 @@ export const DEFAULTS:ButlerSettings={
 export function migrateSettings(value:unknown):ButlerSettings{
  const data=record(value);
  const string=(key:string)=>typeof data[key]==='string'?data[key]:'';
- const modern=data.schemaVersion===2||data.schemaVersion===3;
+ // Any schema from 2 on keeps the modern fields; a newer version's saved
+ // values must survive a read by this build instead of resetting to defaults.
+ const version=typeof data.schemaVersion==='number'?data.schemaVersion:Number(data.schemaVersion);
+ const modern=Number.isFinite(version)&&version>=2;
+ // The v2 top-level model/reasoning are the Codex fallback. Older local-inference
+ // settings (no schema version) named models OWLA no longer serves, so they stay
+ // out of the Codex record (tests/codex.test.ts migration contract).
  const legacyModel=modern?string('model'):'',legacyReasoning=modern?string('reasoning'):'';
- const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude);
+ const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude),hermes=record(models.hermes);
  const providers:ProviderId[]=['codex','opencode','claude','hermes'];
  const provider:ProviderId=providers.find(id=>id===data.provider)??'codex';
  // The fallback replaces the earlier Codex-only "switch to OpenCode" toggle.
@@ -91,7 +97,7 @@ export function migrateSettings(value:unknown):ButlerSettings{
    codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
    opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
    claude:{model:typeof claude.model==='string'?claude.model:'',reasoning:typeof claude.reasoning==='string'?claude.reasoning:''},
-   hermes:{model:typeof (record(models.hermes) as {model?:unknown}).model==='string'?(record(models.hermes) as {model?:unknown}).model as string:'',reasoning:typeof (record(models.hermes) as {reasoning?:unknown}).reasoning==='string'?(record(models.hermes) as {reasoning?:unknown}).reasoning as string:''}
+   hermes:{model:typeof hermes.model==='string'?hermes.model:'',reasoning:typeof hermes.reasoning==='string'?hermes.reasoning:''}
   },
   ...(modern?{
    codexConnected:data.codexConnected===true,
@@ -122,7 +128,10 @@ export const platformKey=():string=>process.platform==='darwin'?'mac':process.pl
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{
  const data=record(value),own=record(record(data.platforms)[platform]);
- return migrateSettings({...data,...own,schemaVersion:data.schemaVersion});
+ // A platforms block is only ever written by schema 3+, so its presence keeps
+ // the modern fields readable even when the top-level version was lost in sync.
+ const schemaVersion=data.schemaVersion??(Object.keys(record(data.platforms)).length?3:undefined);
+ return migrateSettings({...data,...own,schemaVersion});
 }
 /** Stored form: shared settings at the top level, this platform's AI settings under `platforms`, other platforms untouched. */
 export function writeSettings(prefs:ButlerSettings,stored:unknown,platform=platformKey()):Record<string,unknown>{
@@ -160,6 +169,8 @@ export function allowedPath(path:string,excluded='',extension:string|null='md',p
  let roots=excludedCache.get(cacheKey);
  if(!roots){
   roots=excluded.split('\n').map(s=>s.trim().replace(/\\/g,'/').replace(/^\/+|\/+$/g,'')).filter(Boolean).map(foldPath);
+  // Bounded FIFO: the cache only grows when the exclusion setting changes.
+  if(excludedCache.size>=32){const oldest=excludedCache.keys().next().value;if(oldest!==undefined)excludedCache.delete(oldest);}
   excludedCache.set(cacheKey,roots);
  }
  return !roots.some(root=>target===root||target.startsWith(root+'/'));
@@ -251,7 +262,7 @@ export function stageProposal(
 }
 
 export function assertFresh(current:string,expected:string):void {if(current!==expected)throw Error('The note changed since this proposal. Ask for a fresh edit; your newer text was preserved.');}
-export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\n([\s\S]*?)\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all:string,body:string)=>'$$\n'+body.trim()+'\n$$');}
+export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\r?\n([\s\S]*?)\r?\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all:string,body:string)=>'$$\n'+body.trim()+'\n$$');}
 export function formatTranscription(text:string):string {
  return stripFence(text).split('\n').map(line=>{
   if(line.includes('$'))return line;
@@ -268,7 +279,7 @@ export function insertion(path:string,before:string,content:string,start:number,
  let markdown=stripFence(content);if(markdown.includes('\n')){if(start>0&&before[start-1]!=='\n')markdown='\n\n'+markdown;if(end<before.length&&before[end]!=='\n')markdown+='\n\n';}
  return {path,before,after:before.slice(0,start)+markdown+before.slice(end),reason:start===end?'Insert at the captured cursor':'Replace the captured selection'};
 }
-export function parseJsonLine(line:string):unknown {if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
+export function parseJsonLine(line:string):unknown {line=line.trim();if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
 
 export function vaultStorageKey(identity:string):string{return createHash('sha256').update(identity).digest('hex').slice(0,20);}
 

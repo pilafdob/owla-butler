@@ -5,7 +5,11 @@ export interface LimitBucket{limitId?:string|null;limitName?:string|null;normalM
 export interface UsageSnapshot{rateLimits?:LimitBucket|null;rateLimitsByLimitId?:Record<string,LimitBucket>|null;rateLimitResetCredits?:{availableCount:number}|null;}
 export function updateUsage(previous:UsageSnapshot|null,incoming:UsageSnapshot,replace=false):UsageSnapshot{
  if(replace)previous=null;
- const buckets={...previous?.rateLimitsByLimitId,...incoming.rateLimitsByLimitId};if(incoming.rateLimits){const key=incoming.rateLimits.limitId||'codex';buckets[key]={...buckets[key],...incoming.rateLimits};}
+ // A sparse report updates its bucket without dropping the windows or buckets
+ // it does not mention; an explicit null window clears that window.
+ const buckets={...previous?.rateLimitsByLimitId};
+ for(const [id,bucket]of Object.entries(incoming.rateLimitsByLimitId??{}))buckets[id]={...buckets[id],...bucket};
+ if(incoming.rateLimits){const key=incoming.rateLimits.limitId||'codex';buckets[key]={...buckets[key],...incoming.rateLimits};}
  return {...previous,...incoming,rateLimitsByLimitId:buckets};
 }
 export function usageWindows(data:UsageSnapshot|null){const rows:{bucket:string;window:string;used:number;remaining:number;resetsAt:number|null}[]=[];for(const [id,bucket]of Object.entries(data?.rateLimitsByLimitId??{})){for(const name of ['primary','secondary'] as const){const window=bucket[name];if(!window||typeof window.usedPercent!=='number'||!Number.isFinite(window.usedPercent))continue;const mins=window.windowDurationMins;const label=window.label??(mins&&mins%1440===0?`${mins/1440}-day window`:mins&&mins%60===0?`${mins/60}-hour window`:mins?`${mins}-minute window`:name==='primary'?'Primary window':'Secondary window');rows.push({bucket:bucket.limitName||(bucket.limitId==='codex'?'Codex':bucket.limitId)||id,window:label,used:window.usedPercent,remaining:Math.max(0,100-window.usedPercent),resetsAt:typeof window.resetsAt==='number'?window.resetsAt:null});}}return rows;}
@@ -14,7 +18,7 @@ function decodeWindow(value:unknown):LimitWindow|null|undefined{
  if(value===null)return null;
  const {usedPercent,windowDurationMins,resetsAt}=record(value);
  if(typeof usedPercent!=='number'||!Number.isFinite(usedPercent))return undefined;
- return {usedPercent,windowDurationMins:typeof windowDurationMins==='number'?windowDurationMins:null,resetsAt:typeof resetsAt==='number'?resetsAt:null};
+ return {usedPercent,windowDurationMins:typeof windowDurationMins==='number'?windowDurationMins:null,resetsAt:typeof resetsAt==='number'&&Number.isFinite(resetsAt)?resetsAt:null};
 }
 function decodeBucket(value:unknown):LimitBucket|null|undefined{
  if(value===null)return null;
@@ -41,7 +45,7 @@ function decodeMeter(value:unknown,label:string):LimitWindow|null{
  const data=record(value);
  if(typeof data.percent!=='number'||!Number.isFinite(data.percent))return null;
  if(data.limited===false)return null;
- return {usedPercent:Math.min(100,Math.max(0,data.percent)),resetsAt:typeof data.resetsAt==='number'?Math.round(data.resetsAt/1000):null,label};
+ return {usedPercent:Math.min(100,Math.max(0,data.percent)),resetsAt:typeof data.resetsAt==='number'&&Number.isFinite(data.resetsAt)?Math.round(data.resetsAt/1000):null,label};
 }
 /** Keeps only OpenCode Go's own meters, so a console budget or another
  *  source's window cannot be mistaken for Go plan scarcity. */
@@ -90,7 +94,7 @@ function claudeWindow(name:string,value:unknown):LimitWindow|null{
  if(utilization===null&&!rejected)return null;
  const known=CLAUDE_WINDOWS[name];
  const used=rejected?100:Math.round(Math.min(1,Math.max(0,utilization??0))*1000)/10;
- return {usedPercent:used,windowDurationMins:known?.mins??null,resetsAt:typeof data.resetsAt==='number'?data.resetsAt:null,label:known?.label??name.replace(/_/g,' ')};
+ return {usedPercent:used,windowDurationMins:known?.mins??null,resetsAt:typeof data.resetsAt==='number'&&Number.isFinite(data.resetsAt)?data.resetsAt:null,label:known?.label??name.replace(/_/g,' ')};
 }
 /**
  * Decodes Claude Code's get_usage control response, which reports plan limits

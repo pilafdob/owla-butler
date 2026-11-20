@@ -14,29 +14,38 @@ export interface ProviderExhaustion {
 
 const OK = (provider: ProviderId): ProviderExhaustion => ({ provider, exhausted: false, resetsAt: null, reason: '', scope: 'provider' });
 
+/** How long a limit error without a readable window keeps Codex out of selection. */
+const CODEX_LIMIT_RETRY_SECONDS = 15 * 60;
+/** The limit-error wordings every Codex reader agrees on (providers audit P9). */
+export const LIMIT_ERROR = /rate.?limit|usage limit|limit reached|\b429\b|quota|too many requests/i;
 /**
  * Codex reports a percentage per usage window. A window that reached 100 per
- * cent is exhausted until it resets.
+ * cent is exhausted until it resets; a window whose reset time has passed no
+ * longer blocks, and with several full windows the latest reset decides. A
+ * limit error without a readable window holds Codex back for a bounded retry,
+ * as Claude Code's does.
  */
-export function codexExhaustion(usage: UsageSnapshot | null): ProviderExhaustion {
-  if (!usage) return OK('codex');
-  const buckets = [usage.rateLimits, ...Object.values(usage.rateLimitsByLimitId ?? {})].filter(Boolean);
+export function codexExhaustion(usage: UsageSnapshot | null, error?: string, now = Date.now() / 1000): ProviderExhaustion {
+  let resetsAt: number | null = null;
+  let exhausted = false;
+  const buckets = [usage?.rateLimits, ...Object.values(usage?.rateLimitsByLimitId ?? {})];
   for (const bucket of buckets) {
     if (!bucket) continue;
     for (const window of [bucket.primary, bucket.secondary]) {
-      if (!window || typeof window.usedPercent !== 'number') continue;
-      if (window.usedPercent >= 100) {
-        return {
-          provider: 'codex',
-          exhausted: true,
-          resetsAt: typeof window.resetsAt === 'number' ? window.resetsAt : null,
-          reason: 'Codex usage limit reached.',
-          scope: 'provider',
-        };
-      }
+      if (!window || typeof window.usedPercent !== 'number' || !Number.isFinite(window.usedPercent) || window.usedPercent < 100) continue;
+      const reset = typeof window.resetsAt === 'number' && Number.isFinite(window.resetsAt) ? window.resetsAt : null;
+      if (reset !== null && reset <= now) continue;
+      exhausted = true;
+      if (reset !== null && (resetsAt === null || reset > resetsAt)) resetsAt = reset;
     }
   }
-  return OK('codex');
+  if (!exhausted && error && LIMIT_ERROR.test(error)) {
+    exhausted = true;
+    resetsAt = now + CODEX_LIMIT_RETRY_SECONDS;
+  }
+  return exhausted
+    ? { provider: 'codex', exhausted: true, resetsAt, reason: 'Codex usage limit reached.', scope: 'provider' }
+    : OK('codex');
 }
 
 /**
@@ -45,8 +54,8 @@ export function codexExhaustion(usage: UsageSnapshot | null): ProviderExhaustion
  */
 export function opencodeExhaustion(error: unknown, resetsAt: number | null): ProviderExhaustion {
   const text = error instanceof Error ? error.message : String(error);
-  if (!/free-limit|free usage limit|usage limit|rate limit|429/i.test(text)) return OK('opencode');
   const free = /free-limit|free usage limit/i.test(text);
+  if (!free && !LIMIT_ERROR.test(text)) return OK('opencode');
   return {
     provider: 'opencode',
     exhausted: true,
@@ -66,14 +75,14 @@ export function claudeExhaustion(usage: UsageSnapshot | null, error?: string, no
   let exhausted = false;
   for (const bucket of Object.values(usage?.rateLimitsByLimitId ?? {})) {
     for (const window of [bucket.primary, bucket.secondary]) {
-      if (!window || window.usedPercent < 100) continue;
-      const reset = typeof window.resetsAt === 'number' ? window.resetsAt : null;
+      if (!window || typeof window.usedPercent !== 'number' || !Number.isFinite(window.usedPercent) || window.usedPercent < 100) continue;
+      const reset = typeof window.resetsAt === 'number' && Number.isFinite(window.resetsAt) ? window.resetsAt : null;
       if (reset !== null && reset <= now) continue;
       exhausted = true;
       if (reset !== null && (resetsAt === null || reset > resetsAt)) resetsAt = reset;
     }
   }
-  if (!exhausted && error && /rate.?limit|usage limit|limit reached|429|quota/i.test(error)) exhausted = true;
+  if (!exhausted && error && LIMIT_ERROR.test(error)) exhausted = true;
   return exhausted
     ? { provider: 'claude', exhausted: true, resetsAt, reason: 'Claude usage limit reached.', scope: 'provider' }
     : OK('claude');

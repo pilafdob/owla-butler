@@ -147,7 +147,11 @@ export function currentModels(provider:ProviderId,models:ProviderModel[],limit=p
   const dedupe=(list:ProviderModel[]):ProviderModel[]=>{
    const seen=new Map<string,ProviderModel>();
    for(const model of list){
-    const key=model.id.split('/').slice(1).join('/')||model.id;
+    // Hermes ids carry a `provider:` prefix (`nous:anthropic/claude-sonnet-5`);
+    // strip it so both namespaced and bare forms of one model dedupe together.
+    const colon=model.id.indexOf(':');
+    const raw=colon>0?model.id.slice(colon+1):model.id;
+    const key=raw.split('/').slice(1).join('/')||raw;
     const current=seen.get(key);
     if(!current){seen.set(key,model);continue;}
     const priceA=(model.cost?.input??0)+(model.cost?.output??0);

@@ -16,18 +16,95 @@ import {PROVIDER_IDS} from './provider';
 import {TASK_KINDS,type TaskKind} from './model-profiles';
 import {record} from './validation';
 
-export type TaskOutcomeStats={success:number;fail:number;latencyMs:number[]};
+export type TaskOutcomeStats={success:number;fail:number;latencyMs:number[];lastUsedAt?:number};
 export type RoutingHistoryData=Partial<Record<ProviderId,Record<string,Partial<Record<TaskKind,TaskOutcomeStats>>>>>;
 
 const HISTORY_FILE='routing-history.json';
 const MAX_HISTORY_BYTES=1_000_000;
+/** Legacy files may exceed the save limit; salvage them up to this size. */
+const MAX_HISTORY_READ_BYTES=16_000_000;
 const MAX_LATENCY_SAMPLES=20;
+const MAX_MODEL_KEY_CHARS=256;
+
+/** When a (provider, model) entry last served a turn; 0 for legacy entries. */
+function entryLastUsed(kinds:Partial<Record<TaskKind,TaskOutcomeStats>>):number{
+ let last=0;
+ for(const kind of TASK_KINDS){
+  const at=kinds[kind]?.lastUsedAt;
+  if(typeof at==='number'&&Number.isFinite(at)&&at>last)last=at;
+ }
+ return last;
+}
+
+/**
+ * Drops the least recently used models until the serialized history fits the
+ * byte limit. Without this, catalog churn (pinned model ids come and go) grew
+ * the file past the limit, where saves were silently skipped and the next
+ * load discarded everything. Ties break on sample count, then key, so pruning
+ * is deterministic.
+ */
+export function pruneRoutingHistory(history:RoutingHistoryData,maxBytes=MAX_HISTORY_BYTES):RoutingHistoryData{
+ const serialized=JSON.stringify(history);
+ if(Buffer.byteLength(serialized)<=maxBytes)return history;
+ const entries:{provider:ProviderId;model:string;last:number;samples:number;cost:number}[]=[];
+ for(const provider of PROVIDER_IDS){
+  const models=history[provider];
+  if(!models)continue;
+  for(const [model,kinds] of Object.entries(models)){
+   let samples=0;
+   for(const kind of TASK_KINDS){const stats=kinds[kind];if(stats)samples+=stats.success+stats.fail;}
+   // Serialized cost of `"model":{…},` inside its provider map. Measuring each
+   // entry once keeps pruning linear; re-stringifying the whole history per
+   // deletion was quadratic (measured: 3,000 models ≈ 35 s of blocked UI).
+   // Ignoring the provider shell freed with its last model only overestimates
+   // the remaining bytes, so the estimate never prunes too little.
+   const cost=Buffer.byteLength(JSON.stringify(kinds))+Buffer.byteLength(JSON.stringify(model))+2;
+   entries.push({provider,model,last:entryLastUsed(kinds),samples,cost});
+  }
+ }
+ entries.sort((a,b)=>{
+  const ka=a.provider+':'+a.model,kb=b.provider+':'+b.model;
+  return a.last-b.last||a.samples-b.samples||(ka<kb?-1:ka>kb?1:0);
+ });
+ const next:RoutingHistoryData={...history};
+ // One working copy per provider: spreading the whole map on every deletion
+ // was the second quadratic term (thousands of keys × thousands of deletions).
+ const maps=new Map<ProviderId,Record<string,Partial<Record<TaskKind,TaskOutcomeStats>>>>();
+ const counts=new Map<ProviderId,number>();
+ for(const provider of PROVIDER_IDS){
+  const models=history[provider];
+  if(models){maps.set(provider,{...models});counts.set(provider,Object.keys(models).length);}
+ }
+ const drop=(provider:ProviderId,model:string)=>{
+  const map=maps.get(provider);
+  if(!map)return;
+  delete map[model];
+  const left=(counts.get(provider)??0)-1;
+  counts.set(provider,left);
+  if(left>0)next[provider]=map;else delete next[provider];
+ };
+ let bytes=Buffer.byteLength(serialized);
+ let index=0;
+ for(;index<entries.length;index++){
+  if(bytes<=maxBytes)break;
+  const {provider,model,cost}=entries[index];
+  drop(provider,model);
+  bytes-=cost;
+ }
+ // Exact final measurement guarantees the limit even for exotic keys; the
+ // accounting above is conservative, so this loop normally does nothing.
+ while(index<entries.length&&Buffer.byteLength(JSON.stringify(next))>maxBytes){
+  const {provider,model}=entries[index++];
+  drop(provider,model);
+ }
+ return next;
+}
 
 export function loadRoutingHistory(root:string):RoutingHistoryData{
  const file=join(root,HISTORY_FILE);
  if(!existsSync(file))return {};
  try{
-  if(statSync(file).size>MAX_HISTORY_BYTES)return {};
+  if(statSync(file).size>MAX_HISTORY_READ_BYTES)return {};
   const raw:unknown=JSON.parse(readFileSync(file,'utf8'));
   const top=record(raw);
   const result:RoutingHistoryData={};
@@ -35,7 +112,7 @@ export function loadRoutingHistory(root:string):RoutingHistoryData{
    const modelsObj=record(top[provider]);
    const providerMap:Record<string,Partial<Record<TaskKind,TaskOutcomeStats>>>={};
    for(const [modelKey,kindsVal] of Object.entries(modelsObj)){
-    if(!modelKey||typeof kindsVal!=='object'||kindsVal===null)continue;
+    if(!modelKey||modelKey.length>MAX_MODEL_KEY_CHARS||typeof kindsVal!=='object'||kindsVal===null)continue;
     const kindsObj=record(kindsVal);
     const kindMap:Partial<Record<TaskKind,TaskOutcomeStats>>={};
     for(const kind of TASK_KINDS){
@@ -47,29 +124,46 @@ export function loadRoutingHistory(root:string):RoutingHistoryData{
      const latencyMs=Array.isArray(stats.latencyMs)
       ?stats.latencyMs.filter((n):n is number=>typeof n==='number'&&Number.isFinite(n)&&n>=0).slice(-MAX_LATENCY_SAMPLES)
       :[];
-     if(success>0||fail>0||latencyMs.length>0)kindMap[kind]={success,fail,latencyMs};
+     const lastUsedAt=typeof stats.lastUsedAt==='number'&&Number.isFinite(stats.lastUsedAt)&&stats.lastUsedAt>=0?stats.lastUsedAt:undefined;
+     if(success>0||fail>0||latencyMs.length>0)kindMap[kind]={success,fail,latencyMs,...(lastUsedAt!==undefined?{lastUsedAt}:{})};
     }
     if(Object.keys(kindMap).length>0)providerMap[modelKey]=kindMap;
    }
    if(Object.keys(providerMap).length>0)result[provider]=providerMap;
   }
-  return result;
+  // An oversized legacy file is salvaged by pruning, not discarded whole.
+  return pruneRoutingHistory(result);
  }catch{
   return {};
  }
 }
 
 export function saveRoutingHistory(root:string,history:RoutingHistoryData):void{
- const data=JSON.stringify(history);
+ const data=JSON.stringify(pruneRoutingHistory(history));
  if(Buffer.byteLength(data)>MAX_HISTORY_BYTES)return;
  mkdirSync(root,{recursive:true,mode:0o700});
  const file=join(root,HISTORY_FILE);
- const temp=file+'.'+randomUUID()+'.tmp';
+ // A short suffix keeps deep OneDrive vault paths under MAX_PATH; a full UUID
+ // added 41 characters to an already long private-storage path.
+ const temp=file+'.tmp-'+randomUUID().slice(0,8);
  try{
   writeFileSync(temp,data,{mode:0o600,flag:'wx'});
-  renameSync(temp,file);
+  // Publish only by atomic replacement: an in-place fallback can truncate all
+  // previous personalization if a later write fails (for example, ENOSPC).
+  for(let attempt=0;;attempt++){
+   try{renameSync(temp,file);break;}
+   catch(error){
+    const code=record(error).code;
+    if(attempt>=2||(code!=='EPERM'&&code!=='EBUSY'&&code!=='EACCES'))throw error;
+    // Same short synchronous retry budget as ChatStore: at most two 25 ms
+    // pauses for Windows sharing locks. Atomics.wait is unavailable on the
+    // Electron renderer thread; use a monotonic clock for bounded spins.
+    const until=performance.now()+25;
+    while(performance.now()<until){/* bounded spin */}
+   }
+  }
  }finally{
-  if(existsSync(temp))unlinkSync(temp);
+  try{if(existsSync(temp))unlinkSync(temp);}catch{/* A locked temp file is harmless; the next save uses a new name. */}
  }
 }
 
@@ -82,7 +176,8 @@ export function clearRoutingHistory(root:string):void{
 
 export function recordRoutingOutcome(
  history:RoutingHistoryData,
- outcome:{provider:ProviderId;model:string;kind:TaskKind;success:boolean;latencyMs?:number}
+ outcome:{provider:ProviderId;model:string;kind:TaskKind;success:boolean;latencyMs?:number},
+ now=Date.now()
 ):RoutingHistoryData{
  const {provider,model,kind,success,latencyMs}=outcome;
  const next:RoutingHistoryData={...history};
@@ -96,6 +191,7 @@ export function recordRoutingOutcome(
   success:current.success+(success?1:0),
   fail:current.fail+(success?0:1),
   latencyMs:latencies,
+  lastUsedAt:now,
  };
  providerModels[model]=modelKinds;
  next[provider]=providerModels;

@@ -1,14 +1,15 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {existsSync,linkSync,lstatSync,mkdirSync,readlinkSync,realpathSync,symlinkSync,unlinkSync} from 'node:fs';
+import {existsSync,linkSync,lstatSync,mkdirSync,readlinkSync,realpathSync,statSync,symlinkSync,unlinkSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,dirname,isAbsolute,join,resolve} from 'node:path';
+import {delimiter,dirname,isAbsolute,join,resolve,win32} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
+import {codexExhaustion,LIMIT_ERROR,ProviderExhaustion} from './exhaustion';
 import {RecordSplitter} from './stream';
 /** One JSON-RPC message per line, each at most 16 MiB. */
 const newProtocolLines=()=>new RecordSplitter('\n',16*1024*1024);
-import {list,record} from './validation';
+import {list,record,redactErrorDetail,untrustedToolText} from './validation';
 import {ChatMessage,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import manifest from '../manifest.json';
 export type {ChatMessage,ToolOutput,ToolSpec};
@@ -16,13 +17,16 @@ export type CodexModel=ProviderModel;
 export const DEFAULT_STORAGE=defaultStorageDirectory();
 export function supportedVersion(v:string){const m=v.match(/(?:codex-cli\s+)?(\d+)\.(\d+)\.(\d+)/);return !!m&&(Number(m[1])>0||Number(m[2])>162||(Number(m[2])===162&&Number(m[3])>=1));}
 export function replayHistory(history:ChatMessage[]){let used=0;const result:ChatMessage[]=[];for(const m of history.slice(-12).reverse()){const size=m.content.length+(m.context?.length??0);if(used+size>64000)break;result.unshift(m);used+=size;}return {messages:result,shortened:result.length<history.length};}
+/** Raw provider detail can carry bearer tokens, credential assignments or home
+ * paths; chat and status are not the place for them (SECURITY-AUDIT-3.6.2 L15). */
+const redactDetail=(t:string)=>redactErrorDetail(t);
 export function friendlyError(e:unknown):string{
  // Isolation errors name a feature key; keep them verbatim so a key such as rate_limit_x is not remapped.
  if(e instanceof CodexIsolationError)return e.message;
  const text=e instanceof Error?e.message:String(e);
- // OpenCode and Claude Code errors are already worded by their bridges; only raw errors are mapped to Codex wording.
- if(/\b(?:OpenCode|Claude)\b/.test(text))return text.slice(0,800);
- if(/429|quota|usage.limit|rate.limit/i.test(text))return 'Codex usage limit reached. Wait for your subscription allowance to reset.';if(/401|unauthorized|authentication|expired.*token/i.test(text))return 'Codex needs you to sign in again with ChatGPT.';return text.slice(0,800);}
+ // OpenCode, Claude Code and Hermes errors are already worded by their bridges; only raw errors are mapped to Codex wording.
+ if(/\b(?:OpenCode|Claude|Hermes)\b/.test(text))return redactDetail(text).slice(0,800);
+ if(/429|quota|usage.limit|rate.limit/i.test(text))return 'Codex usage limit reached. Wait for your subscription allowance to reset.';if(/401|unauthorized|authentication|expired.*token/i.test(text))return 'Codex needs you to sign in again with ChatGPT.';return redactDetail(text).slice(0,800);}
 const command=(file:string,args:string[],env:NodeJS.ProcessEnv,signal?:AbortSignal)=>runCli(file,args,{env,signal,timeout:10000,maxBuffer:100000});
 const defaultBinDirectories=()=>defaultCliDirectories();
 export function findCodexExecutable(path:string,directories=defaultBinDirectories()):string{
@@ -51,6 +55,8 @@ export const CAPABILITY_FEATURES:readonly string[]=[
 ];
 /** Most feature overrides OWLA adds on top of CAPABILITY_FEATURES before it fails closed. */
 export const MAX_FEATURE_OVERRIDES=64;
+/** Most model catalog pages read in one connect; a server looping cursors cannot hold the connection forever. */
+export const MAX_MODEL_PAGES=20;
 const FEATURE_KEY=/^[a-z0-9_]+$/;
 export const featureOverride=(key:string)=>'features.'+key+'=false';
 export type IsolationReport={fatal?:string;disableFeatures:string[]};
@@ -108,8 +114,9 @@ export function isolationReport(value:unknown,phase:'start'|'turn'='start'):Isol
 export function inheritedInstructions(directory:string,home=homedir(),platform:NodeJS.Platform=process.platform):string[]{
  const found:string[]=[];
  const normalize=(value:string)=>platform==='linux'?value:value.toLowerCase();
- const stop=normalize(resolve(home));
- let current=resolve(directory);
+ const canonical=(value:string)=>{try{return realpathSync.native(value);}catch{return resolve(value);}};
+ const stop=normalize(canonical(home));
+ let current=canonical(directory);
  while(normalize(current)!==stop&&current!==dirname(current)){
   for(const name of ['AGENTS.md','AGENTS.override.md']){
    const path=join(current,name);
@@ -146,14 +153,24 @@ export function privateHomeInstructions(home:string):string[]{
  */
 export function ensureCodexPrivateHome(home:string,source:string):void{
  mkdirSync(home,{recursive:true,mode:0o700});
+ // NTFS resolves paths case-insensitively: a link stored with different casing
+ // (a case-fold alias) still names the same sign-in and is kept, not churned.
+ const samePath=(a:string,b:string)=>process.platform==='win32'?win32.normalize(a).toLowerCase()===win32.normalize(b).toLowerCase():a===b;
  for(const name of CODEX_AUTH_FILES){
   const target=join(home,name),from=join(source,name);
   let present=false;
   try{
    const info=lstatSync(target);
-   // A regular file is OWLA's own sign-in, or a hard link: keep it.
-   if(!info.isSymbolicLink()||readlinkSync(target)===from)present=true;
-   else unlinkSync(target);
+   if(info.isSymbolicLink()){
+    // A junction reports as a symlink too; one naming a directory never matches.
+    if(samePath(readlinkSync(target),from))present=true;
+    else unlinkSync(target);
+   }else if(info.nlink>1){
+    // A hard link (the unprivileged Windows fallback for a symlink) must name
+    // the user's sign-in; one linked to any other file is replaced, not kept.
+    try{const src=statSync(from);present=src.ino===info.ino&&src.dev===info.dev;}catch{present=false;}
+    if(!present)unlinkSync(target);
+   }else present=true; // A regular file with one link is OWLA's own sign-in: keep it.
   }catch{/* Not present. */}
   if(present||!existsSync(from))continue;
   try{symlinkSync(from,target);}catch{try{linkSync(from,target);}catch{/* OWLA signs in on its own. */}}
@@ -170,7 +187,12 @@ export class CodexBridge implements ProviderBridge{
  readonly id='codex' as const;
  private child:ChildProcessWithoutNullStreams|null=null;private connectionKey='';private initialized=false;private startupAbort:AbortController|null=null;private holders=new Set<symbol>();private generation=0;private closing:Promise<void>=Promise.resolve();private nextId=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>();private lines=newProtocolLines();private idle:ReturnType<typeof setTimeout>|undefined;private connecting:Promise<void>|null=null;private active:{threadId:string;turnId?:string;event:(method:string,params:Record<string,unknown>)=>void;tool:(name:string,args:unknown)=>Promise<ToolOutput>;reject:(e:Error)=>void}|null=null;private pendingDrained:(()=>void)|null=null;
  usage:UsageSnapshot|null=null;usageUpdatedAt=0;usageError='';onUsage:()=>void=()=>{};models:CodexModel[]=[];accountType:string|undefined;plan='';version='';status='Not connected';executable='';onStatus:(status:string)=>void=()=>{};
+ /** A limit error records exhaustion even when the meters read below 100%, so
+  * fallback and automatic selection stop retrying a refused Codex (providers U1). */
+ exhaustion:ProviderExhaustion|null=null;
  private finishSignIn:(()=>void)|undefined;
+ /** The failure that ended the current connection, if any; a user disconnect leaves it null. */
+ private lastFailure:Error|null=null;
  /** Features learned to be on in the user's Codex config; turned off on later starts (web re-keys) without a second probe. */
  private featureOverrides:string[]=[];
  private privateHome=join(defaultStorageDirectory(),CODEX_PRIVATE_HOME);
@@ -230,7 +252,7 @@ export class CodexBridge implements ProviderBridge{
   * retry (enabled MCP servers and plugins, as in 3.2.0, and features that are
   * on), or [] when connected.
   */
- private async launch(executable:string,cwd:string,extra:string[],web:boolean,retried:boolean):Promise<string[]>{const generation=this.generation;const startup=new AbortController();this.startupAbort=startup;try{this.setStatus('Connecting…');const env=this.env(),file=executable||findCodexExecutable(env.PATH??'');
+ private async launch(executable:string,cwd:string,extra:string[],web:boolean,retried:boolean):Promise<string[]>{const generation=this.generation;const startup=new AbortController();this.startupAbort=startup;this.lastFailure=null;try{this.setStatus('Connecting…');const env=this.env(),file=executable||findCodexExecutable(env.PATH??'');
  if(!file||!isCliExecutable(file))throw Error('Codex was not found. Install and sign in to Codex, or choose its executable in settings.');
  this.version=(await command(file,['--version'],env,startup.signal)).trim();if(!supportedVersion(this.version))throw Error('Update Codex to version 0.162.1 or newer, then reconnect.');if(generation!==this.generation)throw Error('Codex connection cancelled.');this.executable=file;mkdirSync(cwd,{recursive:true,mode:0o700});
   // Codex project docs are also neutralized for OWLA sessions (project_doc_max_bytes=0);
@@ -239,7 +261,14 @@ export class CodexBridge implements ProviderBridge{
   const inheritedFiles=[...inheritedInstructions(cwd),...privateHomeInstructions(this.privateHome)];
   if(inheritedFiles.length)throw Error('Codex would read project instructions from '+inheritedFiles.join(', ')+'. Remove those files or move the OWLA storage folder, then reconnect.');
  const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','sandbox_mode="read-only"','approval_policy="never"','notify=[]','project_doc_max_bytes=0','skills.include_instructions=false',...CAPABILITY_FEATURES.map(featureOverride),'web_search='+JSON.stringify(web?'live':'disabled'),...extra];
- const child=spawnCli(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,detached:process.platform!=='win32'});this.child=child;this.lines=newProtocolLines();child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));child.stderr.on('data',()=>{});child.on('error',e=>{if(this.child===child)this.fail(e);});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'));});
+ const child=spawnCli(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,detached:process.platform!=='win32'});this.child=child;this.lines=newProtocolLines();child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));
+ // Keep a bounded stderr tail so an unexpected exit names the real cause (a
+ // panic, a config or sign-in failure) instead of a generic disconnect.
+ let stderrTail='';child.stderr.setEncoding('utf8');child.stderr.on('data',(chunk:string)=>{stderrTail=(stderrTail+chunk).slice(-4000);});
+ const stderrCause=()=>{const line=stderrTail.split('\n').map(item=>item.trim()).filter(Boolean).pop();return line?' Last error: '+line.slice(0,300):'';};
+ // A death of this process is recorded (fail) so the catch below can tell it
+ // apart from a user disconnect/reconnect (both bump the generation).
+ child.on('error',e=>{if(this.child===child)this.fail(Error('Codex could not be started: '+e.message+stderrCause()));});child.stdin.on('error',()=>{if(this.child===child)this.fail(Error('Codex connection closed. Reconnect to retry.'));});child.on('exit',()=>{if(this.child===child)this.fail(Error('Codex disconnected. Your draft is preserved; reconnect to retry.'+stderrCause()));});
  await this.request('initialize',{clientInfo:{name:'owla_butler',title:'OWLA Butler',version:manifest.version},capabilities:{experimentalApi:true}});this.notify('initialized');
  const config=record(record(await this.request('config/read',{includeLayers:false})).config);
  // MCP servers and plugins the user enabled are turned off for OWLA's session
@@ -264,12 +293,12 @@ export class CodexBridge implements ProviderBridge{
  await this.assertHookInventory(config,cwd);
  await this.readAccount();this.models=[];
  if(this.needsSignIn){this.initialized=true;this.setStatus('Sign in to Codex');return [];}
- let cursor:string|undefined;const seen=new Set<string>();
- do{const response=record(await this.request('model/list',{limit:100,includeHidden:false,...(cursor?{cursor}:{})}));for(const value of list(response.data)){const model=decodeModel(value);if(model)this.models.push(model);}
+ let cursor:string|undefined;const seen=new Set<string>();const seenModels=new Set<string>();let pages=0;
+ do{if(++pages>MAX_MODEL_PAGES)throw Error('Codex returned too many model catalog pages. Reconnect to retry.');const response=record(await this.request('model/list',{limit:100,includeHidden:false,...(cursor?{cursor}:{})}));for(const value of list(response.data)){const model=decodeModel(value);if(model&&!seenModels.has(model.id)){seenModels.add(model.id);this.models.push(model);}}
  cursor=typeof response.nextCursor==='string'&&response.nextCursor?response.nextCursor:undefined;
  if(cursor){if(seen.has(cursor))throw Error('Codex returned a repeated model catalog page.');seen.add(cursor);}}while(cursor);
  if(!this.models.length)throw Error('Codex returned no usable models for this account.');this.initialized=true;this.setStatus(this.plan?'Connected to Codex · '+this.plan:'Connected to Codex');return [];
- }catch(e){if(generation!==this.generation)throw Error('Codex connection cancelled.');this.close(friendlyError(e));throw e;}finally{if(this.startupAbort===startup)this.startupAbort=null;}
+ }catch(e){if(generation!==this.generation){if(this.lastFailure)throw this.lastFailure;throw Error('Codex connection cancelled.');}this.close(friendlyError(e));throw e;}finally{if(this.startupAbort===startup)this.startupAbort=null;}
  }
  private async readAccount(){const response=record(await this.request('account/read',{refreshToken:false})),account=record(response.account);this.accountType=typeof account.type==='string'?account.type:'';this.plan=typeof account.planType==='string'?account.planType:'';if(response.account!=null&&this.accountType!=='chatgpt')throw Error('OWLA requires Codex signed in with ChatGPT. API-key authentication is not supported.');}
  async signIn(open:(url:string)=>void,complete:()=>void){
@@ -277,7 +306,7 @@ export class CodexBridge implements ProviderBridge{
   if(!this.child)throw Error('Connect Codex first.');
   const response=record(await this.request('account/login/start',{type:'chatgpt'}));
   if(typeof response.authUrl!=='string')throw Error('Codex did not return a sign-in link.');
-  const url=new URL(response.authUrl);
+  let url:URL;try{url=new URL(response.authUrl);}catch{throw Error('Codex returned an invalid sign-in link.');}
   if(url.protocol!=='https:')throw Error('Codex returned an invalid sign-in link.');
   open(url.href);
   this.finishSignIn=complete;
@@ -292,12 +321,16 @@ export class CodexBridge implements ProviderBridge{
   const lines=this.lines;
   for(const line of lines.push(chunk)){
    if(line.trim()){
-    try{this.receive(JSON.parse(line.trim()));}
-    catch{this.close('Codex sent an invalid protocol message.');return;}
+    let value:unknown;
+    try{value=JSON.parse(line.trim());}
+    catch{this.protocolFailure('Codex sent an invalid protocol message: '+JSON.stringify(line.slice(0,80)));return;}
+    // A handler failure is reported with its own cause, not as bad JSON.
+    try{this.receive(value);}
+    catch(e){this.protocolFailure('Codex protocol handling failed: '+(e instanceof Error?e.message:String(e)));return;}
    }
    if(this.child!==owner)return;
   }
-  if(lines.overflow)this.close('A Codex protocol message exceeded the 16 MiB limit.');
+  if(lines.overflow)this.protocolFailure('A Codex protocol message exceeded the 16 MiB limit.');
  }
  private receive(value:unknown){
   const msg=record(value),params=record(msg.params),method=typeof msg.method==='string'?msg.method:'',id=msg.id;
@@ -308,7 +341,7 @@ export class CodexBridge implements ProviderBridge{
    const tool=params.tool;
    if(method==='item/tool/call'&&active&&params.threadId===active.threadId&&typeof tool==='string'){
     const owner=this.child;const respond=(result:unknown)=>{if(this.child===owner)this.reply(id,result);};
-    void Promise.resolve().then(()=>active.tool(tool,params.arguments)).then(output=>respond({success:true,contentItems:typeof output==='string'?[{type:'inputText',text:output}]:[{type:'inputText',text:output.text},{type:'inputImage',imageUrl:output.imageUrl}]}),e=>respond({success:false,contentItems:[{type:'inputText',text:'Error: '+friendlyError(e)}]}));
+    void Promise.resolve().then(()=>active.tool(tool,params.arguments)).then(output=>respond({success:true,contentItems:typeof output==='string'?[{type:'inputText',text:untrustedToolText(output)}]:[{type:'inputText',text:untrustedToolText(output.text)},{type:'inputImage',imageUrl:output.imageUrl}]}),e=>respond({success:false,contentItems:[{type:'inputText',text:'Error: '+friendlyError(e)}]}));
    }else this.child?.stdin.write(JSON.stringify({id,error:{code:-32601,message:'This operation is not permitted in OWLA Butler.'}})+'\n');
    return;
   }
@@ -405,7 +438,10 @@ export class CodexBridge implements ProviderBridge{
  if(method==='turn/completed'){
   if(options.web&&usedWeb)for(const match of text.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)){if(sources.length<20&&!sourceUrls.has(match[2])){sourceUrls.add(match[2]);sources.push({url:match[2],title:match[1]});}}
   const message=record(turn.error).message;
-  end(turn.status!=='completed'?Error(typeof message==='string'?message:'Codex '+(typeof turn.status==='string'?turn.status:'did not complete')+'.'):options.requireWeb&&!usedWeb?Error('Codex did not run live web search. No online answer was verified.'):undefined);
+  const detail=typeof message==='string'?message:'';
+  if(turn.status==='completed')this.exhaustion=null;
+  else if(LIMIT_ERROR.test(detail))this.exhaustion=codexExhaustion(this.usage,detail);
+  end(turn.status!=='completed'?Error(detail||'Codex '+(typeof turn.status==='string'?turn.status:'did not complete')+'.'):options.requireWeb&&!usedWeb?Error('Codex did not run live web search. No online answer was verified.'):undefined);
  }
  }};options.signal.addEventListener('abort',abort,{once:true});if(options.signal.aborted){end(Error('Stopped.'));return;}
  void this.request('turn/start',{threadId,model:options.model,effort:options.effort,environments:[],input:[{type:'text',text:options.text},...options.images.map(url=>({type:'image',url}))]},30000).then(value=>{const id=record(record(value).turn).id;if(this.active?.threadId===threadId&&typeof id==='string'){
@@ -415,6 +451,7 @@ export class CodexBridge implements ProviderBridge{
  },(error:unknown)=>{
   if(settled)return;
   const message=error instanceof Error?error.message:friendlyError(error);
+  if(LIMIT_ERROR.test(message))this.exhaustion=codexExhaustion(this.usage,message);
   end(Error(options.signal.aborted?'Stopped.':message));
   if(message.includes('timed out during turn/start'))this.close('Codex startup timed out · retry to reconnect');
  });});}
@@ -424,7 +461,12 @@ export class CodexBridge implements ProviderBridge{
  async readUsage(timeout=8000){try{const data=decodeUsage(await this.request('account/rateLimits/read',{},timeout));if(!data)throw Error('Codex did not return readable usage limits.');this.acceptUsage(data,true);return this.usage;}catch(e){this.usageError=friendlyError(e);this.onUsage();throw e;}}
  async rest(){
   if(this.holders.size||this.active||this.idle)return;
-  if(!this.child&&!this.connecting)return;
+  // A rest must not cancel an in-flight connect (the opencode P5 class): wait
+  // for it, then re-check whether anything took over while this rest waited.
+  if(this.connecting){try{await this.connecting;}catch{/* A failed connect leaves nothing to rest. */}
+   const connecting=this.connecting as Promise<void>|null;
+   if(this.holders.size||this.active||this.idle||connecting)return;}
+  if(!this.child)return;
   const owner=this.child;
   while(!this.connecting&&this.child===owner&&!this.holders.size&&!this.active&&!this.idle&&this.pending.size){
    await new Promise<void>(resolve=>{
@@ -440,7 +482,9 @@ export class CodexBridge implements ProviderBridge{
   await this.closing;
   if(generation===this.generation&&!this.connecting&&!this.child)this.setStatus(status);
  }
- private fail(e:Error){this.close(friendlyError(e));}
+ private fail(e:Error){this.lastFailure=e;this.close(friendlyError(e));}
+ /** A protocol intake failure: recorded like fail(), but the status stays verbatim. */
+ private protocolFailure(message:string){this.lastFailure=Error(message);this.close(message);}
  /** Verify connection: the next start probes the user's Codex config again without learned feature overrides. */
  recheck(){this.featureOverrides=[];}
  /** Explicit disconnect (settings, unload). Forgets learned feature overrides so a reconnect probes cleanly. */

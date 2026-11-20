@@ -1,7 +1,7 @@
 import {ChildProcessWithoutNullStreams, spawn as nativeSpawn} from 'node:child_process';
 import {accessSync,constants,existsSync,statSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,extname,isAbsolute,join,win32} from 'node:path';
+import {basename,delimiter,extname,isAbsolute,join,win32} from 'node:path';
 import {clearTimeout as cancelTimeout,setTimeout as scheduleTimeout} from 'node:timers';
 import spawn from 'cross-spawn';
 
@@ -28,9 +28,10 @@ export function findCliExecutable(name:string,path:string,directories:string[]=[
  const extensions=platform==='win32'
   ?(extname(name)?['']:windowsExtensions)
   :[''];
+ const joinPath=platform==='win32'?win32.join:join;
  for(const directory of paths){
   for(const extension of extensions){
-   const candidate=join(directory,name+extension);
+   const candidate=joinPath(directory,name+extension);
    if(isCliExecutable(candidate,platform))return candidate;
   }
  }
@@ -40,14 +41,15 @@ export function findCliExecutable(name:string,path:string,directories:string[]=[
 export function defaultCliDirectories(extra:string[]=[],platform:NodeJS.Platform=process.platform,home=homedir(),env:NodeJS.ProcessEnv=process.env):string[]{
  if(platform==='win32'){
   // npm's global shims, the Claude Code native installer and the per-user
-  // package managers that install CLI tools on Windows.
-  const dirs=[join(home,'.local','bin'),join(home,'.claude','local')];
-  if(env.APPDATA)dirs.push(join(env.APPDATA,'npm'));
+  // package managers that install CLI tools on Windows. win32.join keeps the
+  // separators correct when the rules are exercised from a POSIX host.
+  const dirs=[win32.join(home,'.local','bin'),win32.join(home,'.claude','local')];
+  if(env.APPDATA)dirs.push(win32.join(env.APPDATA,'npm'));
   if(env.LOCALAPPDATA){
-   dirs.push(join(env.LOCALAPPDATA,'Programs','OpenCode'));
-   dirs.push(join(env.LOCALAPPDATA,'pnpm'));
+   dirs.push(win32.join(env.LOCALAPPDATA,'Programs','OpenCode'));
+   dirs.push(win32.join(env.LOCALAPPDATA,'pnpm'));
   }
-  dirs.push(join(home,'scoop','shims'),join(home,'.volta','bin'),join(home,'.bun','bin'));
+  dirs.push(win32.join(home,'scoop','shims'),win32.join(home,'.volta','bin'),win32.join(home,'.bun','bin'));
   return [...dirs,...extra];
  }
  return ['/usr/local/bin','/opt/homebrew/bin',join(home,'.local','bin'),...extra];
@@ -97,7 +99,19 @@ export const UNSAFE_EXECUTION_ENV=[
  'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH',
  'LD_PRELOAD','LD_LIBRARY_PATH','PYTHONPATH','PYTHONHOME','PYTHONSTARTUP',
  'PERL5LIB','PERL5OPT','RUBYOPT','RUBYLIB','BASH_ENV','ENV','ZDOTDIR',
+ // Git can execute commands from inherited config (core.sshCommand, aliases,
+ // pager, template hooks); editors/pagers launch programs of the variable's
+ // choosing; UV_PYTHON/VIRTUAL_ENV pick a foreign Python interpreter
+ // (SECURITY-AUDIT-3.6.2 L9).
+ 'GIT_CONFIG_COUNT','GIT_SSH_COMMAND','GIT_EXEC_PATH','GIT_TEMPLATE_DIR','GIT_PAGER',
+ 'PAGER','EDITOR','VISUAL','UV_PYTHON','VIRTUAL_ENV',
+ // Windows resolution hijacks: PATHEXT chooses which extension runs and
+ // PSModulePath chooses PowerShell's modules; unset, both fall back to the
+ // system defaults (Hermes .env parity, round-2 security W-F5).
+ 'PATHEXT','PSMODULEPATH',
 ];
+/** Environment-key families stripped by prefix: git's inline config pairs. */
+export const UNSAFE_EXECUTION_ENV_PREFIXES=['GIT_CONFIG_KEY_','GIT_CONFIG_VALUE_'];
 
 /**
  * API keys and endpoint overrides. Codex and Claude Code sign in with their
@@ -125,7 +139,16 @@ export const WINDOWS_CREDENTIAL_ENV=[
 
 /** The Windows system directory, as Windows itself records it. */
 export function windowsSystemDirectory(env:NodeJS.ProcessEnv=process.env):string{
- return env.SystemRoot||env.windir||'C:\\Windows';
+ // Windows env names are case-insensitive, but a spread copy of process.env
+ // keeps the host's casing (SYSTEMROOT/WINDIR on a normal Windows install), so
+ // the keys are scanned rather than indexed (the envPath rule, W4).
+ let systemRoot='',windir='';
+ for(const [key,value] of Object.entries(env)){
+  const lower=key.toLowerCase();
+  if(lower==='systemroot'&&!systemRoot&&value)systemRoot=value;
+  else if(lower==='windir'&&!windir&&value)windir=value;
+ }
+ return systemRoot||windir||'C:\\Windows';
 }
 /**
  * The environment-derived system directory, checked before it is used on a real
@@ -139,8 +162,16 @@ export function trustedSystemDirectory(env:NodeJS.ProcessEnv=process.env):string
  const configured=windowsSystemDirectory(env);
  if(process.platform!=='win32')return configured;
  const normalized=win32.normalize(configured);
- if(configured.split(/[\\/]+/).includes('..')||!win32.isAbsolute(normalized)||!existsSync(win32.join(normalized,'System32','cmd.exe')))
-  return 'C:\\Windows';
+ if(configured.split(/[\\/]+/).includes('..')||!win32.isAbsolute(normalized))return 'C:\\Windows';
+ // Existence of cmd.exe alone is not system identity: an attacker-owned folder
+ // can plant one. Require the characteristic core system DLLs too, which a
+ // planted fake directory does not carry; anything short falls back to the
+ // default directory. The validated spelling is kept so the pinned ComSpec
+ // matches the caller environment exactly. (The protected SYSTEM registry hive
+ // is not statable by a normal user, so it cannot serve as the probe.)
+ const system32=win32.join(normalized,'System32');
+ const required=['cmd.exe','ntdll.dll','kernel32.dll'];
+ if(!required.every(name=>existsSync(win32.join(system32,name))))return 'C:\\Windows';
  return normalized;
 }
 /** The system's own cmd.exe: the only interpreter OWLA lets run a Windows command shim. */
@@ -171,7 +202,9 @@ export function trustedTaskkillPath(env:NodeJS.ProcessEnv=process.env):string{
  */
 export function shimInterpreterTrusted(platform:NodeJS.Platform=process.platform,env:NodeJS.ProcessEnv=process.env):boolean{
  if(platform!=='win32')return true;
- const comspec=env.ComSpec||env.comspec||'';
+ // Scan for any casing: a copied Windows env may carry COMSPEC or ComSpec.
+ let comspec='';
+ for(const [key,value] of Object.entries(env))if(key.toLowerCase()==='comspec'&&value){comspec=value;break;}
  if(!comspec)return true;
  const normalize=(value:string)=>value.replace(/\//g,'\\').toLowerCase();
  return normalize(comspec)===normalize(trustedComSpecPath(env));
@@ -187,7 +220,10 @@ export function sanitizedEnv(env:NodeJS.ProcessEnv=process.env,{keepCredentials=
  ].map(key=>key.toUpperCase()));
  // Windows treats environment names case-insensitively; a plain object does
  // not. Strip every spelling before Node picks which duplicate to forward.
- for(const key of Object.keys(result))if(blocked.has(key.toUpperCase()))delete result[key];
+ for(const key of Object.keys(result)){
+  const upper=key.toUpperCase();
+  if(blocked.has(upper)||UNSAFE_EXECUTION_ENV_PREFIXES.some(prefix=>upper.startsWith(prefix)))delete result[key];
+ }
  if(platform==='win32'){
   // Command shims, and anything the assistant itself runs, interpret through
   // ComSpec; it is pinned to the validated system cmd.exe rather than inherited.
@@ -210,15 +246,38 @@ export function withPinnedShimInterpreter<T>(run:()=>T):T{
  try{return run();}finally{delete process.env.ComSpec;}
 }
 
+/**
+ * Control characters cmd.exe misparses in a wrapped shim command line. A CR or
+ * LF truncates the /c command at that point (probe-verified on Windows): the
+ * shim receives only the arguments before it and the rest of the command line
+ * — including any isolation overrides after it — is silently dropped. Tab is
+ * safe inside the quoted arguments; NUL is rejected by Node itself.
+ */
+// eslint-disable-next-line no-control-regex -- control characters must be detected in a shim command line so it can be refused
+const SHIM_CONTROL_CHARS=/[\u0000-\u0008\u000A-\u001F]/;
+
 export function spawnCli(file:string,args:string[],options:CliSpawnOptions={}):ChildProcessWithoutNullStreams{
  // A Windows command shim is interpreted by the program ComSpec names in this
  // process's environment; OWLA refuses a shim unless that is the system's own
  // cmd.exe (see shimInterpreterTrusted), and pins it if the variable is unset.
  const shim=process.platform==='win32'&&/\.(?:cmd|bat)$/i.test(file);
- if(shim&&!shimInterpreterTrusted())
-  throw Error('OWLA cannot run this Windows command shim: the ComSpec variable names a program other than the system Command Prompt. Choose the program’s executable file in settings, or set ComSpec to the Windows cmd.exe.');
+ if(shim){
+  if(!shimInterpreterTrusted())
+   throw Error('OWLA cannot run this Windows command shim: the ComSpec variable names a program other than the system Command Prompt. Choose the program’s executable file in settings, or set ComSpec to the Windows cmd.exe.');
+  if(SHIM_CONTROL_CHARS.test(file)||args.some(arg=>SHIM_CONTROL_CHARS.test(arg)))
+   throw Error('OWLA cannot run this Windows command shim: the command or an argument contains a control character the Command Prompt would misread. Choose the program’s executable file in settings.');
+ }
  const spawnChild=()=>spawn(file,args,{...options,shell:false,windowsHide:true,stdio:'pipe'}) as ChildProcessWithoutNullStreams;
- return shim?withPinnedShimInterpreter(spawnChild):spawnChild();
+ const child=shim?withPinnedShimInterpreter(spawnChild):spawnChild();
+ // A pipe error (EPIPE when the child dies mid-write, ERR_STREAM_DESTROYED on
+ // end after exit) is emitted asynchronously; with no listener it becomes an
+ // uncaught exception and takes the whole plugin host down. Every bridge still
+ // receives the event through its own listeners; this default only guarantees
+ // that a stream error can never crash Obsidian.
+ child.stdin.on('error',()=>{});
+ child.stdout.on('error',()=>{});
+ child.stderr.on('error',()=>{});
+ return child;
 }
 
 export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal:NodeJS.Signals,platform:NodeJS.Platform=process.platform):void{
@@ -232,10 +291,16 @@ export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal
   if(pid){
    const taskkill=trustedTaskkillPath();
    if(existsSync(taskkill)){
-    const killer=nativeSpawn(taskkill,['/PID',String(pid),'/T','/F'],{stdio:'ignore',windowsHide:true});
-    const fallback=()=>{try{child.kill(signal);}catch{return;}};
-    killer.on('error',fallback);
-    killer.on('exit',code=>{if(code!==0)fallback();});
+    // Re-check at fallback time too: the child may have exited (and Windows
+    // may have reused its PID) while taskkill was running. child.kill is
+    // handle-based and safe, but an exited child is never targeted again.
+    const fallback=()=>{if(child.exitCode!==null||child.signalCode!==null)return;try{child.kill(signal);}catch{return;}};
+    try{
+     const killer=nativeSpawn(taskkill,['/PID',String(pid),'/T','/F'],{stdio:'ignore',windowsHide:true});
+     killer.on('error',fallback);
+     killer.on('exit',code=>{if(code!==0)fallback();});
+     killer.unref();
+    }catch{fallback();}
     return;
    }
   }
@@ -250,13 +315,19 @@ export function terminateProcessTree(child:ChildProcessWithoutNullStreams,signal
  }
 }
 
-export function runCli(file:string,args:string[],options:CliSpawnOptions&{
+export async function runCli(file:string,args:string[],options:CliSpawnOptions&{
  signal?:AbortSignal;timeout:number;maxBuffer:number
 }):Promise<string>{
+ // Async so an already-aborted signal rejects instead of throwing synchronously
+ // at callers that chain .catch() on the returned promise.
  options.signal?.throwIfAborted();
  return new Promise((resolve,reject)=>{
   const {signal,timeout,maxBuffer,...spawnOptions}=options;
   const child=spawnCli(file,args,spawnOptions);
+  // No runCli caller writes to the child; closing stdin at once lets a command
+  // that reads its input to EOF finish instead of hanging until the timeout.
+  child.stdin.end();
+  const name=basename(file);
   let stdout='',stderr='',settled=false;
   const finish=(error?:Error)=>{
    if(settled)return;
@@ -271,9 +342,10 @@ export function runCli(file:string,args:string[],options:CliSpawnOptions&{
   };
   const timer=scheduleTimeout(()=>{
    terminateProcessTree(child,'SIGKILL');
-   finish(Error('The command timed out after '+timeout+' ms.'));
+   finish(Error('The command '+name+' timed out after '+timeout+' ms.'));
   },timeout);
   const collect=(current:string,chunk:Buffer|string)=>{
+   if(settled)return current;
    const next=current+chunk.toString();
    if(Buffer.byteLength(next)>maxBuffer){
     terminateProcessTree(child,'SIGKILL');
@@ -284,10 +356,10 @@ export function runCli(file:string,args:string[],options:CliSpawnOptions&{
   };
   child.stdout.on('data',(chunk:Buffer|string)=>{stdout=collect(stdout,chunk);});
   child.stderr.on('data',(chunk:Buffer|string)=>{stderr=collect(stderr,chunk);});
-  child.on('error',error=>finish(error));
+  child.on('error',error=>finish(Error('Could not start '+name+': '+error.message)));
   child.on('close',(code,signal)=>{
    if(code===0)finish();
-   else finish(Error(stderr.trim()||'The command exited '+(signal?'after '+signal:'with code '+String(code))+'.'));
+   else finish(Error(stderr.trim()||'The command '+name+' exited '+(signal?'after '+signal:'with code '+String(code))+'.'));
   });
   if(signal?.aborted)abort();
   else signal?.addEventListener('abort',abort,{once:true});

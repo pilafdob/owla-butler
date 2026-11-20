@@ -1,5 +1,146 @@
 # OWLA Butler verification
 
+## 3.7.0 RC — macOS live release checks (2026-11-20, Agentbrain test vault)
+
+The post-review checks from `audits/3.7.0-rc/windows-independent-followup.md`
+§6, run on macOS against the installed build in the running app.
+
+- **Host and install:** macOS, Obsidian 1.15.1, Node 24.15.0. The exact
+  `main.js`, `manifest.json` and `styles.css` were installed in Agentbrain
+  (previous files and `data.json` backed up first), the plugin was reloaded
+  with `obsidian plugin:reload`, and the running copy was confirmed by its
+  SHA-256 and the new PDF cache budget (`maxBytes` 67,108,864). No console errors.
+- **Driver:** `obsidian eval` called the real `ButlerView.send`, `tool`,
+  `decideEdit` and `stop`. Fixtures are in `OWLA Butler Test/3.7.0 live/`.
+- **Providers (connect, one read_note tool turn, Stop mid-reply, disconnect and
+  reconnect):**
+  - Claude Code 2.1.328 (Claude Pro): all pass. Tool turn 7 s, reconnect 3 s,
+    no Claude child left after Stop or turn end.
+  - Hermes, via its private home with `nous:anthropic/claude-haiku-5.5`: all
+    pass. 141 models, 97 with image input, 132 with a models.dev context
+    window. The user's `~/.hermes/sessions` was not written; the private home
+    has no `vault/` entry and its `.env` has no PATH/ComSpec/PATHEXT lines.
+    The user's Hermes default (`opencode-go:qwen/qwen4-max:free`) was refused
+    by OpenCode Go (HTTP 400); OWLA showed the provider's cause.
+  - Codex: connect and reconnect pass; no model turn possible (usage limit,
+    reset 22/11/2026), reported correctly.
+  - OpenCode: connect (74 models) and reconnect pass, no server left running;
+    no model turn possible (paid balance empty, free models at the shared limit).
+  - Automatic selection (macOS): one real turn routed to OpenCode, survived two
+    provider refusals by retrying, and answered correctly in 13.6 s.
+- **CRLF Markdown (closed and open note):** highlights mark exactly the changed
+  line with no stray `\r`. **Found and fixed live:** for a closed CRLF note the
+  provisional apply wrote LF, so a proposal that was then declined still
+  rewrote every line ending. Closed CRLF notes now keep their CRLF (`writeEdit`).
+  Re-verified live: Decline and Undo leave the file byte-identical (same
+  SHA-1), Accept changes one line and keeps CRLF, and a note changed on disk
+  after the proposal refuses the decline ("your newer text was preserved"). An
+  open note goes through Obsidian's editor, which saves LF itself.
+- **Path guards:** a case alias (`owla butler test/readme.md`) reads the real
+  file. Excluded folders, also through aliases, are refused, as is `../`
+  traversal. Backslash folders get the forward-slash hint. A CRLF canvas reads
+  correctly and stays byte-identical.
+- **PDF cache:** continuation reads reuse one parsed document; an external
+  rewrite invalidates it (re-parse on the next read); Stop and New chat empty
+  it; the 111 MB `Annotation QA.pdf` is read but not kept; a damaged PDF
+  ("Invalid PDF structure") and a qpdf AES-256 password PDF ("The PDF is
+  password-protected…") fail clearly and are not cached.
+- **View lifecycle:** closing and reopening the OWLA view left no observers and
+  no errors.
+- **Gates (final tree):** `npm run check`, `npm run lint`, `npm test`
+  (**782 total / 776 pass / 0 fail / 6 skipped**, the Windows-only tests, run
+  twice), `npm run build` (993.2 kb), `npm run check:release`,
+  `npm run guard:test`, `git diff --check` pass. `node scripts/package.mjs`
+  produced a 43-file ZIP whose `main.js` matches the build; no sources, tests or
+  secrets inside.
+- **Settings:** test turns persisted temporary provider overrides into
+  `data.json`; the backup was restored byte-identically and reloaded. A
+  model-refusal record the Automatic turn wrote (`groq/allam-2-7b` rejects
+  reasoning settings) was kept, since OWLA uses it to skip that model.
+- **Not verified here:** everything that needs Windows hardware (npm `claude.cmd`
+  multiline turn, Automatic staying unavailable on Windows, NTFS/junction
+  behaviour), Codex and OpenCode model turns (account limits), and the remote
+  CI/release assets.
+
+## 3.7.0 RC — Windows independent verification (2026-11-20)
+
+This entry supersedes Windows gate assertions from the earlier hardening
+pass, without changing the historical macOS live-check record below.
+
+- **Host:** Windows 11 (build 26300), Node 24.14.0, npm 11.9.0; branch
+  `3.7.0-RC`, base `81540fb`. Dependencies already installed; no lockfile or
+  dependency update was required. Ubuntu CI/release workflows use Node 22, so
+  this run does not establish identical behavior under that runtime.
+- **Final gates (after the follow-up fixes):** `npm run check`, `npm run lint`
+  (0 problems), `npm test` (**774 total / 773 pass / 0 fail / 1 skipped**),
+  `npm run build` (**993.2 kb**, esbuild display), `npm run check:release`,
+  `npm run guard:test` and `git diff --check` passed. The full suite was run
+  repeatedly; the only intermittent failure observed was an opencode-lifecycle
+  scratch-folder teardown hitting a transient Windows EPERM under parallel
+  load, not a product assertion — its cleanup now retries on
+  EPERM/EBUSY/EACCES and subsequent runs were green.
+- **Follow-up fixes:** every defect from the independent review was fixed with a
+  regression — recovery-journal read-failure preservation (observed RED then
+  GREEN), absolute Node resolution for npm shims, stale Hermes
+  credential-directory sweep, lone-CR `.env` filtering, system-directory
+  artifact validation, CRLF apply/rollback offsets, external-PDF cache identity,
+  graph pagination continuation, UTF-8 sample-boundary decoding, case-alias
+  unsaved reads, single view-level observer cleanup, post-trim routing
+  eligibility, atomic history persistence and PDF lease-release eviction.
+  Findings, fixes and file references are tabulated in `AUDIT.md`.
+- **Dependency scan:** `npm audit --omit=dev --json` returned **0 advisories**
+  across all severities. This scans production dependency advisories, not
+  arbitrary application vulnerabilities or development dependencies.
+- **Skip accounting:** the visible runner skip is the genuine file-symlink
+  test requiring Windows Developer Mode. Some pre-existing tests also return
+  early on unsupported platforms; a green runner total is not evidence those
+  opposite-platform bodies executed. Hard-link and junction containment tests
+  do execute on this Windows host.
+- **Optional ZIP packaging:** `node scripts/package.mjs <scratch-output.zip>`
+  passed metadata/content preflight but failed at `spawnSync zip ENOENT`. The
+  external `zip` executable is absent here. This is distinct from the passing
+  three-file release check. The Ubuntu release workflow runs packaging; its
+  result and downloaded artifacts have not been verified by this local run.
+- **Live availability:** desktop discovery reports Obsidian not running; no
+  existing Obsidian debugging endpoint was available on the checked local
+  ports. Unit/fake-protocol evidence must not be labelled a live-vault pass.
+
+### Windows release checks still required
+
+- Install the exact final `main.js`, `manifest.json` and `styles.css` together
+  in the disposable Test vault, keeping prior plugin files and `data.json`;
+  reload and verify the executed runtime copy, not merely the source file.
+- Exercise actual installed Codex/OpenCode/Claude/Hermes connect, one tool turn,
+  cancellation and reconnect. In particular, test multiline instructions
+  through a real npm Claude shim and confirm Hermes uses its private home.
+  Do not induce real quota exhaustion or log credentials.
+- Exercise CRLF Markdown proposal highlights, Accept/Decline and stale-text
+  refusal; preserve raw drawing/Canvas/Base safety and excluded/case-alias
+  guards. Verify detached-view cleanup and that Automatic stays unavailable
+  on Windows.
+- Exercise PDF continuation reuse, external modification, Stop/new-chat/close
+  and password/failure paths in the running app. Snapshot-consistent cache
+  identity and immediate in-flight parse cancellation remain scoped follow-ups.
+- Re-run optional ZIP packaging with its `zip` prerequisite, inspect the ZIP,
+  and verify remote CI/release assets before publication.
+
+Evidence map: [Windows handoff](audits/3.7.0-rc/REVIEW-windows-hardening-pass.md),
+[consolidation log](audits/3.7.0-rc/windows-consolidation-log.md),
+`tests/audit-win-*.test.ts`, and the cumulative 3.7.0 RC entry in `AUDIT.md`.
+
+
+## 3.7.0 — live release check (2026-11-19, Agentbrain test vault)
+
+- **Gates (final tree):** `npm run check`, `npm run lint` (0 problems), `npm test` (488 pass, 0 fail), `npm run build`, `RELEASE_TAG=3.7.0 npm run check:release`, `npm run guard:test` and `node scripts/package.mjs` (43 files) pass.
+- **Install:** the 3.7.0 build was installed in Agentbrain (previous plugin files backed up first) and reloaded with no console errors. Test files live in `OWLA Butler Test/3.7.0 live/`: a table note and a copy of the real 124-stroke handwriting drawing from the original incident.
+- **Tables:** in the running editor, **Select table** is offered only inside a table, selects the whole table (including a `|-|:-:|` delimiter and a one-column table) and ignores a table look-alike in fenced code; **Add table to chat** attaches it as a chip and shows a notice outside a table. A trusted right-click (DevTools protocol) on a rendered Live Preview table showed that the editor menu comes from the cell's own editor, so the menu item never appeared; fixed by mapping the cell back to its table, then verified: "Add table to OWLA Butler" appears beside Obsidian's Row/Column items and attaches the whole table.
+- **PDF:** right-click on a rendered page → **Copy link to page** put `alpha,p.1` on the clipboard.
+- **Handwriting OCR:** `read_excalidraw` with `visual:true` returned the picture plus OCR containing `742, 16km/h` (2.9 s cold, 1.6 s warm). The OCR binary build was separately verified on this Mac (one shared build for parallel calls, no partial file).
+- **Live turns:** "add a graph, describing this calculation" on the drawing routed automatically to a vision-capable model (Claude Code Haiku), took 3 tool steps (read, render + OCR) instead of the original 22 rounds, read the values correctly and proposed a new note. Accept created it; an edit to an existing note was accepted and undone byte-identically; a second proposal was declined and left the note unchanged.
+- **Hermes, found and fixed live:** (1) every connect deleted the private home's own `state.db`/`processes.json`, so the private gateway refused `session/new` from the second connect on ("state.db was replaced underneath the gateway"); the stale-copy cleanup now runs once per private home. Three consecutive connects then succeeded (141 models, 99 image-capable from the models.dev catalogue). (2) A failed connect left the `hermes acp` child half-connected, so the next connect silently did nothing. (3) A provider usage limit made Hermes retry for up to 3 × 600 s while OWLA showed "responding…"; the private config now makes one attempt. (4) Hermes reported the failure only as "Internal error"/`admitted_turn_failed`; OWLA now shows the streamed cause and marks the limit. Verified live: the turn ended in 8 s with the 429 explanation, Hermes was marked limited, and the next automatic turn skipped it.
+- **Not fixed, noted:** with Codex and Hermes limited, automatic selection chose a free OpenCode vision model for a one-sentence question about the drawing; that model looped through about 50 tool calls until the existing 40/50-call guard stopped it, and then misreported that the path was rejected. Every tool call had succeeded. This is model behaviour plus routing preference, not a regression; model-profile tuning is a follow-up.
+- **Not verified:** Windows, Codex turns (usage limit until 22/11/2026), a successful Hermes model turn (its routed provider was rate-limited), and Community-review readability of the minified bundle.
+
 ## 3.6.0 — Hermes Agent and Excalidraw file forms (2026-11-17)
 
 - **Gates (final tree, after all source edits):** `npm run check`, `npm run lint` (0 errors, 0 warnings), `npm test` (311 pass, 0 fail), `npm run build`, `npm run check:release` (version 3.6.0, three-file bundle, full notices and embedded reference pack) and `npm run guard:test` pass.

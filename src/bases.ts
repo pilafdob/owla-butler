@@ -20,14 +20,15 @@ export function parseBase(text:string,parseYaml:(text:string)=>unknown):BaseData
  return value;
 }
 
-function filterProblems(value:unknown,at:string,problems:string[]){
+function filterProblems(value:unknown,at:string,problems:string[],depth=0){
+ if(depth>64){problems.push(at+' is nested too deeply');return;}
  if(typeof value==='string'){if(!value.trim())problems.push(at+' is an empty filter');return;}
  if(!isMap(value)){problems.push(at+' must be a filter expression or an and/or/not list');return;}
  const keys=Object.keys(value);
  if(keys.length!==1||!['and','or','not'].includes(keys[0])){problems.push(at+' must have exactly one of and, or, not');return;}
  const list=value[keys[0]];
  if(!Array.isArray(list)||!list.length){problems.push(at+'.'+keys[0]+' must be a non-empty list');return;}
- list.forEach((item,index)=>filterProblems(item,at+'.'+keys[0]+'['+index+']',problems));
+ list.forEach((item,index)=>filterProblems(item,at+'.'+keys[0]+'['+index+']',problems,depth+1));
 }
 
 /** Structural problems; empty when the shape is valid. Unknown view types are left to the engine (plugins add views). */
@@ -60,10 +61,11 @@ export function baseProblems(data:BaseData):string[]{
 /** Property references (note.x, formula.y, file.z or bare names) used anywhere in the base. */
 export function baseReferences(data:BaseData):string[]{
  const found=new Set<string>();
- const scan=(value:unknown)=>{
+ const scan=(value:unknown,depth=0)=>{
+  if(depth>64)return;
   if(typeof value==='string')for(const match of value.matchAll(/\b(note|formula|file)\.([A-Za-z_][\w-]*)/g))found.add(match[1]+'.'+match[2]);
-  else if(Array.isArray(value))value.forEach(scan);
-  else if(isMap(value))Object.values(value).forEach(scan);
+  else if(Array.isArray(value))value.forEach(item=>scan(item,depth+1));
+  else if(isMap(value))Object.values(value).forEach(item=>scan(item,depth+1));
  };
  scan(data.filters);scan(data.formulas);scan(data.summaries);
  for(const view of Array.isArray(data.views)?data.views:[]){scan(view.filters);for(const name of Array.isArray(view.order)?view.order:[])if(typeof name==='string')found.add(name.includes('.')?name:'note.'+name);}

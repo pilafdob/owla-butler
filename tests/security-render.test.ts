@@ -79,3 +79,60 @@ test('displayMarkdown only neutralizes embeds and never touches code or math',()
  const tilde='~~~\n![keep](me)\n~~~\n![drop](me)';
  assert.equal(displayMarkdown(tilde),'~~~\n![keep](me)\n~~~\n[drop](me)');
 });
+
+// Block math is literal to MathJax: an embed marker inside $$…$$ must survive
+// verbatim, across lines as well as on one line, while markdown outside it is
+// still neutralized.
+test('displayMarkdown leaves block math untouched, multi-line and inline',()=>{
+ const block='$$\n![keep](me)\n$$\n![drop](me)';
+ assert.equal(displayMarkdown(block),'$$\n![keep](me)\n$$\n[drop](me)');
+ assert.equal(displayMarkdown('$$![keep](me)$$'),'$$![keep](me)$$');
+ assert.equal(displayMarkdown('before ![a](b) $$x<y$$ after ![c](d)'),'before [a](b) $$x<y$$ after [c](d)');
+ const fencedMath='```\n$$\n![keep](me)\n```';
+ assert.equal(displayMarkdown(fencedMath),fencedMath);
+});
+
+// CRLF notes (common on Windows) keep their line endings: fences, block math
+// and the embed rewrite must behave exactly as with LF.
+test('displayMarkdown handles CRLF line endings without altering them',()=>{
+ const crlf='```html\r\n<img src="https://example.com/a"> ![x](y)\r\n```\r\n![drop](me)\r\n$$\r\n![keep](me)\r\n$$\r\n';
+ assert.equal(displayMarkdown(crlf),'```html\r\n<img src="https://example.com/a"> ![x](y)\r\n```\r\n[drop](me)\r\n$$\r\n![keep](me)\r\n$$\r\n');
+ assert.equal(displayMarkdown('![a](b)\r\nplain\r\n'),'[a](b)\r\nplain\r\n');
+});
+
+// SMIL can re-add an attribute after the sanitizer ran: <animate attributeName
+// ="href" to="javascript:…"> or <set attributeName="onload">. Outside Obsidian's
+// renderers no animation survives; inside them only harmless ones do.
+test('SMIL animations cannot re-add a URL, handler or style attribute',()=>{
+ const root=clean(
+  h('svg',{class:'svg-icon'},h('a',{},h('animate',{attributeName:'href',to:'javascript:alert(1)'}),h('set',{attributeName:'onload',to:'alert(1)'}),h('text',{},'click'))),
+  h('div',{class:'mermaid'},h('svg',{},
+   h('animate',{attributeName:'href',values:'javascript:alert(1)'}),
+   h('set',{attributeName:'style',to:'background:url(https://attacker/x)'}),
+   h('animate',{attributeName:'opacity',from:'0',to:'1'}))),
+ );
+ assert.deepEqual(root.find(e=>e.tagName==='SVG'&&e.classList.contains('svg-icon'))!.tags(),['a','text']);
+ const mermaid=root.find(e=>e.classList.contains('mermaid'))!;
+ assert.deepEqual(mermaid.tags(),['svg','animate']);
+ assert.equal(mermaid.find(e=>e.tagName==='ANIMATE')!.getAttribute('attributeName'),'opacity');
+});
+
+// Browsers strip tab/LF/CR inside a URL before resolving its scheme, so a
+// scheme spelled with embedded controls must be judged without them.
+test('links with control characters in the scheme are refused, data-href meets the same rule',()=>{
+ const root=clean(
+  h('a',{href:'java\nscript:alert(1)',id:'nl'}),
+  h('a',{href:'java\tscript:alert(1)',id:'tab'}),
+  h('a',{href:' javascript:alert(1)',id:'lead'}),
+  h('a',{class:'internal-link',href:'java\rscript:alert(1)','data-href':'java\rscript:alert(1)',id:'int'}),
+  h('a',{class:'internal-link','data-href':'javascript:alert(1)',id:'data'}),
+  h('a',{href:'https://example.com/a b',id:'space'}),
+  h('a',{class:'internal-link',href:'Notes/A.md','data-href':'Notes/A.md',id:'note'}),
+ );
+ const href=(id:string)=>root.find(e=>e.getAttribute('id')===id)!.getAttribute('href');
+ for(const id of ['nl','tab','lead','int'])assert.equal(href(id),null,id);
+ assert.equal(root.find(e=>e.getAttribute('id')==='data')!.hasAttribute('data-href'),false);
+ assert.equal(href('space'),'https://example.com/a b');
+ assert.equal(href('note'),'Notes/A.md');
+ assert.equal(root.find(e=>e.getAttribute('id')==='note')!.getAttribute('data-href'),'Notes/A.md');
+});

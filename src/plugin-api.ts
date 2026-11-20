@@ -124,6 +124,7 @@ export class PluginTurn {
   const path=typeof args.path==='string'?args.path:undefined;
   const checkTarget=()=>{
    if(plugin.targeted){
+    if(path&&path.includes('\\'))throw Error('Use forward slashes in vault paths, as Obsidian writes them (Folder/Note.md).');
     if(!path||path.length>1024||!this.allowedPath(path))throw Error('Choose an existing, allowed vault path.');
    }else if(args.path!==undefined)throw Error('Graph options apply to the vault and take no path.');
   };
@@ -133,7 +134,10 @@ export class PluginTurn {
    if(!validValue(feature,value))throw Error(plugin.name+' returned an invalid option value.');
    return JSON.stringify({key:feature.key,path,value});
   }
-  const {value,reason}=args;
+  const {value:rawValue,reason}=args;
+  // A colour is accepted with surrounding whitespace; normalise it before the
+  // plugin preview is compared, since the plugin returns the trimmed form.
+  const value=feature.kind==='color'&&typeof rawValue==='string'?rawValue.trim():rawValue;
   if(name!==PROPOSE||!validValue(feature,value)||typeof reason!=='string'||!reason.trim()||reason.length>300)throw Error('Provide a supported value and a short reason.');
   const key=JSON.stringify([plugin.id,feature.key,path]);
   if(this.drafts.size>=8&&!this.drafts.has(key))throw Error('Review up to eight plugin changes per reply.');

@@ -94,7 +94,7 @@ test('the OpenCode bridge starts a private server, runs a turn and calls back in
    onActivity:()=>{},
    tool:async(name,args)=>{calls.push({name,args});return 'Note body';}
   });
-  assert.match(result.text,/Tool said: Note body/);
+  assert.match(result.text,/Tool said: <untrusted_content>\s+Note body\s+<\/untrusted_content>/);
   // A valid token does not unlock tools that were not offered in this turn.
   assert.match(result.text,/forged: OWLA did not offer that tool/);
   assert.match(result.text,/wrong token: 401/);

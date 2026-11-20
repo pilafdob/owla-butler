@@ -1,5 +1,100 @@
 # Changelog
 
+## 3.7.0
+
+### New features
+
+- **Tables to chat:** right-click inside a Markdown table (also a rendered table in Live Preview) and choose **Add table to OWLA Butler**, or run **Add table to chat**, to attach the whole table as raw Markdown. **Select table** selects the table under the cursor. Tables inside fenced code are ignored.
+- **PDF page citations:** **Copy link to page** in the PDF viewer now copies a citation such as `Kernbereiche Biologie 6,p.15` (file name without folders or extension) instead of a full-path wikilink.
+- **Handwriting in drawings:** on macOS, reading a Canvas or Excalidraw drawing as a picture also returns the handwriting recognised by macOS Vision, labelled as a text supplement to check against the picture. It needs Xcode or its command line tools; without them OCR is skipped and the picture is still returned.
+- **Vision-aware Hermes routing:** Hermes models now report their real image support from the models.dev catalogue Hermes itself uses, instead of all claiming image input. Requests about an open drawing go to an image-capable model.
+- **Selected text reaches the model:** the captured cursor selection is now sent with the turn (clipped to 3000 characters), not only its position.
+
+### Search and tool efficiency
+
+- **Vault search relevance:** terms match whole words only (`graph` no longer matches “paragraph”), scoring weighs how many terms a note covers, and a long query matched by a single body word is dropped.
+- **Hermes tools always visible:** OWLA's private Hermes configuration turns off deferred tool search, so the model sees every OWLA tool and its arguments without extra lookup rounds.
+
+### Reliability
+
+- An unexpected pipe error from a provider process can no longer crash Obsidian; stdio errors are handled for every provider.
+- Provider start-up failures show the real cause (`Last error: …`) instead of “cancelled” or a generic disconnect, for Codex, OpenCode, Claude Code and Hermes.
+- Codex usage-limit errors now mark Codex as exhausted and expire at the reported reset, like the other providers.
+- Resting or switching a provider waits for the previous process to exit and no longer cancels a connection in progress.
+- Claude Code processes escalate from SIGTERM to SIGKILL; stream parsers are capped at 16 MiB; the Hermes stream reader is linear and bounded.
+- An oversized pending-edit journal now fails closed instead of being deleted, and backup clean-up can no longer fail an edit.
+- Routing history over 1 MB is pruned instead of wiped; settings from a newer schema version are kept.
+- Usage reports that list only some windows no longer erase the others.
+- Hermes: reconnecting no longer deletes the private Hermes database, which made Hermes refuse every new session after the first connect.
+- Hermes: a failed connection no longer leaves a half-started Hermes process that made the next connection silently do nothing.
+- Hermes: a provider usage limit is reported within seconds with Hermes's own explanation, instead of up to 30 minutes of "responding…" or a bare "Internal error", and automatic selection then skips Hermes until the limit window passes.
+- A bare `HTTP 429` error is now recognised as a usage limit.
+- Codex: a process that dies while connecting is reported with its cause, not as "cancelled"; model catalogue paging is capped at 20 pages and deduplicated.
+- OpenCode: a server that crashes at start-up is reported promptly with its cause instead of after 20 s of polling; two runs started at once no longer race; aborting while a session is being created works; a stale resident server is detected and restarted.
+- Hermes: model lists are deduplicated; a refused model selection fails the turn instead of silently using the default model; disconnecting clears the old model list; request timers are cleared; the shutdown wait is bounded so a process that never reports its exit cannot block later connections.
+- Shared process runner: abort, stdin end-of-file and command naming fixed; stderr tails are bounded.
+- Automatic mode: the route cache is keyed by conversation history and bounded (64 entries, timed expiry); context estimates include fixed overhead, replayed images and PDF size; retries keep the conversation context and image requirement; a plan that has just reset is no longer treated as unknown.
+- Stream splitting handles a delimiter split across three or more chunks; the web-source list is capped at 500 entries; reading a damaged chat folder is bounded.
+
+### Security
+
+- Hermes: the background-process checkpoint and 25 more writable state entries are no longer shared with your Hermes home; each vault gets its own private home; planted or dangling links in the mirror are refused; instruction files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.hermes.md`) above the session folder block connecting, as they already did for Codex.
+- Child environments: more execution-hijack variables are removed (Git config and SSH command, pager, editor, `UV_PYTHON`, `VIRTUAL_ENV`, `OTEL_*`); Claude Code no longer inherits backend, model or telemetry redirectors; inherited `OPENCODE_*` behaviour variables are dropped while provider keys stay.
+- OpenCode only accepts events for the current turn's session.
+- Reply rendering: re-animated SVG (SMIL) attributes and control-character-obfuscated `javascript:` links are neutralised.
+- Error messages redact bearer tokens, credential assignments and home-folder paths.
+- The loopback MCP endpoint compares its token in constant time, caps request size and rejects malformed bodies.
+- Hermes's mirror of your home is checked with `lstat`/`readlink`: planted or dangling links are replaced, never followed. A 79-entry completeness probe of the mirror is part of the tests.
+- The Hermes version check runs with the cleaned environment.
+- Tool arguments are capped (10,000 / 100,000 characters) so oversized arguments cannot leak tokens into logs or prompts.
+
+### Performance
+
+- `main.js` is minified: about 1 MB instead of 1.7 MB.
+- Organization previews, vault-graph queries, heading outlines and closed-note reads are faster on large vaults.
+- Canvas proposals keep Obsidian's own file format, so a small change no longer reformats the whole file.
+- The Hermes stream reader was quadratic and unbounded (180× slower at 8 MiB); it is now linear and capped at 16 MiB.
+- Organization previews on a 5,000-note vault: about 480 ms → 46 ms. Vault-graph queries reuse path checks (≈100 ms → ≈1 ms). Heading outlines are linear. Closed notes are read through Obsidian's cache.
+- Reply sanitising is coalesced to one pass per frame and now also watches attribute changes.
+
+### Tools and context
+
+- Canvas and Excalidraw readers guard against damaged files and validate sizes; Bases filters have a depth limit; vault-graph results are capped below 60 KB and offsets validated; plugin colours are normalised; a damaged PDF gives an actionable error.
+- OCR helper: needs Xcode or its command line tools and never opens the macOS install dialog; it is compiled once per version, shared by parallel reads, and a failed or interrupted build never leaves a broken binary.
+- Hermes model image support is re-read when the models.dev catalogue file changes, so a catalogue downloaded or refreshed mid-session is used on the next connect.
+
+### Windows hardening (3.7.0 release candidate)
+
+- **Provider launch and teardown:** Windows environment keys are read case-insensitively; `.cmd`/`.bat` arguments with unsafe control characters fail closed. Standard npm Claude shims launch their validated JavaScript entry point directly through Node so multiline instructions arrive intact. Process-tree teardown rechecks exit state before targeting a PID, and failed launches release listeners and timers.
+- **Private provider homes:** Hermes uses the Windows local-application-data home, excludes its credential vault and gateway/runtime state, removes dangling excluded entries, and replaces planted hard links. Reconnects still validate the mirror but avoid unnecessary rewrites. Codex credential links must match the intended sign-in file; instruction-file checks use canonical paths.
+- **Privacy and tool boundaries:** Windows home/UNC paths and credential assignments are redacted from errors; inherited shell/PowerShell redirectors are stripped. All four providers delimit and escape untrusted tool text. These markers help separate data from instructions; they are not a guarantee against model prompt injection.
+- **Windows text and reviewed edits:** CRLF block/table extraction, frontmatter and Canvas round-trips, review display, freshness comparisons and inline diff offsets are corrected. Raw drawing/Canvas/Base snapshots retain byte-exact write guards. Text attachments accept BOM-marked UTF-16 and conservatively detected Windows-1252 prose; prepared text normalizes line endings.
+- **Bounded tools and reads:** vault-graph output enforces its byte budget even for expanded YAML aliases. Filesystem-confirmed case aliases share exclusion, scope and read-size checks. Tool reasons are bounded and property proposals reject non-Markdown formats.
+- **Reliability:** bounded lock retries cover chat writes/deletes and binary reads; journal stat failures preserve recovery data and read-only journal replacement retries safely. OpenCode startup retries bind collisions without reviving a disconnected connection; invalid reset times cannot block a provider indefinitely, and limit detection is shared.
+- **Performance and context:** parsed PDFs are reused through refcounted cache leases and invalidated on modification/stop/close; pending-review rendering is coalesced; detached reply observers are released. Routing-history pruning no longer repeatedly serializes the whole history. Context trimming uses literal, position-checked replacement and conservative estimates; Hermes reads catalogue context windows. Automatic selection remains macOS-only, and macOS Vision OCR/supporting code is preserved.
+
+### Audits and review (3.7.0 release candidate)
+
+- **Seven-area audit** of the 3.6.3 code: failure handling, stream and resource leaks, security and token leakage, automatic-mode efficiency, providers and usage limits, tools and context, and performance. Reports are in `audits/3.7.0-rc/` (`failure-resilience.md`, `stream-leaks.md`, `security-leaks.md`, `auto-mode-efficiency.md`, `providers-usage.md`, `tools-context.md`, `performance.md`), with the consolidated handoff in `REVIEW-rc-hardening-pass.md`.
+- **Feature reviews:** tables to chat, PDF page citations, handwriting OCR and vision routing, and the documentation reorganisation each have a review note in the same folder.
+- **Independent review** of all of the above found and fixed: an OpenCode isolation change that dropped `OPENCODE_API_KEY`; table delimiter rows with single hyphens or one column not being recognised; the OCR build issues above; the stale Hermes catalogue cache; the unbounded Hermes shutdown wait; and the `429` pattern that matched a literal backslash.
+- **Live release check** in a test vault (details in `TESTING.md`): found and fixed the Live Preview table right-click gap and four Hermes bugs (private database deleted on every connect, half-connected process after a failed connect, 30-minute silent retry on a usage limit, bare "Internal error" message).
+- **Windows round:** eight area reports (`windows-failure-process.md`, `windows-stream-leaks.md`, `windows-security-leaks.md`, `windows-auto-mode.md`, `windows-providers-usage.md`, `windows-tools-context.md`, `windows-attachments-vision.md`, `windows-performance-main.md`) plus `windows-consolidation-log.md` and `REVIEW-windows-hardening-pass.md` in `audits/3.7.0-rc/`. Consolidation O1–O6 resolved cross-area interactions and the earlier independent review's six logic findings, with regression coverage.
+- **Independent follow-up (2026-11-20):** three fresh reviewers re-examined the Windows tree and reproduced fourteen further defects (recovery-journal read failures, npm-shim cwd hijack, stale Hermes credential copies, lone-CR `.env` bypass, system-directory trust, CRLF apply/rollback offsets, external-PDF cache collisions, graph pagination, UTF-8 sample boundaries, case-alias unsaved reads, observer retention, post-trim routing eligibility, history-write atomicity, PDF lease capacity). All were fixed with regressions; final gates **774 tests / 773 pass / 0 fail / 1 designed skip**, build/check/lint/release/guard checks green. A second delegated fix review was cut short by the account's daily usage limit, so the parent completed and verified the remaining fixes directly. Details in `AUDIT.md`.
+- The earlier macOS release check recorded 488 passing tests; the Windows fan-out baseline separately recorded 479 tests (467 pass, 12 fixture failures). These are different snapshots, not a single test-count progression. The current independent Windows rerun and remaining release checks are recorded in `TESTING.md` and `AUDIT.md`.
+
+### Documentation
+
+- Old version-specific reports moved from the repository root to `audits/<version>/` (1.0.0 capability checklist, 1.0.1 release candidate, 3.1.1 performance audit, 3.6.1 Windows audit, 3.6.2 security audit), with an index in `audits/README.md`. Living documents stay at the root; the package ships the two older reports from their new paths.
+- New GitHub issue templates (bug report and configuration).
+- README: Hermes listed as a provider throughout; provider-specific wording generalised.
+
+### Known limits
+
+- Not verified on Windows in a running vault, and no Codex turn was run live (usage limit).
+- With strong providers limited, automatic selection can pick a free model that uses many tool calls; the 40/50 tool-call guard stops it.
+- The Windows round implements the previously deferred PDF cache, review render coalescing, Hermes rewrite gating, selection trimming, catalogue context-window lookup and untrusted-output delimiters. Remaining work includes live installed-provider/Obsidian verification, prompt PDF-parse cancellation, snapshot-consistent PDF cache identity, Excalidraw export limits, organization checkpoint optimization and the other scoped items in `audits/3.7.0-rc/REVIEW-windows-hardening-pass.md` §5. No Windows Automatic-mode enablement is included.
+
 ## 3.6.3
 
 ### Hermes containment (security)

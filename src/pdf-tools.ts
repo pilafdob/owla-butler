@@ -10,8 +10,12 @@ export function pdfLink(value:string):{path:string;page?:number} {
  if(page!==undefined&&(!Number.isSafeInteger(page)||page<1))throw Error('Choose a positive page number.');
  return {path,page};
 }
+async function loadPdf(data:Uint8Array){
+ try{return await PDFDocument.load(data);}
+ catch{throw Error('The PDF could not be opened; it may be damaged or password-protected. Attach an unlocked, valid PDF.');}
+}
 export async function validatePdfComments(data:Uint8Array,comments:PdfComment[]):Promise<void> {
- const doc=await PDFDocument.load(data);
+ const doc=await loadPdf(data);
  checkComments(doc.getPageCount(),comments);
 }
 function checkComments(pages:number,comments:PdfComment[]) {
@@ -19,7 +23,7 @@ function checkComments(pages:number,comments:PdfComment[]) {
  for(const comment of comments)if(!Number.isInteger(comment.page)||comment.page<1||comment.page>pages||!comment.text.trim()||comment.text.length>4000)throw Error('Invalid PDF comment or page.');
 }
 export async function annotatePdf(data:Uint8Array,comments:PdfComment[]):Promise<Uint8Array> {
- const doc=await PDFDocument.load(data);
+ const doc=await loadPdf(data);
  checkComments(doc.getPageCount(),comments);
  const counts=new Map<number,number>();
  for(const comment of comments){

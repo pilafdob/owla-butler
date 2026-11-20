@@ -88,6 +88,31 @@ async function resizeImage(file:File,signal?:AbortSignal):Promise<ConvertedAttac
   return {text:'Image converted locally to '+(type==='image/png'?'PNG.':'JPEG.'),image:new Uint8Array(await blob.arrayBuffer()),imageType:type};
  }finally{bitmap.close();}
 }
+/**
+ * The encoding of a text attachment, or null when the sample looks binary.
+ * File.text() only decodes UTF-8; Windows Notepad's "Unicode" files are UTF-16
+ * with a BOM and older ANSI files are windows-1252, so both are read explicitly
+ * here. The windows-1252 fallback is limited to prose extensions and refuses
+ * samples with control bytes, so binary data stays refused.
+ */
+// eslint-disable-next-line no-control-regex -- control bytes mark a binary sample that must not be decoded as text
+const BINARY_SAMPLE=/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0081\u008D\u008F\u0090\u009D]/;
+const ANSI_TEXT=/^\.(txt|md|csv|tsv|log|tex|bib)$/;
+export function attachmentTextEncoding(sample:Uint8Array,extension:string,type:string,partial=false):string|null{
+ if(type.startsWith('image/')||/^\.(doc|ppt|xls|rtf|pages|key|numbers|heic|heif|tiff?|bmp|gif|avif|png|jpe?g|webp)$/.test(extension))return null;
+ if(sample[0]===0xFF&&sample[1]===0xFE)return 'utf-16le';
+ if(sample[0]===0xFE&&sample[1]===0xFF)return 'utf-16be';
+ if(sample.includes(0))return null;
+ // A bounded sample may end inside a multibyte character; stream semantics
+ // buffer that incomplete tail instead of flagging it U+FFFD, so valid UTF-8
+ // prose is not misread as ANSI. A genuinely malformed byte still replaces.
+ // The final file (partial=false) keeps strict semantics: a trailing incomplete
+ // sequence there is malformed and stays refused.
+ const utf8=new TextDecoder('utf-8',{fatal:false}).decode(sample,{stream:partial});
+ if(!utf8.includes('\uFFFD'))return 'utf-8';
+ if(ANSI_TEXT.test(extension)&&!BINARY_SAMPLE.test(new TextDecoder('windows-1252').decode(sample)))return 'windows-1252';
+ return null;
+}
 export async function convertFile(file:File,sourcePath:string,parse:(xml:string)=>Document,signal?:AbortSignal):Promise<ConvertedAttachment> {
  signal?.throwIfAborted();
  if(file.size>512*1024*1024)return {text:'This file exceeds the 512 MB conversion budget. Export a smaller section for analysis.',notice:'Content unavailable'};
@@ -113,8 +138,11 @@ export async function convertFile(file:File,sourcePath:string,parse:(xml:string)
  }
  // Inspect a bounded sample before decoding text. Binary input goes to native conversion.
  const sample = new Uint8Array(await file.slice(0,8192).arrayBuffer());
- if (!file.type.startsWith('image/') && !sample.includes(0) && !new TextDecoder('utf-8',{fatal:false}).decode(sample).includes('\uFFFD') && !/^\.(doc|ppt|xls|rtf|pages|key|numbers|heic|heif|tiff?|bmp|gif|avif|png|jpe?g|webp)$/.test(extension)) {
-  return {text:bounded(await file.slice(0,256000).text())+(file.size>256000?'\n[Only the first 256 KB were read.]':'')};
+ const encoding = attachmentTextEncoding(sample,extension,file.type,file.size>sample.length);
+ if (encoding) {
+  // CRLF is normalised so Windows line endings do not inflate the character budget.
+  const text = new TextDecoder(encoding).decode(new Uint8Array(await file.slice(0,256000).arrayBuffer())).replace(/\r\n/g,'\n');
+  return {text:bounded(text)+(file.size>256000?'\n[Only the first 256 KB were read.]':'')};
  }
  if (process.platform!=='darwin') return {text:'This binary file could not be converted on this platform.',notice:'Content unavailable'};
  const directory = await mkdtemp(join(tmpdir(),'owla-convert-'));

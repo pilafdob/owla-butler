@@ -1,4 +1,67 @@
-# OWLA Butler 3.0.0 final audit
+# OWLA Butler cumulative audit
+
+## 3.7.0 RC — Windows hardening and independent follow-up (2026-11-20)
+
+**Scope:** the Windows hardening working tree against `81540fb`, not a new
+release or a certification of every provider/version. Eight original audit
+areas and consolidation O1–O6 are indexed below; the follow-up independently
+reruns gates and reviews the implementation rather than relying on the prior
+agent verdict. The original area reports remain evidence snapshots.
+
+| Area | Changes and audit coverage | Detailed evidence |
+|---|---|---|
+| Failure/process | Shim control-character refusal; copied-environment casing; validated Codex credential identity; journal stat/read-only behavior; best-effort rotation; exit-aware process termination | [Windows failure/process](audits/3.7.0-rc/windows-failure-process.md) |
+| Streams/lifecycle | Bounded chat lock retries; failed-spawn timer/listener cleanup; handshake cleanup; CRLF splitting and process-tree probes | [Windows streams](audits/3.7.0-rc/windows-stream-leaks.md) |
+| Security/privacy | Windows Hermes home discovery; credential-vault exclusion; hard-link and dangling-entry cleanup; filtered `.env`; Windows/UNC error redaction; canonical instruction refusal; validated reconnect rewrite gating | [Windows security](audits/3.7.0-rc/windows-security-leaks.md) |
+| Routing/context | Non-quadratic history pruning; bounded history persistence; classifier basename privacy; context-selection trimming; CRLF cache keys; macOS-only routing gate | [Windows automatic mode](audits/3.7.0-rc/windows-auto-mode.md) |
+| Providers/usage | Bounded OpenCode bind/startup retry with takeover protection; finite reset-time validation; shared rate-limit matching; CRLF JSON/fence parsing | [Windows providers](audits/3.7.0-rc/windows-providers-usage.md) |
+| Vault tools | CRLF block/table/property handling; real graph-output budget; canonical case-alias scoping; hardlink/junction refusal; Canvas formatting preservation | [Windows tools/context](audits/3.7.0-rc/windows-tools-context.md) |
+| Attachments/PDF | Editor-normalized inline diffs; BOM UTF-16/conservative Windows-1252 decoding; CRLF text budgets; PDF citations and leased document cache; Windows OCR no-op | [Windows attachments](audits/3.7.0-rc/windows-attachments-vision.md) |
+| Main/UI integration | Coalesced review rebuilds and broadcasts; detached observer cleanup; normalized Markdown reads with raw-format write guards; redacted chat errors; Markdown-only property proposals | [Windows performance/main](audits/3.7.0-rc/windows-performance-main.md) |
+
+Cross-file integration is recorded in
+[the consolidation log](audits/3.7.0-rc/windows-consolidation-log.md): direct
+Node launch for standard npm Claude shims, PDF cache/read retries, shared
+case-alias and size guards, untrusted tool-output wrappers for all four
+providers, catalogue context windows and literal fail-closed selection trims.
+The prior independent review found six logic defects and two closing
+suggestions; O5/O6 record their fixes and tests. Delimiters are defense in depth,
+not an enforcement boundary against prompt injection.
+
+**Independent follow-up review (2026-11-20):** three fresh read-only reviewers
+traced the working diff and executed synthetic reproductions on Windows. Their
+focused passing suites did not invalidate the additional defects they found;
+every reported defect was fixed with a regression (key ones observed RED before
+and GREEN after) and the tree was re-verified. No real credential contents,
+shared-account logout or model turn was used.
+
+| Finding | Fix and regression |
+|---|---|
+| Recovery journal read failure read as empty, so `clearPendingEdits` could delete an unread journal | Read I/O failures now throw and preserve the journal; tolerant JSON-decode recovery is unchanged. Deterministic EBUSY/EPERM/EACCES regression through the real clear path. |
+| Claude npm-shim bare `node` fallback let a session `node.cmd` hijack launch | Resolve a validated absolute Node (bundled, current binary if Node, else PATH); otherwise keep the guarded shim. End-to-end cwd-hijack regression. |
+| Stale copied Hermes `vault/` directory survived excluded-entry cleanup | `sweepExcludedPrivateEntries` removes user-data directories (credential vault, kanban, platforms, backups, …) on every connect; gateway-owned runtime dirs survive reconnect. Three sweep regressions. |
+| Lone-CR `.env` assignments bypassed the filter | Split on LF/CRLF/CR like python-dotenv; blocked ComSpec/PATH after a CR are stripped. Regression. |
+| System-directory trust rested on `cmd.exe` existence alone | Also require the core system DLLs; a cmd.exe-only planted folder falls back to default. Regression + exact-fallback assertion. |
+| CRLF proposal offsets corrupted apply/rollback | Normalize both sides for plain-Markdown editor operations; structured formats keep byte-exact guards. Apply→decline regression. |
+| Distinct external PDFs shared one cache entry | Stable per-object identity (WeakMap) keys external Files; two same-name/size/time attachments parse separately. Regression through `read_pdf`. |
+| Byte-trimmed graph pages skipped notes | Recompute `nextOffset` to the first unreturned note and set `truncated`; non-paginated lists flagged too. Two regressions. |
+| UTF-8 sample split mid-character triggered ANSI fallback | Streaming decode for a non-final sample; an incomplete final file stays refused. Regression covers both. |
+| Case-alias reads missed unsaved editor content | `currentText`/`writeEdit` resolve the canonical path before view/target lookups. Alias regression returns unsaved text. |
+| Per-reply unload closures retained observers/content | One view-level cleanup drains all observers; newChat test asserts a single registration. |
+| Post-trim routing still offered smaller windows | Both automatic branches refilter by the post-trim estimate and the scorer enforces capacity. Four routing regressions. |
+| History persistence fell back to an in-place write | Atomic rename only, bounded retry for transient sharing codes; a failed save leaves the old history intact. Fault-injected regressions. |
+| PDF lease release left temporary overflow | Returning a lease evicts idle overflow immediately. Updated + added cache regressions. |
+
+**Verification and limits:** final fresh command results and the remaining live
+Windows release checklist are in `TESTING.md` under 3.7.0 RC (final suite:
+**774 tests / 773 pass / 0 fail / 1 designed skip**). No commit, push,
+tag, publication, shared account logout, credential inspection or real model
+turn is implied. `src/ocr.ts`, `src/visual.ts` and `src/model-profiles.ts`
+remain unchanged against the base; macOS-only functionality is preserved in
+source and parameterized tests, not re-certified on macOS by this Windows run.
+Remaining scoped risks and designs stay in
+[the Windows handoff §5](audits/3.7.0-rc/REVIEW-windows-hardening-pass.md#5-deferred-backlog-risk-tiers-designs-in-the-per-agent-reports).
+
 
 ## macOS + Windows security audit — 2026-11-18 (released in 3.6.3)
 
@@ -84,7 +147,7 @@ rewritten to a bounded four-step route and mirrored into `assets/reference-pack.
 
 ## Security and performance hardening — 2026-11-13 (unreleased)
 
-A security audit of the three provider bridges and the vault path checks, and a performance audit (`PERFORMANCE-AUDIT.md`), on 3.1.1. Fixed in the working tree, not released:
+A security audit of the three provider bridges and the vault path checks, and a performance audit (`audits/3.1.1/PERFORMANCE-AUDIT.md`), on 3.1.1. Fixed in the working tree, not released:
 
 - **OpenCode ancestor discovery.** OpenCode loads `opencode.json`, `.opencode/opencode.json` and `.opencode/plugins/*.ts` from every directory above its working directory, including the home folder, so a plugin in `~/.opencode/plugins` would have run inside OWLA's session. OWLA now sets `OPENCODE_DISABLE_PROJECT_CONFIG=1` (and its alias) and writes its own configuration as the global config of the private config home, removing the old project `opencode.json`. Verified live with OpenCode 2.3.0: with a probe plugin and an `opencode.json` planted above the session folder, the bridge connected (43 models), `/api/config` listed only the private config, and the probe did not run; the same probe ran when the server was started without the switch.
 - **OpenCode permissions.** OWLA tools are allowed by exact name (`owla_read_note`, …) instead of the `owla_*` wildcard, which another plugin or MCP server registering under `owla_` could also have used.
@@ -93,7 +156,7 @@ A security audit of the three provider bridges and the vault path checks, and a 
 - **Child environments.** Every provider drops `NODE_OPTIONS`, `NODE_TLS_REJECT_UNAUTHORIZED`, `ELECTRON_RUN_AS_NODE`, `LD_PRELOAD` and `DYLD_INSERT_LIBRARIES`. Codex and Claude Code also drop OpenAI and Anthropic keys and endpoint overrides. OpenCode keeps provider keys, which it reads from the environment by design. Proxies and certificate bundles stay.
 - **Codex.** The configuration is re-read before every turn, and a turn is refused if an inherited integration, the shell tool, apps or telemetry came back on. Connecting is refused if an `AGENTS.md` or `AGENTS.override.md` sits between the session folder and the home folder.
 - **Excluded folders** match regardless of case and Unicode normalization, as macOS and Windows resolve paths; `private/Note.md` no longer reaches around an exclusion of `Private`.
-- **Performance.** The four provider stream readers use a shared splitter (`src/stream.ts`) that is linear for a long message arriving in many chunks (PERFORMANCE-AUDIT.md finding 3; a 16 MiB line now reassembles in well under 250 ms in the test). The vault root is resolved once instead of on every path check, and the note picker checks the vault once per opening instead of per keystroke (findings 1 and 2). Each candidate path is still resolved on every check, because that is the symlink guard.
+- **Performance.** The four provider stream readers use a shared splitter (`src/stream.ts`) that is linear for a long message arriving in many chunks (audits/3.1.1/PERFORMANCE-AUDIT.md finding 3; a 16 MiB line now reassembles in well under 250 ms in the test). The vault root is resolved once instead of on every path check, and the note picker checks the vault once per opening instead of per keystroke (findings 1 and 2). Each candidate path is still resolved on every check, because that is the symlink guard.
 
 Known limits, not fixed: OpenCode keeps OWLA's sessions in its global `opencode.db` until the end-of-turn delete, and a crash leaves them there. Moving the database is not possible without losing sign-in, because OpenCode 2.3.0 stores credentials in the same database. No live model turn ran, because the free OpenCode models were exhausted, so the exact-name permission rule is covered by unit tests and the effective tool name `owla_<tool>`, not by a real tool call. The Claude Code bridge was not audited separately. TESTING.md line 17 describes the verification harness, which redirected all OpenCode folders; the shipped bridge redirects only the config folder.
 
@@ -225,7 +288,7 @@ V1 evidence: work/v1-lifecycle-result.txt, work/v1-stream-stress-result.txt, wor
 - Codex app-server uses private process pipes, compatible-version checks, dynamic model/effort catalog, ephemeral conversations, cancellation and automatic idle shutdown. Unexpected server operations are denied; configuration is verified after inherited integrations are disabled per entry.
 - Codex decides when to read notes, use retained skills, interpret attachments, research online or prepare an edit. No modes, welcome section or suggestion cards. Replies say OWLA; green/red connection dot has tooltip/accessibility text.
 - All writes still use reviewed exact proposals, private backup, YAML/freshness validation and guarded Undo. Read/search paths reject exclusions, hidden/configuration files, traversal and escaping symlinks.
-- 49 automated tests; 22 lifecycle/layout checks; nine real scenarios; six live skill reads; actual cancel/reconnect and final source/edit regression passed. See TESTING.md and CAPABILITY-CHECKLIST.md for scope and measured results.
+- 49 automated tests; 22 lifecycle/layout checks; nine real scenarios; six live skill reads; actual cancel/reconnect and final source/edit regression passed. See TESTING.md and audits/1.0.0/CAPABILITY-CHECKLIST.md for scope and measured results.
 - Current known footprint about 4.60 GB. Runtime removed; saved work hashes and original backups preserved. Measured Codex process-family peak about 208 MiB during final tasks, excluding Obsidian/OS memory.
 
 Remaining limits: experimental upstream app-server fields may change; only CLI 0.162.1 was tested live. Account entitlement is established by successful turns, not catalog presence alone. Quotas/network/model behavior remain provider-dependent. Long documents, arbitrary handwriting, every math problem, all themes/accessibility and every model are not certified. No arbitrary shell or file move/rename/delete tools. No publication, visibility change or release tag was performed.

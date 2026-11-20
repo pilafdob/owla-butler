@@ -19,25 +19,71 @@
  */
 
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {mkdirSync} from 'node:fs';
+import {mkdirSync,readFileSync,statSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,join} from 'node:path';
+import {basename,delimiter,dirname,join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import {claudeExhaustion,ProviderExhaustion} from './exhaustion';
 import {UsageSnapshot,decodeClaudeRateLimit,decodeClaudeUsage,updateUsage} from './usage';
-import {list,record} from './validation';
+import {list,record,untrustedToolText} from './validation';
 import {RecordSplitter} from './stream';
-import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
+import {defaultCliDirectories,envPath,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 
 export const CLAUDE_MCP_SERVER='owla';
 export const CLAUDE_TOOL_PREFIX='mcp__'+CLAUDE_MCP_SERVER+'__';
 /** Models without an effort parameter carry this placeholder effort. */
 export const CLAUDE_NO_EFFORT='default';
+/** One stream-json message per line, each at most 16 MiB, as for Codex. */
+const MAX_CLAUDE_LINE=16*1024*1024;
 
 const defaultBinDirectories=()=>defaultCliDirectories([join(homedir(),'.claude','local')]);
 export function findClaudeExecutable(path:string,directories=defaultBinDirectories()):string{
  return findCliExecutable('claude',path,directories);
+}
+
+/**
+ * Resolves an npm-style Windows command shim (.cmd/.bat) to the node script it
+ * launches. cmd.exe truncates the wrapped /c command line at an embedded CR/LF
+ * (probe-verified), silently dropping the tail of a multi-line --system-prompt;
+ * spawnCli refuses such shim arguments fail-closed. Launching node directly
+ * passes every argument verbatim, so multi-line instructions work through the
+ * npm install shape. Only the standard npm cmd-shim layout is recognised —
+ * quoted "%~dp0\….js" targets relative to the shim's own directory, launched by
+ * node; anything else returns null and the caller keeps the guarded shim path.
+ */
+export function windowsShimScript(shim:string,platform:NodeJS.Platform=process.platform):{node:string;script:string}|null{
+ if(platform!=='win32'||!/\.(?:cmd|bat)$/i.test(shim))return null;
+ let text:string;try{text=readFileSync(shim,'utf8');}catch{return null;}
+ if(!/\bnode(?:\.exe)?\b/i.test(text))return null;
+ const dir=dirname(shim),scripts=new Map<string,string>();
+ for(const match of text.matchAll(/"%~dp0([^"]+\.js)"/gi)){
+  const rel=match[1].replace(/^[\\/]+/,'').replace(/\\/g,'/');
+  // Fail closed on anything but a plain relative path inside the shim folder.
+  for(const ch of rel)if(ch.charCodeAt(0)<32)return null;
+  if(rel.includes('%')||/^[a-z]:/i.test(rel)||rel.split('/').includes('..'))return null;
+  const script=join(dir,rel),key=platform==='win32'?script.toLowerCase():script;
+  if(!scripts.has(key))scripts.set(key,script);
+ }
+ if(scripts.size!==1)return null;
+ const script=[...scripts.values()][0];
+ try{if(!statSync(script).isFile())return null;}catch{return null;}
+ const localNode=join(dir,'node.exe');
+ // Never hand bare `node` to cross-spawn: which searches the child cwd BEFORE
+ // PATH on Windows, allowing a session-local node.cmd to run instead. The
+ // current binary is safe only in Node (Obsidian's Electron is not Node).
+ let node='';
+ try{if(statSync(localNode).isFile())node=localNode;}catch{/* No bundled Node. */}
+ if(!node&&/^node(?:\.exe)?$/i.test(basename(process.execPath))&&isCliExecutable(process.execPath))node=process.execPath;
+ if(!node)node=findCliExecutable('node.exe',envPath(process.env),[],platform);
+ // No trusted absolute binary: keep the original guarded shim, never guess.
+ return node?{node,script}:null;
+}
+
+/** The launch command for a probe/turn: node + script when the shim resolves, else the file itself. */
+export function shimLaunch(file:string,args:string[],platform:NodeJS.Platform=process.platform):{file:string;args:string[]}{
+ const resolved=windowsShimScript(file,platform);
+ return resolved?{file:resolved.node,args:[resolved.script,...args]}:{file,args};
 }
 
 /** OWLA needs the stream-json control protocol with in-process MCP servers and safe mode. */
@@ -92,9 +138,9 @@ export function imageBlock(url:string):{mediaType:string;data:string}|null{
 }
 
 export function toolContent(output:ToolOutput){
- if(typeof output==='string')return [{type:'text',text:output}];
+ if(typeof output==='string')return [{type:'text',text:untrustedToolText(output)}];
  const image=imageBlock(output.imageUrl);
- return [{type:'text',text:output.text},...(image?[{type:'image',data:image.data,mimeType:image.mediaType}]:[])];
+ return [{type:'text',text:untrustedToolText(output.text)},...(image?[{type:'image',data:image.data,mimeType:image.mediaType}]:[])];
 }
 
 /** The command line for one turn. Exported for tests. */
@@ -154,6 +200,14 @@ export class ClaudeBridge implements ProviderBridge{
    // user's own Claude Code telemetry choice and turns off only error reports and self-updates.
    env.DISABLE_ERROR_REPORTING='1';env.DISABLE_AUTOUPDATER='1';
   for(const key of ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX'])delete env[key];
+  // Redirectors would route the turn through another backend, model, config or
+  // telemetry pipeline than the one OWLA reports (SECURITY-AUDIT-3.6.2 M4).
+  // The user's DISABLE_TELEMETRY / NONESSENTIAL_TRAFFIC choice above is kept.
+  for(const key of Object.keys(env)){
+   const k=key.toUpperCase();
+   if(k.startsWith('CLAUDE_CODE_USE_')||k.startsWith('ANTHROPIC_FOUNDRY_')||k.startsWith('OTEL_')
+    ||['ANTHROPIC_BEDROCK_BASE_URL','ANTHROPIC_VERTEX_BASE_URL','ANTHROPIC_CUSTOM_HEADERS','ANTHROPIC_MODEL','ANTHROPIC_DEFAULT_SONNET_MODEL','ANTHROPIC_DEFAULT_OPUS_MODEL','ANTHROPIC_DEFAULT_HAIKU_MODEL','CLAUDE_CODE_OAUTH_TOKEN','CLAUDE_CONFIG_DIR','CLAUDE_CODE_ENABLE_TELEMETRY','AWS_CONFIG_FILE','AWS_SHARED_CREDENTIALS_FILE','CLOUD_ML_REGION'].includes(k))delete env[key];
+  }
   return env;
  }
  private setStatus(status:string){this.status=status;this.onStatus(status);}
@@ -170,7 +224,10 @@ export class ClaudeBridge implements ProviderBridge{
 
  async connect(executable='',cwd=''):Promise<void>{
   const key=JSON.stringify([executable,cwd]);
-  if(this.connecting)return this.connecting;
+  if(this.connecting){
+   if(this.connectionKey!==key)throw Error('Wait for the current Claude Code connection to finish.');
+   return this.connecting;
+  }
   if(this.ready&&this.connectionKey===key)return;
   this.connectionKey=key;
   const starting=this.start(executable,cwd);
@@ -185,10 +242,11 @@ export class ClaudeBridge implements ProviderBridge{
   this.setStatus('Connecting…');
   const env=this.env(),file=executable||findClaudeExecutable(env.PATH??'');
   if(!file||!isCliExecutable(file))throw Error('Claude Code was not found. Install Claude Code or choose its executable in settings.');
-  const run=(args:string[])=>runCli(file,args,{env,timeout:15000,maxBuffer:200000});
+  const run=(args:string[])=>{const launch=shimLaunch(file,args);return runCli(launch.file,launch.args,{env,timeout:15000,maxBuffer:200000});};
   this.version=(await run(['--version'])).trim();
   if(!supportedClaudeVersion(this.version))throw Error('Update Claude Code to version 2.1.322 or newer (claude update), then reconnect.');
-  const auth=record(JSON.parse(await run(['auth','status'])));
+  let authStatus:unknown;try{authStatus=JSON.parse(await run(['auth','status']));}catch{throw Error('Claude Code returned an unreadable sign-in status. Run claude in your terminal, then reconnect.');}
+  const auth=record(authStatus);
   if(generation!==this.generation)throw Error('Claude Code connection cancelled.');
   this.executable=file;
   if(auth.loggedIn!==true){this.loggedIn=false;this.accountType='';throw Error('Sign in to Claude Code first: run claude in your terminal and log in, then reconnect.');}
@@ -215,14 +273,18 @@ export class ClaudeBridge implements ProviderBridge{
  private handshake(file:string,cwd:string,env:NodeJS.ProcessEnv,withUsage=false):Promise<[Message,Message|null]>{
   return new Promise((resolve,reject)=>{
    let init:Message|null=null;
-   const child=spawnCli(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools',''],{cwd,env});
+   // Detached like a turn, so terminateProcessTree can signal the whole group.
+   const launch=shimLaunch(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools','']);
+   const child=spawnCli(launch.file,launch.args,{cwd,env,detached:process.platform!=='win32'});
    this.track(child);
-   const lines=new RecordSplitter('\n');let done=false;
-   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdin.end();terminateProcessTree(child,'SIGTERM');error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
+   const lines=new RecordSplitter('\n',MAX_CLAUDE_LINE);let done=false;
+   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdout.removeAllListeners('data');child.stderr.removeAllListeners('data');if(!child.stdin.destroyed)child.stdin.end();this.stopChild(child);error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
    const timer=setTimeout(()=>finish(Error('Claude Code did not respond. Check that it runs in your terminal.')),30000);
    child.stdout.setEncoding('utf8');
    child.stdout.on('data',(chunk:string)=>{
+    if(done)return;
     for(const raw of lines.push(chunk)){
+     if(done)return;
      const line=raw.trim();
      if(!line)continue;
      let message:Message;try{message=record(JSON.parse(line.trim()));}catch{continue;}
@@ -236,10 +298,14 @@ export class ClaudeBridge implements ProviderBridge{
      // Older Claude Code versions may not know get_usage; the connection still succeeds.
      if(message.type==='control_response'&&response.request_id==='owla-usage')finish(null,response.subtype==='success'?record(response.response):null);
     }
+    if(lines.overflow)finish(Error('Claude Code sent a protocol message that was too large.'));
    });
-   child.stderr.on('data',()=>{});
-   child.on('error',error=>finish(error));
-   child.on('exit',()=>finish(Error('Claude Code exited during connection.')));
+   // A bounded stderr tail names the cause of a handshake death instead of a
+   // bare "exited during connection." (failure audit P3, the codex F4 class).
+   let stderrTail='';child.stderr.setEncoding('utf8');child.stderr.on('data',(chunk:string)=>{stderrTail=(stderrTail+chunk).slice(-4000);});
+   const stderrCause=()=>{const line=stderrTail.split('\n').map(item=>item.trim()).filter(Boolean).pop();return line?' Last error: '+line.slice(0,300):'';};
+   child.on('error',error=>finish(Error('Claude Code could not be started: '+error.message+stderrCause())));
+   child.on('exit',()=>finish(Error('Claude Code exited during connection.'+stderrCause())));
    child.stdin.on('error',()=>{});
    child.stdin.write(JSON.stringify({type:'control_request',request_id:'owla-init',request:{subtype:'initialize'}})+'\n');
   });
@@ -248,7 +314,9 @@ export class ClaudeBridge implements ProviderBridge{
  private acceptRateLimit(info:unknown){
   const snapshot=decodeClaudeRateLimit(info);
   if(!snapshot)return;
-  this.usage=updateUsage(this.usage,snapshot,true);
+  // Older Claude reports carry only the triggering window; merging keeps the
+  // other plan windows alive (providers U2). get_usage reports stay replace=true.
+  this.usage=updateUsage(this.usage,snapshot);
   this.usageUpdatedAt=Date.now();this.usageError='';
   this.exhaustion=claudeExhaustion(this.usage);
   this.onUsage();
@@ -258,21 +326,34 @@ export class ClaudeBridge implements ProviderBridge{
   await this.connect(options.executable,options.cwd);
   options.signal.throwIfAborted();
   const env=this.env(),generation=this.generation;
-  const child=spawnCli(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web),{cwd:options.cwd||homedir(),env,detached:process.platform!=='win32'});
+  const launch=shimLaunch(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web));
+  const child=spawnCli(launch.file,launch.args,{cwd:options.cwd||homedir(),env,detached:process.platform!=='win32'});
   this.track(child);
-  const send=(value:unknown)=>{if(!child.stdin.destroyed)child.stdin.write(JSON.stringify(value)+'\n');};
   const sources=new Map<string,string>();
+  // Bounded so a long turn with many searches cannot grow the map without limit.
+  const addSource=(url:string,title:string)=>{if(sources.size<500||sources.has(url))sources.set(url,title.slice(0,200));};
   let streamed='',lastAssistant='',stderr='',usedWeb=false;
   this.exhaustion=null;
   try{
    return await new Promise<ProviderRunResult>((resolve,reject)=>{
-    const lines=new RecordSplitter('\n');let settled=false;
-    const finish=(error:Error|null,result?:ProviderRunResult)=>{if(settled)return;settled=true;options.signal.removeEventListener('abort',abort);error?reject(error):resolve(result!);};
+    const lines=new RecordSplitter('\n',MAX_CLAUDE_LINE);let settled=false;
+    const send=(value:unknown)=>{if(settled||child.stdin.destroyed||child.stdin.writableEnded)return;child.stdin.write(JSON.stringify(value)+'\n');};
+    const finish=(error:Error|null,result?:ProviderRunResult)=>{
+     if(settled)return;settled=true;
+     options.signal.removeEventListener('abort',abort);
+     // Release the turn's buffers and callbacks at once: nothing may stream into
+     // a finished view, run a tool or hold the reply text alive after settling.
+     child.stdout.removeAllListeners('data');
+     child.stderr.removeAllListeners('data');
+     streamed='';lastAssistant='';stderr='';sources.clear();
+     error?reject(error):resolve(result!);
+    };
     const abort=()=>{
      send({type:'control_request',request_id:'owla-interrupt',request:{subtype:'interrupt'}});
      finish(Error('Stopped.'));
     };
     options.signal.addEventListener('abort',abort,{once:true});
+    if(options.signal.aborted){finish(Error('Stopped.'));return;}
     const answerMcp=async(requestId:string,message:Message)=>{
      const id=message.id,method=message.method,params=record(message.params);
      let result:unknown={};
@@ -281,8 +362,10 @@ export class ClaudeBridge implements ProviderBridge{
       else if(method==='tools/list')result={tools:options.tools.map(tool=>({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}))};
       else if(method==='tools/call'){
        const name=typeof params.name==='string'?params.name:'';
+       // A cancelled turn must not start new vault work, whatever arrives next.
+       if(settled||options.signal.aborted)result={content:[{type:'text',text:'Stopped.'}],isError:true};
        // Only the tools offered for this turn may run, whatever the model names.
-       if(!options.tools.some(tool=>tool.name===name))result={content:[{type:'text',text:'This tool is not available in this mode.'}],isError:true};
+       else if(!options.tools.some(tool=>tool.name===name))result={content:[{type:'text',text:'This tool is not available in this mode.'}],isError:true};
        else try{result={content:toolContent(await options.tool(name,params.arguments??{}))};}
        catch(error){result={content:[{type:'text',text:error instanceof Error?error.message:String(error)}],isError:true};}
       }
@@ -291,6 +374,7 @@ export class ClaudeBridge implements ProviderBridge{
      }
     };
     const handle=(message:Message)=>{
+     if(settled)return;
      const type=message.type;
      if(type==='control_request'){
       const request=record(message.request),requestId=typeof message.request_id==='string'?message.request_id:'';
@@ -333,10 +417,10 @@ export class ClaudeBridge implements ProviderBridge{
         if(Array.isArray(value)){for(const item of value)collect(item);return;}
         const recordValue=value as Record<string,unknown>;
         const title=recordValue.title,url=recordValue.url;
-        if(typeof title==='string'&&typeof url==='string'&&/^https?:\/\//.test(url))sources.set(url,title.slice(0,200));
+        if(typeof title==='string'&&typeof url==='string'&&/^https?:\/\//.test(url))addSource(url,title);
         for(const key of Object.keys(recordValue))collect(recordValue[key]);
        };
-       if(typeof block.content==='string'){try{collect(JSON.parse(block.content));}catch{for(const match of block.content.matchAll(/"title":"([^"]{1,200})","url":"(https?:\/\/[^"]+)"/g))sources.set(match[2],match[1]);}}else collect(block.content);
+       if(typeof block.content==='string'){try{collect(JSON.parse(block.content));}catch{for(const match of block.content.matchAll(/"title":"([^"]{1,200})","url":"(https?:\/\/[^"]+)"/g))addSource(match[2],match[1]);}}else collect(block.content);
       }
       return;
      }
@@ -356,17 +440,20 @@ export class ClaudeBridge implements ProviderBridge{
     };
     child.stdout.setEncoding('utf8');
     child.stdout.on('data',(chunk:string)=>{
+     if(settled)return;
      for(const raw of lines.push(chunk)){
       const line=raw.trim();
       if(!line)continue;
       let message:Message;try{message=record(JSON.parse(line.trim()));}catch{continue;}
       try{handle(message);}catch(error){finish(error instanceof Error?error:Error(String(error)));}
      }
+     if(lines.overflow)finish(Error('Claude Code sent a protocol message that was too large.'));
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data',(chunk:string)=>{stderr=(stderr+chunk).slice(-4000);});
-    child.on('error',error=>finish(error));
+    child.on('error',error=>finish(Error('Claude Code could not be started: '+error.message)));
     child.on('exit',()=>{
+     if(settled)return;
      if(generation!==this.generation){finish(Error('Claude Code disconnected.'));return;}
      const detail=stderr.trim();
      if(detail)this.exhaustion=this.exhaustion?.exhausted?this.exhaustion:claudeExhaustion(this.usage,detail);
@@ -378,8 +465,14 @@ export class ClaudeBridge implements ProviderBridge{
   }finally{
    this.untrack(child);
    if(!child.stdin.destroyed)child.stdin.end();
-   const timer=setTimeout(()=>{if(child.exitCode===null)this.kill(child);},2000);
-   child.once('exit',()=>clearTimeout(timer));
+   // A child that never spawned (no PID) or already exited needs no grace timer:
+   // on POSIX a failed spawn never emits 'exit', so the timer would linger dead.
+   if(child.pid===undefined||child.exitCode!==null||child.signalCode!==null)this.stopChild(child);
+   else{
+    // Give Claude a moment to flush and exit on its own, then stop the tree.
+    const timer=setTimeout(()=>this.stopChild(child),2000);
+    child.once('exit',()=>clearTimeout(timer));
+   }
   }
  }
 
@@ -408,15 +501,29 @@ export class ClaudeBridge implements ProviderBridge{
   this.onUsage();
  }
 
- private kill(child:ChildProcessWithoutNullStreams){
+ /**
+  * Stops a child's whole process tree: SIGTERM first, then SIGKILL if it has
+  * not exited shortly after, so a hung or SIGTERM-ignoring CLI cannot outlive
+  * the turn, the connection or the plugin. An already-exited child is only
+  * swept once for lingering group members (never re-targeted on Windows,
+  * where its PID may already be reused); a child that never spawned has no
+  * tree to stop and schedules no escalation timer. On Windows the first
+  * taskkill /T /F already terminates unconditionally, so the escalation is
+  * a no-op there beyond the exit-cleared timer.
+  */
+ private stopChild(child:ChildProcessWithoutNullStreams){
+  const exited=child.exitCode!==null||child.signalCode!==null;
   terminateProcessTree(child,'SIGTERM');
+  if(exited||child.pid===undefined)return;
+  const force=setTimeout(()=>terminateProcessTree(child,'SIGKILL'),2000);
+  child.once('exit',()=>clearTimeout(force));
  }
 
  disconnect(status='Not connected'):void{
   this.generation++;
-  for(const child of this.children)this.kill(child);
+  for(const child of this.children)this.stopChild(child);
   this.children.clear();
-  this.loggedIn=false;this.models=[];this.connectionKey='';this.connecting=null;
+  this.loggedIn=false;this.models=[];this.accountType='';this.connectionKey='';this.connecting=null;
   this.setStatus(status);
  }
 }

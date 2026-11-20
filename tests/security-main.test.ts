@@ -42,7 +42,12 @@ before(async()=>{
  // A hard link into the vault aliases a file outside it.
  linkSync(join(outside,'target.md'),join(vault,'Linked/Hard.md'));
  // A symbolic link inside the vault whose target is that hard-linked file.
- symlinkSync(join(vault,'Linked/Hard.md'),join(vault,'Notes/ToHard.md'));
+ // Windows without Developer Mode refuses file symlinks (EPERM); a hard link
+ // to the same outside file is the unprivileged alias with the same refusal.
+ try{symlinkSync(join(vault,'Linked/Hard.md'),join(vault,'Notes/ToHard.md'));}
+ catch{linkSync(join(outside,'target.md'),join(vault,'Notes/ToHard.md'));}
+ // A directory link out of the vault: a junction on Windows, a symlink elsewhere.
+ symlinkSync(outside,join(vault,'Linked','Out'),process.platform==='win32'?'junction':undefined);
 });
 after(()=>{if(scratch)rmSync(scratch,{recursive:true,force:true});});
 
@@ -180,6 +185,16 @@ test('R1: excluded and hard-linked notes stay out of search results',async()=>{
  assert.ok(!(await search({query:'hard'})).includes('Linked/Hard.md'));
  await assert.rejects(search({query:'bravo',folder:'Private'}),/allowed vault folder/);
  await assert.rejects(search({query:'bravo',folder:'Missing'}),/allowed vault folder/);
+ // A junction (Windows) or symlink folder pointing outside the vault is not a
+ // searchable folder either.
+ await assert.rejects(search({query:'bravo',folder:'Linked/Out'}),/allowed vault folder/);
+});
+
+test('vault aliases to outside files are refused: the planted link and a junction folder',()=>{
+ const butler=makeButler();
+ assert.equal(butler.allowedVaultFile('Notes/ToHard.md'),false);
+ assert.equal(butler.allowedVaultFile('Linked/Out'),false);
+ assert.equal(butler.allowedVaultFile('Linked/Out/target.md'),false);
 });
 
 
