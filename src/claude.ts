@@ -19,16 +19,16 @@
  */
 
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {mkdirSync} from 'node:fs';
+import {mkdirSync,readFileSync,statSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,join} from 'node:path';
+import {basename,delimiter,dirname,join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import {claudeExhaustion,ProviderExhaustion} from './exhaustion';
 import {UsageSnapshot,decodeClaudeRateLimit,decodeClaudeUsage,updateUsage} from './usage';
-import {list,record} from './validation';
+import {list,record,untrustedToolText} from './validation';
 import {RecordSplitter} from './stream';
-import {defaultCliDirectories,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
+import {defaultCliDirectories,envPath,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 
 export const CLAUDE_MCP_SERVER='owla';
 export const CLAUDE_TOOL_PREFIX='mcp__'+CLAUDE_MCP_SERVER+'__';
@@ -40,6 +40,50 @@ const MAX_CLAUDE_LINE=16*1024*1024;
 const defaultBinDirectories=()=>defaultCliDirectories([join(homedir(),'.claude','local')]);
 export function findClaudeExecutable(path:string,directories=defaultBinDirectories()):string{
  return findCliExecutable('claude',path,directories);
+}
+
+/**
+ * Resolves an npm-style Windows command shim (.cmd/.bat) to the node script it
+ * launches. cmd.exe truncates the wrapped /c command line at an embedded CR/LF
+ * (probe-verified), silently dropping the tail of a multi-line --system-prompt;
+ * spawnCli refuses such shim arguments fail-closed. Launching node directly
+ * passes every argument verbatim, so multi-line instructions work through the
+ * npm install shape. Only the standard npm cmd-shim layout is recognised —
+ * quoted "%~dp0\….js" targets relative to the shim's own directory, launched by
+ * node; anything else returns null and the caller keeps the guarded shim path.
+ */
+export function windowsShimScript(shim:string,platform:NodeJS.Platform=process.platform):{node:string;script:string}|null{
+ if(platform!=='win32'||!/\.(?:cmd|bat)$/i.test(shim))return null;
+ let text:string;try{text=readFileSync(shim,'utf8');}catch{return null;}
+ if(!/\bnode(?:\.exe)?\b/i.test(text))return null;
+ const dir=dirname(shim),scripts=new Map<string,string>();
+ for(const match of text.matchAll(/"%~dp0([^"]+\.js)"/gi)){
+  const rel=match[1].replace(/^[\\/]+/,'').replace(/\\/g,'/');
+  // Fail closed on anything but a plain relative path inside the shim folder.
+  for(const ch of rel)if(ch.charCodeAt(0)<32)return null;
+  if(rel.includes('%')||/^[a-z]:/i.test(rel)||rel.split('/').includes('..'))return null;
+  const script=join(dir,rel),key=platform==='win32'?script.toLowerCase():script;
+  if(!scripts.has(key))scripts.set(key,script);
+ }
+ if(scripts.size!==1)return null;
+ const script=[...scripts.values()][0];
+ try{if(!statSync(script).isFile())return null;}catch{return null;}
+ const localNode=join(dir,'node.exe');
+ // Never hand bare `node` to cross-spawn: which searches the child cwd BEFORE
+ // PATH on Windows, allowing a session-local node.cmd to run instead. The
+ // current binary is safe only in Node (Obsidian's Electron is not Node).
+ let node='';
+ try{if(statSync(localNode).isFile())node=localNode;}catch{/* No bundled Node. */}
+ if(!node&&/^node(?:\.exe)?$/i.test(basename(process.execPath))&&isCliExecutable(process.execPath))node=process.execPath;
+ if(!node)node=findCliExecutable('node.exe',envPath(process.env),[],platform);
+ // No trusted absolute binary: keep the original guarded shim, never guess.
+ return node?{node,script}:null;
+}
+
+/** The launch command for a probe/turn: node + script when the shim resolves, else the file itself. */
+export function shimLaunch(file:string,args:string[],platform:NodeJS.Platform=process.platform):{file:string;args:string[]}{
+ const resolved=windowsShimScript(file,platform);
+ return resolved?{file:resolved.node,args:[resolved.script,...args]}:{file,args};
 }
 
 /** OWLA needs the stream-json control protocol with in-process MCP servers and safe mode. */
@@ -94,9 +138,9 @@ export function imageBlock(url:string):{mediaType:string;data:string}|null{
 }
 
 export function toolContent(output:ToolOutput){
- if(typeof output==='string')return [{type:'text',text:output}];
+ if(typeof output==='string')return [{type:'text',text:untrustedToolText(output)}];
  const image=imageBlock(output.imageUrl);
- return [{type:'text',text:output.text},...(image?[{type:'image',data:image.data,mimeType:image.mediaType}]:[])];
+ return [{type:'text',text:untrustedToolText(output.text)},...(image?[{type:'image',data:image.data,mimeType:image.mediaType}]:[])];
 }
 
 /** The command line for one turn. Exported for tests. */
@@ -198,7 +242,7 @@ export class ClaudeBridge implements ProviderBridge{
   this.setStatus('Connecting…');
   const env=this.env(),file=executable||findClaudeExecutable(env.PATH??'');
   if(!file||!isCliExecutable(file))throw Error('Claude Code was not found. Install Claude Code or choose its executable in settings.');
-  const run=(args:string[])=>runCli(file,args,{env,timeout:15000,maxBuffer:200000});
+  const run=(args:string[])=>{const launch=shimLaunch(file,args);return runCli(launch.file,launch.args,{env,timeout:15000,maxBuffer:200000});};
   this.version=(await run(['--version'])).trim();
   if(!supportedClaudeVersion(this.version))throw Error('Update Claude Code to version 2.1.322 or newer (claude update), then reconnect.');
   let authStatus:unknown;try{authStatus=JSON.parse(await run(['auth','status']));}catch{throw Error('Claude Code returned an unreadable sign-in status. Run claude in your terminal, then reconnect.');}
@@ -230,10 +274,11 @@ export class ClaudeBridge implements ProviderBridge{
   return new Promise((resolve,reject)=>{
    let init:Message|null=null;
    // Detached like a turn, so terminateProcessTree can signal the whole group.
-   const child=spawnCli(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools',''],{cwd,env,detached:process.platform!=='win32'});
+   const launch=shimLaunch(file,['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--disable-slash-commands','--setting-sources','','--strict-mcp-config','--tools','']);
+   const child=spawnCli(launch.file,launch.args,{cwd,env,detached:process.platform!=='win32'});
    this.track(child);
    const lines=new RecordSplitter('\n',MAX_CLAUDE_LINE);let done=false;
-   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdout.removeAllListeners('data');child.stdin.end();this.stopChild(child);error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
+   const finish=(error:Error|null,usage:Message|null=null)=>{if(done)return;done=true;clearTimeout(timer);this.untrack(child);child.stdout.removeAllListeners('data');child.stderr.removeAllListeners('data');if(!child.stdin.destroyed)child.stdin.end();this.stopChild(child);error||!init?reject(error??Error('Claude Code refused the connection.')):resolve([init,usage]);};
    const timer=setTimeout(()=>finish(Error('Claude Code did not respond. Check that it runs in your terminal.')),30000);
    child.stdout.setEncoding('utf8');
    child.stdout.on('data',(chunk:string)=>{
@@ -281,7 +326,8 @@ export class ClaudeBridge implements ProviderBridge{
   await this.connect(options.executable,options.cwd);
   options.signal.throwIfAborted();
   const env=this.env(),generation=this.generation;
-  const child=spawnCli(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web),{cwd:options.cwd||homedir(),env,detached:process.platform!=='win32'});
+  const launch=shimLaunch(this.executable,claudeArguments(options.model,options.effort,options.instructions,options.tools,options.web));
+  const child=spawnCli(launch.file,launch.args,{cwd:options.cwd||homedir(),env,detached:process.platform!=='win32'});
   this.track(child);
   const sources=new Map<string,string>();
   // Bounded so a long turn with many searches cannot grow the map without limit.
@@ -405,7 +451,7 @@ export class ClaudeBridge implements ProviderBridge{
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data',(chunk:string)=>{stderr=(stderr+chunk).slice(-4000);});
-    child.on('error',error=>finish(error));
+    child.on('error',error=>finish(Error('Claude Code could not be started: '+error.message)));
     child.on('exit',()=>{
      if(settled)return;
      if(generation!==this.generation){finish(Error('Claude Code disconnected.'));return;}
@@ -419,7 +465,9 @@ export class ClaudeBridge implements ProviderBridge{
   }finally{
    this.untrack(child);
    if(!child.stdin.destroyed)child.stdin.end();
-   if(child.exitCode!==null||child.signalCode!==null)this.stopChild(child);
+   // A child that never spawned (no PID) or already exited needs no grace timer:
+   // on POSIX a failed spawn never emits 'exit', so the timer would linger dead.
+   if(child.pid===undefined||child.exitCode!==null||child.signalCode!==null)this.stopChild(child);
    else{
     // Give Claude a moment to flush and exit on its own, then stop the tree.
     const timer=setTimeout(()=>this.stopChild(child),2000);
@@ -458,12 +506,15 @@ export class ClaudeBridge implements ProviderBridge{
   * not exited shortly after, so a hung or SIGTERM-ignoring CLI cannot outlive
   * the turn, the connection or the plugin. An already-exited child is only
   * swept once for lingering group members (never re-targeted on Windows,
-  * where its PID may already be reused).
+  * where its PID may already be reused); a child that never spawned has no
+  * tree to stop and schedules no escalation timer. On Windows the first
+  * taskkill /T /F already terminates unconditionally, so the escalation is
+  * a no-op there beyond the exit-cleared timer.
   */
  private stopChild(child:ChildProcessWithoutNullStreams){
   const exited=child.exitCode!==null||child.signalCode!==null;
   terminateProcessTree(child,'SIGTERM');
-  if(exited)return;
+  if(exited||child.pid===undefined)return;
   const force=setTimeout(()=>terminateProcessTree(child,'SIGKILL'),2000);
   child.once('exit',()=>clearTimeout(force));
  }

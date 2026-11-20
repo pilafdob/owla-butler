@@ -49,8 +49,15 @@ async function fakeCodex(mode:string){
  const folder=mkdtempSync(join(tmpdir(),'owla-audit-rc-codex-'));
  const script=join(folder,'fake.mjs');
  writeFileSync(script,FAKE);
- const file=join(folder,'codex');
- writeFileSync(file,'#!/bin/sh\nexec "'+process.execPath+'" "'+script+'" '+mode+' "'+folder+'" "$@"\n',{mode:0o700});
+ let file:string;
+ if(process.platform==='win32'){
+  // A .cmd shim, like npm's global codex shim: the real Windows launch path.
+  file=join(folder,'codex.cmd');
+  writeFileSync(file,'@echo off\r\n"'+process.execPath+'" "'+script+'" '+mode+' "'+folder+'" %*\r\n');
+ }else{
+  file=join(folder,'codex');
+  writeFileSync(file,'#!/bin/sh\nexec "'+process.execPath+'" "'+script+'" '+mode+' "'+folder+'" "$@"\n',{mode:0o700});
+ }
  const bridge=new CodexBridge();
  const cwd=join(folder,'session');
  const cleanup=async()=>{bridge.disconnect();await (bridge as unknown as {closing:Promise<void>}).closing;rmSync(folder,{recursive:true,force:true});};
@@ -59,7 +66,6 @@ async function fakeCodex(mode:string){
 const runOptions=(file:string,cwd:string)=>({executable:file,cwd,model:'fake',effort:'low',instructions:'',text:'hello',images:[],tools:[],web:false,signal:new AbortController().signal,onText:()=>{},onActivity:()=>{},tool:async()=>''});
 
 test('a failed turn with a limit error records exhaustion with a bounded retry',async()=>{
- if(process.platform==='win32')return;
  const fake=await fakeCodex('turn-limit');
  try{
   await assert.rejects(fake.bridge.run(runOptions(fake.file,fake.cwd)),/rate_limit_exceeded/);
@@ -72,7 +78,6 @@ test('a failed turn with a limit error records exhaustion with a bounded retry',
 });
 
 test('a rejected turn/start with a limit error records exhaustion too',async()=>{
- if(process.platform==='win32')return;
  const fake=await fakeCodex('start-limit');
  try{
   await assert.rejects(fake.bridge.run(runOptions(fake.file,fake.cwd)),/usage limit reached/);
@@ -81,7 +86,6 @@ test('a rejected turn/start with a limit error records exhaustion too',async()=>
 });
 
 test('a completed turn clears the recorded limit exhaustion',async()=>{
- if(process.platform==='win32')return;
  const fake=await fakeCodex('limit-then-ok');
  try{
   await assert.rejects(fake.bridge.run(runOptions(fake.file,fake.cwd)),/rate_limit_exceeded/);
@@ -93,7 +97,6 @@ test('a completed turn clears the recorded limit exhaustion',async()=>{
 });
 
 test('a model repeated across catalog pages is offered once',async()=>{
- if(process.platform==='win32')return;
  const fake=await fakeCodex('dup-models');
  try{
   await fake.bridge.connect(fake.file,fake.cwd);

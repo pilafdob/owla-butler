@@ -1,7 +1,7 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {existsSync,linkSync,lstatSync,mkdirSync,readlinkSync,realpathSync,symlinkSync,unlinkSync} from 'node:fs';
+import {existsSync,linkSync,lstatSync,mkdirSync,readlinkSync,realpathSync,statSync,symlinkSync,unlinkSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter,dirname,isAbsolute,join,resolve} from 'node:path';
+import {delimiter,dirname,isAbsolute,join,resolve,win32} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
 import {UsageSnapshot,decodeUsage,updateUsage} from './usage';
@@ -9,7 +9,7 @@ import {codexExhaustion,LIMIT_ERROR,ProviderExhaustion} from './exhaustion';
 import {RecordSplitter} from './stream';
 /** One JSON-RPC message per line, each at most 16 MiB. */
 const newProtocolLines=()=>new RecordSplitter('\n',16*1024*1024);
-import {list,record} from './validation';
+import {list,record,redactErrorDetail,untrustedToolText} from './validation';
 import {ChatMessage,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
 import manifest from '../manifest.json';
 export type {ChatMessage,ToolOutput,ToolSpec};
@@ -19,9 +19,7 @@ export function supportedVersion(v:string){const m=v.match(/(?:codex-cli\s+)?(\d
 export function replayHistory(history:ChatMessage[]){let used=0;const result:ChatMessage[]=[];for(const m of history.slice(-12).reverse()){const size=m.content.length+(m.context?.length??0);if(used+size>64000)break;result.unshift(m);used+=size;}return {messages:result,shortened:result.length<history.length};}
 /** Raw provider detail can carry bearer tokens, credential assignments or home
  * paths; chat and status are not the place for them (SECURITY-AUDIT-3.6.2 L15). */
-const redactDetail=(t:string)=>t.replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi,'Bearer [redacted]')
- .replace(/\b(token|api[_-]?key|authorization|password|secret)\s*[:=]\s*["']?[^\s"',}]+/gi,'$1=[redacted]')
- .split(homedir()).join('~');
+const redactDetail=(t:string)=>redactErrorDetail(t);
 export function friendlyError(e:unknown):string{
  // Isolation errors name a feature key; keep them verbatim so a key such as rate_limit_x is not remapped.
  if(e instanceof CodexIsolationError)return e.message;
@@ -116,8 +114,9 @@ export function isolationReport(value:unknown,phase:'start'|'turn'='start'):Isol
 export function inheritedInstructions(directory:string,home=homedir(),platform:NodeJS.Platform=process.platform):string[]{
  const found:string[]=[];
  const normalize=(value:string)=>platform==='linux'?value:value.toLowerCase();
- const stop=normalize(resolve(home));
- let current=resolve(directory);
+ const canonical=(value:string)=>{try{return realpathSync.native(value);}catch{return resolve(value);}};
+ const stop=normalize(canonical(home));
+ let current=canonical(directory);
  while(normalize(current)!==stop&&current!==dirname(current)){
   for(const name of ['AGENTS.md','AGENTS.override.md']){
    const path=join(current,name);
@@ -154,14 +153,24 @@ export function privateHomeInstructions(home:string):string[]{
  */
 export function ensureCodexPrivateHome(home:string,source:string):void{
  mkdirSync(home,{recursive:true,mode:0o700});
+ // NTFS resolves paths case-insensitively: a link stored with different casing
+ // (a case-fold alias) still names the same sign-in and is kept, not churned.
+ const samePath=(a:string,b:string)=>process.platform==='win32'?win32.normalize(a).toLowerCase()===win32.normalize(b).toLowerCase():a===b;
  for(const name of CODEX_AUTH_FILES){
   const target=join(home,name),from=join(source,name);
   let present=false;
   try{
    const info=lstatSync(target);
-   // A regular file is OWLA's own sign-in, or a hard link: keep it.
-   if(!info.isSymbolicLink()||readlinkSync(target)===from)present=true;
-   else unlinkSync(target);
+   if(info.isSymbolicLink()){
+    // A junction reports as a symlink too; one naming a directory never matches.
+    if(samePath(readlinkSync(target),from))present=true;
+    else unlinkSync(target);
+   }else if(info.nlink>1){
+    // A hard link (the unprivileged Windows fallback for a symlink) must name
+    // the user's sign-in; one linked to any other file is replaced, not kept.
+    try{const src=statSync(from);present=src.ino===info.ino&&src.dev===info.dev;}catch{present=false;}
+    if(!present)unlinkSync(target);
+   }else present=true; // A regular file with one link is OWLA's own sign-in: keep it.
   }catch{/* Not present. */}
   if(present||!existsSync(from))continue;
   try{symlinkSync(from,target);}catch{try{linkSync(from,target);}catch{/* OWLA signs in on its own. */}}
@@ -332,7 +341,7 @@ export class CodexBridge implements ProviderBridge{
    const tool=params.tool;
    if(method==='item/tool/call'&&active&&params.threadId===active.threadId&&typeof tool==='string'){
     const owner=this.child;const respond=(result:unknown)=>{if(this.child===owner)this.reply(id,result);};
-    void Promise.resolve().then(()=>active.tool(tool,params.arguments)).then(output=>respond({success:true,contentItems:typeof output==='string'?[{type:'inputText',text:output}]:[{type:'inputText',text:output.text},{type:'inputImage',imageUrl:output.imageUrl}]}),e=>respond({success:false,contentItems:[{type:'inputText',text:'Error: '+friendlyError(e)}]}));
+    void Promise.resolve().then(()=>active.tool(tool,params.arguments)).then(output=>respond({success:true,contentItems:typeof output==='string'?[{type:'inputText',text:untrustedToolText(output)}]:[{type:'inputText',text:untrustedToolText(output.text)},{type:'inputImage',imageUrl:output.imageUrl}]}),e=>respond({success:false,contentItems:[{type:'inputText',text:'Error: '+friendlyError(e)}]}));
    }else this.child?.stdin.write(JSON.stringify({id,error:{code:-32601,message:'This operation is not permitted in OWLA Butler.'}})+'\n');
    return;
   }

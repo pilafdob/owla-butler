@@ -103,7 +103,14 @@ async function withBridge(env:Record<string,string>,body:(bridge:OpencodeBridge,
  finally{
   bridge.disconnect();
   await (bridge as unknown as {closing:Promise<void>}).closing;
-  rmSync(root,{recursive:true,force:true});
+  // Windows can briefly hold the scratch folder after children die
+  // (Defender/indexer); a bounded retry keeps the gate from flaking on cleanup.
+  for(let attempt=0;;attempt++){
+   try{rmSync(root,{recursive:true,force:true});break;}
+   catch(e){const code=(e as NodeJS.ErrnoException).code;
+    if(attempt>=5||(code!=='EPERM'&&code!=='EBUSY'&&code!=='EACCES'))throw e;
+    await sleep(50);}
+  }
  }
 }
 
@@ -131,7 +138,7 @@ test('a second concurrent run is refused without disturbing the first turn',asyn
   // The first turn is still creating its session; the second must not race it.
   await assert.rejects(bridge.run(runOptions(executable,workdir)),/already responding/);
   const result=await first;
-  assert.match(result.text,/Tool said: Note body/);
+  assert.match(result.text,/Tool said: <untrusted_content>\s+Note body\s+<\/untrusted_content>/);
   assert.deepEqual(calls,[{name:'read_note',args:{path:'Note.md'}}]);
   assert.equal((bridge as unknown as {active:unknown}).active,null);
  });
@@ -218,10 +225,10 @@ test('the last holder resting the server leaves it stopped until needed',async()
 test('a turn with changed tools reconnects with the new tool set',async()=>{
  await withBridge({FAKE_CALL_TOOL:'1'},async(bridge,executable,workdir)=>{
   const first=await bridge.run(runOptions(executable,workdir,{tool:async()=>'Note body'}));
-  assert.match(first.text,/Tool said: Note body/);
+  assert.match(first.text,/Tool said: <untrusted_content>\s+Note body\s+<\/untrusted_content>/);
   const extra:ToolSpec={type:'function',name:'propose_edit',description:'Edit',inputSchema:{type:'object',properties:{}}};
   const second=await bridge.run(runOptions(executable,workdir,{tools:[READ_NOTE,extra],tool:async()=>'Note body'}));
-  assert.match(second.text,/Tool said: Note body/);
+  assert.match(second.text,/Tool said: <untrusted_content>\s+Note body\s+<\/untrusted_content>/);
   const tools=JSON.parse((await import('node:fs')).readFileSync(join(workdir,'owla-tools.json'),'utf8')) as {name:string}[];
   assert.deepEqual(tools.map(tool=>tool.name),['read_note','propose_edit']);
  });

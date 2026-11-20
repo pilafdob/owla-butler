@@ -7,10 +7,10 @@ import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
 import {prefixToolNames,ProviderBridge,ProviderModel,ProviderRunOptions,ProviderRunResult,ToolOutput,ToolSpec} from './provider';
-import {ProviderExhaustion} from './exhaustion';
+import {LIMIT_ERROR,ProviderExhaustion} from './exhaustion';
 import {OpencodeAvailability,type OpencodeFailure} from './opencode-availability';
 import {UsageSnapshot,decodeOpencodeUsage} from './usage';
-import {list,record} from './validation';
+import {list,record,untrustedToolText} from './validation';
 import {skillDefinitions} from './knowledge';
 import {OPENCODE_PLUGIN_SOURCE} from './opencode-plugin';
 import {defaultCliDirectories,defaultStorageDirectory,findCliExecutable,isCliExecutable,runCli,sanitizedEnv,spawnCli,terminateProcessTree} from './cli';
@@ -124,7 +124,7 @@ export function friendlyOpencodeError(error:unknown):string{
  if(/insufficient (balance|credit|fund)|top up/i.test(text))return 'Your OpenCode console balance is empty, so its paid models are unavailable. Free models and other connected providers still work. Add credit in the OpenCode console to use paid models.';
  if(/^model unavailable/i.test(text.trim()))return 'This model is not available on your plan with that provider ('+text.trim().replace(/^model unavailable:?\s*/i,'').slice(0,120)+'). Choose another model.';
  if(/free-limit|Free usage limit/i.test(text))return 'OpenCode’s free models reached their shared usage limit. Wait for the reported reset time.';
- if(/usage limit|rate.?limit|quota|\b429\b|too many requests|limit reached/i.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
+ if(LIMIT_ERROR.test(text))return 'OpenCode usage limit reached. Wait for the reported reset time.';
  if(/401|unauthorized|authentication|credential/i.test(text))return 'OpenCode needs you to sign in again. Check your OpenCode account.';
  if(opencodeRegionRestricted(text))
   return 'OpenCode hosts this model outside Europe and the United States, and your workspace’s privacy regions setting does not allow it. Choose another model, or select Global in the OpenCode console under Settings → Privacy → Regions.';
@@ -200,7 +200,7 @@ function call(options:{port:number;path:string;method?:string;password:string;bo
   },response=>{
    const parts:string[]=[];let size=0;
    response.setEncoding('utf8');
-   response.on('data',(chunk:string)=>{size+=chunk.length;if(size>MAX_OPENCODE_BYTES){request.destroy(new Error('OpenCode sent a reply that was too large.'));return;}parts.push(chunk);});
+   response.on('data',(chunk:string)=>{size+=Buffer.byteLength(chunk,'utf8');if(size>MAX_OPENCODE_BYTES){request.destroy(new Error('OpenCode sent a reply that was too large.'));return;}parts.push(chunk);});
    response.on('end',()=>resolve({status:response.statusCode??0,body:parts.join('')}));
    response.on('error',reject);
   });
@@ -234,16 +234,30 @@ function openEventStream(options:{port:number;password:string;signal:AbortSignal
   request.end();
  });
 }
-function freePort():Promise<number>{
- return new Promise((resolve,reject)=>{
-  const probe=createSocketServer();
-  probe.on('error',reject);
-  probe.listen(0,'127.0.0.1',()=>{
-   const address=probe.address();
-   const port=typeof address==='object'&&address?address.port:0;
-   probe.close(()=>port?resolve(port):reject(new Error('Could not reserve a local port.')));
-  });
- });
+/**
+ * Reserves a loopback port for the OpenCode server. The reservation is released
+ * before the child binds (two listeners cannot hold one port), so the port can
+ * still be taken in between; startWithRetry() restarts the startup when the
+ * child dies on it (M7). Windows can also refuse a seemingly free port that
+ * falls in an excluded range (netsh interface ipv4 show excludedportrange),
+ * so a failed probe is retried with a fresh allocation.
+ */
+async function freePort(attempts=5):Promise<number>{
+ let lastError:Error=new Error('Could not reserve a local port.');
+ for(let attempt=0;attempt<attempts;attempt++){
+  try{
+   return await new Promise<number>((resolve,reject)=>{
+    const probe=createSocketServer();
+    probe.on('error',reject);
+    probe.listen(0,'127.0.0.1',()=>{
+     const address=probe.address();
+     const port=typeof address==='object'&&address?address.port:0;
+     probe.close(()=>port?resolve(port):reject(new Error('Could not reserve a local port.')));
+    });
+   });
+  }catch(error){lastError=error instanceof Error?error:Error(String(error));}
+ }
+ throw lastError;
 }
 
 /**
@@ -348,14 +362,14 @@ export class OpencodeBridge implements ProviderBridge{
    // turn spends its session request on a dead endpoint, and restart it once
    // when it no longer replies. The probe is deduplicated like a connect.
    const probe=call({port:this.port,path:'/api/info',password:this.password,timeout:2000}).then(reply=>reply.status>=200&&reply.status<300,()=>false);
-   const reusing=probe.then(async healthy=>{
+   const reusing:Promise<void>=probe.then(async healthy=>{
     if(healthy)return;
     if(this.holders.size>1)throw Error('Wait for the current OpenCode operation to finish.');
     this.disconnect('Restarting OpenCode…');
     const generation=this.generation;
     await this.closing;
     if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
-    await this.start(executable,cwd,web,tools);
+    await this.startWithRetry(executable,cwd,web,tools,reusing);
    });
    this.connecting=reusing;
    try{await reusing;}
@@ -366,9 +380,9 @@ export class OpencodeBridge implements ProviderBridge{
   if(this.child)this.disconnect('Switching OpenCode mode…');
   this.connectionKey=key;
   const generation=this.generation;
-  const starting=this.closing.then(()=>{
+  const starting:Promise<void>=this.closing.then(()=>{
    if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
-   return this.start(executable,cwd,web,tools);
+   return this.startWithRetry(executable,cwd,web,tools,starting);
   });
   this.connecting=starting;
   try{await starting;}
@@ -380,6 +394,32 @@ export class OpencodeBridge implements ProviderBridge{
 
  private digest(tools:ToolSpec[]):string{
   return JSON.stringify(tools.map(tool=>[tool.name,tool.description]));
+ }
+
+ /**
+  * A child that died before it ever answered cannot serve; a fresh port and
+  * process are the only recovery. The port reservation is released before the
+  * child binds (M7): another process, a second OWLA window, or a Windows
+  * excluded port range can take it in between, and a command shim needs
+  * hundreds of milliseconds to reach the bind. The startup is retried with a
+  * new port, bounded, keeping the last cause; a connect that took over wins.
+  * A live-but-silent child keeps the single readiness budget (no blind retry).
+  */
+ private async startWithRetry(executable:string,cwd:string,web:boolean,tools:ToolSpec[],reservation:Promise<void>):Promise<void>{
+  for(let attempt=1;;attempt++){
+   try{await this.start(executable,cwd,web,tools);return;}
+   catch(error){
+    if(attempt>=3||!this.connectFailure)throw error;
+    // start() disconnected the dead child; wait for its tree to exit before
+    // reserving a new port, then reclaim the connect slot fail() released.
+    // A disconnect or a connect that took over meanwhile wins.
+    const generation=this.generation;
+    await this.closing;
+    if(generation!==this.generation)throw Error('OpenCode connection cancelled.');
+    if(this.connecting!==null&&this.connecting!==reservation)throw Error('OpenCode connection cancelled.');
+    this.connecting=reservation;
+   }
+  }
  }
 
  private async start(executable:string,cwd:string,web:boolean,tools:ToolSpec[]):Promise<void>{
@@ -503,7 +543,7 @@ export class OpencodeBridge implements ProviderBridge{
   const parts:string[]=[];let size=0;
   try{
    request.setEncoding('utf8');
-   for await (const chunk of request as AsyncIterable<string>){size+=chunk.length;if(size>MAX_OPENCODE_BYTES)throw Error('The tool request was too large.');parts.push(chunk);}
+   for await (const chunk of request as AsyncIterable<string>){size+=Buffer.byteLength(chunk,'utf8');if(size>MAX_OPENCODE_BYTES)throw Error('The tool request was too large.');parts.push(chunk);}
   }catch(error){send(400,JSON.stringify({error:error instanceof Error?error.message:String(error)}));return;}
   try{
    const payload=record(JSON.parse(parts.join('')||'{}'));
@@ -513,8 +553,8 @@ export class OpencodeBridge implements ProviderBridge{
    // Only the tools offered in this turn; the token alone must not reach the rest.
    if(!this.toolNames.has(name))throw Error('OWLA did not offer that tool in this turn.');
    const output=await handler(name,payload.args);
-   if(typeof output==='string'){send(200,JSON.stringify({text:output}));return;}
-   send(200,JSON.stringify({text:output.text,imageUrl:output.imageUrl}));
+   if(typeof output==='string'){send(200,JSON.stringify({text:untrustedToolText(output)}));return;}
+   send(200,JSON.stringify({text:untrustedToolText(output.text),imageUrl:output.imageUrl}));
   }catch(error){
    send(200,JSON.stringify({error:error instanceof Error?error.message:String(error)}));
   }

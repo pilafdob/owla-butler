@@ -44,15 +44,22 @@ function entryLastUsed(kinds:Partial<Record<TaskKind,TaskOutcomeStats>>):number{
  * is deterministic.
  */
 export function pruneRoutingHistory(history:RoutingHistoryData,maxBytes=MAX_HISTORY_BYTES):RoutingHistoryData{
- if(Buffer.byteLength(JSON.stringify(history))<=maxBytes)return history;
- const entries:{provider:ProviderId;model:string;last:number;samples:number}[]=[];
+ const serialized=JSON.stringify(history);
+ if(Buffer.byteLength(serialized)<=maxBytes)return history;
+ const entries:{provider:ProviderId;model:string;last:number;samples:number;cost:number}[]=[];
  for(const provider of PROVIDER_IDS){
   const models=history[provider];
   if(!models)continue;
   for(const [model,kinds] of Object.entries(models)){
    let samples=0;
    for(const kind of TASK_KINDS){const stats=kinds[kind];if(stats)samples+=stats.success+stats.fail;}
-   entries.push({provider,model,last:entryLastUsed(kinds),samples});
+   // Serialized cost of `"model":{…},` inside its provider map. Measuring each
+   // entry once keeps pruning linear; re-stringifying the whole history per
+   // deletion was quadratic (measured: 3,000 models ≈ 35 s of blocked UI).
+   // Ignoring the provider shell freed with its last model only overestimates
+   // the remaining bytes, so the estimate never prunes too little.
+   const cost=Buffer.byteLength(JSON.stringify(kinds))+Buffer.byteLength(JSON.stringify(model))+2;
+   entries.push({provider,model,last:entryLastUsed(kinds),samples,cost});
   }
  }
  entries.sort((a,b)=>{
@@ -60,11 +67,35 @@ export function pruneRoutingHistory(history:RoutingHistoryData,maxBytes=MAX_HIST
   return a.last-b.last||a.samples-b.samples||(ka<kb?-1:ka>kb?1:0);
  });
  const next:RoutingHistoryData={...history};
- for(const {provider,model} of entries){
-  if(Buffer.byteLength(JSON.stringify(next))<=maxBytes)break;
-  const map={...(next[provider]??{})};
+ // One working copy per provider: spreading the whole map on every deletion
+ // was the second quadratic term (thousands of keys × thousands of deletions).
+ const maps=new Map<ProviderId,Record<string,Partial<Record<TaskKind,TaskOutcomeStats>>>>();
+ const counts=new Map<ProviderId,number>();
+ for(const provider of PROVIDER_IDS){
+  const models=history[provider];
+  if(models){maps.set(provider,{...models});counts.set(provider,Object.keys(models).length);}
+ }
+ const drop=(provider:ProviderId,model:string)=>{
+  const map=maps.get(provider);
+  if(!map)return;
   delete map[model];
-  if(Object.keys(map).length)next[provider]=map;else delete next[provider];
+  const left=(counts.get(provider)??0)-1;
+  counts.set(provider,left);
+  if(left>0)next[provider]=map;else delete next[provider];
+ };
+ let bytes=Buffer.byteLength(serialized);
+ let index=0;
+ for(;index<entries.length;index++){
+  if(bytes<=maxBytes)break;
+  const {provider,model,cost}=entries[index];
+  drop(provider,model);
+  bytes-=cost;
+ }
+ // Exact final measurement guarantees the limit even for exotic keys; the
+ // accounting above is conservative, so this loop normally does nothing.
+ while(index<entries.length&&Buffer.byteLength(JSON.stringify(next))>maxBytes){
+  const {provider,model}=entries[index++];
+  drop(provider,model);
  }
  return next;
 }
@@ -112,12 +143,27 @@ export function saveRoutingHistory(root:string,history:RoutingHistoryData):void{
  if(Buffer.byteLength(data)>MAX_HISTORY_BYTES)return;
  mkdirSync(root,{recursive:true,mode:0o700});
  const file=join(root,HISTORY_FILE);
- const temp=file+'.'+randomUUID()+'.tmp';
+ // A short suffix keeps deep OneDrive vault paths under MAX_PATH; a full UUID
+ // added 41 characters to an already long private-storage path.
+ const temp=file+'.tmp-'+randomUUID().slice(0,8);
  try{
   writeFileSync(temp,data,{mode:0o600,flag:'wx'});
-  renameSync(temp,file);
+  // Publish only by atomic replacement: an in-place fallback can truncate all
+  // previous personalization if a later write fails (for example, ENOSPC).
+  for(let attempt=0;;attempt++){
+   try{renameSync(temp,file);break;}
+   catch(error){
+    const code=record(error).code;
+    if(attempt>=2||(code!=='EPERM'&&code!=='EBUSY'&&code!=='EACCES'))throw error;
+    // Same short synchronous retry budget as ChatStore: at most two 25 ms
+    // pauses for Windows sharing locks. Atomics.wait is unavailable on the
+    // Electron renderer thread; use a monotonic clock for bounded spins.
+    const until=performance.now()+25;
+    while(performance.now()<until){/* bounded spin */}
+   }
+  }
  }finally{
-  if(existsSync(temp))unlinkSync(temp);
+  try{if(existsSync(temp))unlinkSync(temp);}catch{/* A locked temp file is harmless; the next save uses a new name. */}
  }
 }
 

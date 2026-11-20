@@ -33,8 +33,11 @@ export function updateProperties(text:string,set:Record<string,unknown>,remove:s
   props[key]=value;
  }
  const body=text.slice(block.length);
- const yamlText=Object.keys(props).length?yaml.stringify(props).replace(/\n*$/,'\n'):'';
- const next=yamlText?'---\n'+yamlText+'---\n'+body:body.replace(/^\r?\n/,'');
+ // Keep the note's line endings: rewriting a CRLF frontmatter with LF would
+ // show every property line as changed and mix endings inside one file.
+ const eol=(block||text).includes('\r\n')?'\r\n':'\n';
+ const yamlText=Object.keys(props).length?yaml.stringify(props).replace(/\r\n/g,'\n').replace(/\n*$/,'\n').replace(/\n/g,eol):'';
+ const next=yamlText?'---'+eol+yamlText+'---'+eol+body:body.replace(/^\r?\n/,'');
  return {before:block,after:next.slice(0,next.length-body.length),text:next};
 }
 
@@ -144,8 +147,20 @@ export function findBlock(text:string,id:string):{start:number;end:number}|null{
  const name=id.trim().replace(/^\^/,'');
  const match=new RegExp('(?:^|[ \\t])\\^'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'[ \\t]*$','m').exec(text);
  if(!match)return null;
- const before=text.lastIndexOf('\n\n',match.index),after=text.indexOf('\n\n',match.index);
- return {start:before<0?0:before+2,end:after<0?text.length:after};
+ // Paragraphs are separated by blank lines; a CRLF note writes them with CR
+ // halves that a plain LF-only search never finds (the whole note came back
+ // as one block). The scan OVERLAPS (lastIndex advances by one) so odd
+ // blank-line runs keep the old lastIndexOf ranges byte-for-byte: a
+ // three-newline run starts the block after the LAST two, not the first two.
+ let start=0,end=text.length;
+ const blank=/\r?\n\r?\n/g;
+ let gap:RegExpExecArray|null;
+ while((gap=blank.exec(text))){
+  if(gap.index+gap[0].length<=match.index)start=gap.index+gap[0].length;
+  else{end=gap.index;break;}
+  blank.lastIndex=gap.index+1;
+ }
+ return {start,end};
 }
 
 /** Characters returned by one note read; longer text continues with an offset. */
@@ -207,5 +222,7 @@ export function tableAt(text:string,line:number):{start:number;end:number;text:s
  while(end<lines.length-1&&!inFence[end+1]&&TABLE_ROW.test(lines[end+1]))end++;
  const block=lines.slice(start,end+1);
  if(!block.some(isTableDelimiter))return null;
- return {start,end,text:block.join('\n')};
+ // Editor lines drop the \r of a CRLF pair; strip the dangling half-terminator
+ // so the captured text matches the editor selection. Inner CRLFs stay raw.
+ return {start,end,text:block.join('\n').replace(/\r$/,'')};
 }

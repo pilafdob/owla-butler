@@ -8,6 +8,20 @@ The 1.0.0 release and initial listing instructions below are historical. The com
 
 The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
 
+## 3.7.0 RC — Windows pre-publication status
+
+The Windows hardening candidate has local automated and fake-protocol
+verification; that does not certify installed-provider inference, running
+Obsidian review flows, or remote release assets. Current results and the
+remaining checklist are in [`TESTING.md`](TESTING.md); security/data-integrity
+scope and evidence are in [`AUDIT.md`](AUDIT.md) and
+[`audits/3.7.0-rc/REVIEW-windows-hardening-pass.md`](audits/3.7.0-rc/REVIEW-windows-hardening-pass.md).
+The optional ZIP packager additionally requires external `zip`, absent on
+this Windows host; the three-file release check is a separate passing gate.
+Do not infer publication approval, Community acceptance, Windows Automatic
+selection, or a fresh macOS live pass from the local checks. Preserve the
+owner-controlled tested-source → tag → downloaded-asset verification flow.
+
 ## Initial listing information (1.0.0)
 
 | Field | Value |

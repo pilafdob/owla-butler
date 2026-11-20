@@ -19,6 +19,7 @@
  */
 
 import {PROVIDER_IDS,type ProviderId,type ProviderModel} from './provider';
+import {LIMIT_ERROR} from './exhaustion';
 import type {UsageSnapshot} from './usage';
 import {record} from './validation';
 
@@ -80,7 +81,7 @@ export function classifyOpencodeFailure(message:string):OpencodeFailure{
   return {scope:'pool',kind:'balance',reason:'no credit balance'};
  if(/model[^.]{0,40}(unavailable|not (available|supported|found|enabled|allowed|included))|unsupported model|model_not_supported|not (included|available) (in|on|with) your (plan|subscription)|does not have access|no access to|not entitled|not found|unknown model|does not exist|permission denied|access denied|\b403\b|\b404\b|forbidden/i.test(message))
   return {scope:'model',kind:'unavailable',reason:'not available on your plan'};
- if(/usage limit|rate.?limit|quota|\b429\b|too many requests/i.test(message))return {scope:'pool',kind:'usage-limit',reason:'usage limit reached'};
+ if(LIMIT_ERROR.test(message))return {scope:'pool',kind:'usage-limit',reason:'usage limit reached'};
  if(/\b401\b|unauthori[sz]ed|authentication|credential|sign in/i.test(message))return {scope:'account',kind:'auth',reason:'sign-in refused'};
  return {scope:'none',kind:'other',reason:''};
 }
@@ -138,7 +139,7 @@ export class OpencodeAvailability{
    if(!id.startsWith('opencode-go-'))continue;
    const window=bucket.primary;
    if(!window||typeof window.usedPercent!=='number'||!Number.isFinite(window.usedPercent)||window.usedPercent<100)continue;
-   const reset=typeof window.resetsAt==='number'?window.resetsAt:null;
+   const reset=typeof window.resetsAt==='number'&&Number.isFinite(window.resetsAt)?window.resetsAt:null;
    if(reset!==null&&reset<=now)continue;
    any=true;
    const until=reset??now+OPENCODE_RETRY_AFTER_SECONDS;

@@ -124,6 +124,7 @@ export class PluginTurn {
   const path=typeof args.path==='string'?args.path:undefined;
   const checkTarget=()=>{
    if(plugin.targeted){
+    if(path&&path.includes('\\'))throw Error('Use forward slashes in vault paths, as Obsidian writes them (Folder/Note.md).');
     if(!path||path.length>1024||!this.allowedPath(path))throw Error('Choose an existing, allowed vault path.');
    }else if(args.path!==undefined)throw Error('Graph options apply to the vault and take no path.');
   };

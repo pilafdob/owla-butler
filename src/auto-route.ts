@@ -571,7 +571,7 @@ export function scoreEntries(
   :true;
 
  const left=new Map(offers.map(offer=>[offer.provider,remainingUsage(offer.usage,now)]));
- const scored=entries.map(entry=>{
+ const scored=entries.filter(entry=>routingModels([entry.model],false,context?.estimatedTokens).length>0).map(entry=>{
   const profile=modelProfile(entry.provider,entry.model);
   // OpenCode's meters belong to the OpenCode Go plan. They weigh on Go's paid
   // models only: free models and other sources do not draw on that plan.
@@ -901,11 +901,21 @@ function historyFingerprint(history?:RoutingHistoryData):string{
  return models+':'+total;
 }
 
+/** CRLF/lone-CR in prompts and previews must not split the route cache: line
+ * endings do not change the classification. Normalize before serialization —
+ * JSON escapes control characters, so a replace on the serialized payload
+ * would miss them. LF-only payloads (macOS/Linux) are untouched. */
+function normalizeLineEndings(value:unknown):unknown{
+ if(typeof value==='string')return value.replace(/\r\n?/g,'\n');
+ if(Array.isArray(value))return value.map(normalizeLineEndings);
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,normalizeLineEndings(v)]));
+ return value;
+}
 function computeCacheKey(prompt:string,entries:AutoEntry[],home:ProviderId,context?:RoutingContext,history?:RoutingHistoryData):string{
  const mode=context?.routingMode??'balance';
  const thorough=context?.thorough===true;
  const privacy=context?.privacyMode===true;
- const payload=JSON.stringify({
+ const payload=JSON.stringify(normalizeLineEndings({
   prompt,
   home,
   mode,
@@ -914,7 +924,7 @@ function computeCacheKey(prompt:string,entries:AutoEntry[],home:ProviderId,conte
   entries:entries.map(e=>e.provider+':'+e.key),
   context:context?summarizeRoutingContext(context,{thorough,privacy}):null,
   history:historyFingerprint(history),
- });
+ }));
  return createHash('sha256').update(payload).digest('hex').slice(0,32);
 }
 

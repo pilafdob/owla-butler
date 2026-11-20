@@ -161,11 +161,15 @@ export function applyCanvasOperations(data:CanvasData,operations:unknown,random:
  * space after the colon, each node or edge a compact single-line object, and no
  * trailing newline. An untouched file round-trips byte-identically, so a proposal
  * diffs only the changed cards instead of reformatting the whole file. A source
- * that ends with a newline keeps it. */
+ * that ends with a newline keeps it; a CRLF source (Windows editors, git
+ * autocrlf) keeps CRLF endings instead of being reformatted to LF. */
 export function serializeCanvas(data:CanvasData,original=''):string{
+ // Raw \r\n in a valid canvas can only be line endings: JSON.stringify escapes
+ // control characters inside strings. LF sources are unaffected.
+ const eol=original.includes('\r\n')?'\r\n':'\n';
  const compact=(value:unknown)=>JSON.stringify(value);
- const array=(items:unknown[])=>items.length?'[\n'+items.map(item=>'\t\t'+compact(item)).join(',\n')+'\n\t]':'[]';
+ const array=(items:unknown[])=>items.length?'['+eol+items.map(item=>'\t\t'+compact(item)).join(','+eol)+eol+'\t]':'[]';
  const entries=Object.entries(data).map(([key,value])=>'\t'+JSON.stringify(key)+':'+(Array.isArray(value)?array(value):compact(value)));
- const text='{\n'+entries.join(',\n')+'\n}';
- return original.endsWith('\n')?text+'\n':text;
+ const text='{'+eol+entries.join(','+eol)+eol+'}';
+ return original.endsWith('\n')?text+eol:text;
 }

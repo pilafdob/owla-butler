@@ -41,6 +41,9 @@ export function decodeMoves(value:unknown):PathMove[]{
  if(!Array.isArray(value)||!value.length||value.length>100)throw Error('Provide between 1 and 100 path changes.');
  return (value as unknown[]).map(item=>{
   const {from,to}=record(item);
+  if(typeof from==='string'&&typeof to==='string'&&(from.includes('\\')||to.includes('\\'))){
+   throw Error('Use forward slashes in vault paths, as Obsidian writes them (Folder/Note.md).');
+  }
   if(typeof from!=='string'||typeof to!=='string'||!validPath(from)||!validPath(to)){
    throw Error('Use complete vault-relative source and destination paths.');
   }
@@ -118,10 +121,21 @@ export class Organization {
 
  list(folder:string,offset:number){
   this.symlinkCache=new Map();
-  if(folder&&(!this.allowed(folder)||!this.app.vault.getFolderByPath(folder)))throw Error('Choose an allowed vault folder.');
+  if(folder&&!this.allowed(folder))throw Error('Choose an allowed vault folder.');
   if(!Number.isSafeInteger(offset)||offset<0)throw Error('Use a nonnegative listing offset.');
-  const root=folder?this.app.vault.getFolderByPath(folder)!:this.app.vault.getRoot();
-  const entries=root.children.filter(entry=>this.safeSource(entry.path))
+  let root=folder?this.app.vault.getFolderByPath(folder):this.app.vault.getRoot();
+  if(folder&&!root&&this.base()&&(process.platform==='win32'||process.platform==='darwin')){
+   // NTFS/APFS case alias: the folder exists on disk under another spelling.
+   // Fall back only when the filesystem itself resolves the alias to a real
+   // directory (never a junction or symlink), and list the canonical spelling.
+   const stat=this.stat(folder);
+   if(stat?.isDirectory()&&!stat.isSymbolicLink()){
+    const folded=key(folder);
+    root=this.app.vault.getAllFolders().find(entry=>key(entry.path)===folded)??null;
+   }
+  }
+  if(folder&&!root)throw Error('Choose an allowed vault folder.');
+  const entries=root!.children.filter(entry=>this.safeSource(entry.path))
    .map(entry=>({path:entry.path,kind:entry instanceof TFolder?'folder':'file'}))
    .sort((a,b)=>a.path.localeCompare(b.path));
   return {entries:entries.slice(offset,offset+50),nextOffset:offset+50<entries.length?offset+50:null};
@@ -199,7 +213,7 @@ export class Organization {
   for(const [entry] of tree){
    const note=this.app.vault.getFileByPath(entry);
    // Only an open editor can hold unsaved changes; skip the redundant saved-file read for closed notes.
-   if(note?.extension.toLowerCase()==='md'&&open.has(entry)&&await this.read(entry)!==await this.app.vault.read(note)){
+   if(note?.extension.toLowerCase()==='md'&&open.has(entry)&&(await this.read(entry)).replace(/\r\n?/g,'\n')!==(await this.app.vault.read(note)).replace(/\r\n?/g,'\n')){
     throw Error('Save open changes before proposing deletion: '+entry);
    }
   }
@@ -274,7 +288,7 @@ export class Organization {
    if(!this.safeSource(note.path))throw Error('Obsidian could update links in an excluded note or through a symbolic link. Review a smaller or different batch.');
    affected.push(note.path);
    const text=await this.read(note.path);
-   if(open.has(note.path)&&text!==await this.app.vault.read(note))throw Error('Save open changes before reviewing organization: '+note.path);
+   if(open.has(note.path)&&text.replace(/\r\n?/g,'\n')!==(await this.app.vault.read(note)).replace(/\r\n?/g,'\n'))throw Error('Save open changes before reviewing organization: '+note.path);
    noteFingerprints.push(hash([text,references.map(ref=>ref.link),resolved]));
   }
   const fingerprint=hash([moves,sources,targetFolders,affected,noteFingerprints]);

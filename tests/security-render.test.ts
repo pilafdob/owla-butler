@@ -92,6 +92,14 @@ test('displayMarkdown leaves block math untouched, multi-line and inline',()=>{
  assert.equal(displayMarkdown(fencedMath),fencedMath);
 });
 
+// CRLF notes (common on Windows) keep their line endings: fences, block math
+// and the embed rewrite must behave exactly as with LF.
+test('displayMarkdown handles CRLF line endings without altering them',()=>{
+ const crlf='```html\r\n<img src="https://example.com/a"> ![x](y)\r\n```\r\n![drop](me)\r\n$$\r\n![keep](me)\r\n$$\r\n';
+ assert.equal(displayMarkdown(crlf),'```html\r\n<img src="https://example.com/a"> ![x](y)\r\n```\r\n[drop](me)\r\n$$\r\n![keep](me)\r\n$$\r\n');
+ assert.equal(displayMarkdown('![a](b)\r\nplain\r\n'),'[a](b)\r\nplain\r\n');
+});
+
 // SMIL can re-add an attribute after the sanitizer ran: <animate attributeName
 // ="href" to="javascript:…"> or <set attributeName="onload">. Outside Obsidian's
 // renderers no animation survives; inside them only harmless ones do.

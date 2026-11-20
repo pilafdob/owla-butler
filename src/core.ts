@@ -169,6 +169,8 @@ export function allowedPath(path:string,excluded='',extension:string|null='md',p
  let roots=excludedCache.get(cacheKey);
  if(!roots){
   roots=excluded.split('\n').map(s=>s.trim().replace(/\\/g,'/').replace(/^\/+|\/+$/g,'')).filter(Boolean).map(foldPath);
+  // Bounded FIFO: the cache only grows when the exclusion setting changes.
+  if(excludedCache.size>=32){const oldest=excludedCache.keys().next().value;if(oldest!==undefined)excludedCache.delete(oldest);}
   excludedCache.set(cacheKey,roots);
  }
  return !roots.some(root=>target===root||target.startsWith(root+'/'));
@@ -260,7 +262,7 @@ export function stageProposal(
 }
 
 export function assertFresh(current:string,expected:string):void {if(current!==expected)throw Error('The note changed since this proposal. Ask for a fresh edit; your newer text was preserved.');}
-export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\n([\s\S]*?)\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all:string,body:string)=>'$$\n'+body.trim()+'\n$$');}
+export function stripFence(text:string):string {const match=text.trim().match(/^```(?:markdown|md|latex)?\r?\n([\s\S]*?)\r?\n```$/);return (match?match[1]:text.trim()).replace(/\$\$([^\n]*?)\$\$/g,(_all:string,body:string)=>'$$\n'+body.trim()+'\n$$');}
 export function formatTranscription(text:string):string {
  return stripFence(text).split('\n').map(line=>{
   if(line.includes('$'))return line;
@@ -277,7 +279,7 @@ export function insertion(path:string,before:string,content:string,start:number,
  let markdown=stripFence(content);if(markdown.includes('\n')){if(start>0&&before[start-1]!=='\n')markdown='\n\n'+markdown;if(end<before.length&&before[end]!=='\n')markdown+='\n\n';}
  return {path,before,after:before.slice(0,start)+markdown+before.slice(end),reason:start===end?'Insert at the captured cursor':'Replace the captured selection'};
 }
-export function parseJsonLine(line:string):unknown {if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
+export function parseJsonLine(line:string):unknown {line=line.trim();if(line.startsWith('data:'))line=line.slice(5).trim();if(!line||line==='[DONE]'||line.startsWith(':')||line.startsWith('event:')||line.startsWith('id:'))return null;return JSON.parse(line);}
 
 export function vaultStorageKey(identity:string):string{return createHash('sha256').update(identity).digest('hex').slice(0,20);}
 

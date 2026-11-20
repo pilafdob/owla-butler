@@ -10,8 +10,8 @@ export function pdfPageText(items:unknown[]):string{
 }
 export function pdfPageNumber(value:string,total:number):number{if(!/^\d+$/.test(value))throw Error('Enter a page number.');const page=Number(value);if(page<1||page>total)throw Error(`Choose a page from 1 to ${total}.`);return page;}
 export function pdfSource(name:string,page:number):string{return name.replace(/\p{Cc}/gu,' ')+', p. '+page;}
-/** Clipboard citation for a PDF page: file name without folders or extension, then ',p.' and the page number. */
-export function pdfPageReference(path:string,page:number):string{const name=(path.split('/').pop()||path).replace(/\.pdf$/i,'').replace(/\p{Cc}/gu,' ');return name+',p.'+page;}
+/** Clipboard citation for a PDF page: file name without folders or extension (either path separator), then ',p.' and the page number. */
+export function pdfPageReference(path:string,page:number):string{const name=(path.split(/[\\/]/).pop()||path).replace(/\.pdf$/i,'').replace(/\p{Cc}/gu,' ');return name+',p.'+page;}
 
 export function markdownSource(value:string):string{return value.replace(/([\\`*_[\]<>])/g,'\\$1');}
 
@@ -95,4 +95,71 @@ export async function searchPdfText(
   ...(scannedPages?{scannedPages,note:'Pages without searchable text may require a visual read.'}:{}),
   ...(number<=end?{continueWith:{path:source,query,page:number,endPage:end}}:{})
  });
+}
+
+/** Identity and last observed state of a PDF file; a changed size or mtime
+ * misses the cache. Windows mtime has millisecond granularity, so the wiring
+ * also invalidates on vault modify events. */
+export interface PdfDocumentKey{path:string;size:number;mtime:number;}
+/** A borrowed document; release() returns it (idempotent per lease). */
+export interface PdfDocumentLease{doc:PdfDocument;release():void;}
+interface PdfCacheEntry{promise:Promise<PdfDocument>;doc:PdfDocument|null;loading:PdfLoadingTask|null;refs:number;dead:boolean;}
+/**
+ * A small LRU of parsed PDF documents, so continuation reads of one file do
+ * not re-parse it (round-1 deferred item 5.1). Every open takes a lease;
+ * invalidate()/destroyAll() mark entries dead and destroy them once the last
+ * lease is returned, so an in-flight read is never torn down mid-page. Failed
+ * loads are not cached. The bytes are read before parsing and no file handle
+ * is kept, so the cache cannot hold a Windows file lock (EBUSY/OneDrive).
+ */
+export class PdfDocumentCache{
+ private entries=new Map<string,PdfCacheEntry>();
+ constructor(private capacity=2){}
+ get size():number{return this.entries.size;}
+ /** Opens (or reuses) the document for the key; concurrent opens share one parse. */
+ open(key:PdfDocumentKey,load:()=>Promise<{doc:PdfDocument;loading:PdfLoadingTask}>):Promise<PdfDocumentLease>{
+  const id=key.path+'\u0000'+key.size+'\u0000'+key.mtime;
+  let entry=this.entries.get(id);
+  if(entry&&!entry.dead){this.entries.delete(id);this.entries.set(id,entry);}
+  else{
+   let fresh:PdfCacheEntry;
+   const promise=Promise.resolve().then(async()=>{const loaded=await load();fresh.doc=loaded.doc;fresh.loading=loaded.loading;return loaded.doc;});
+   fresh={promise,doc:null,loading:null,refs:0,dead:false};
+   promise.catch(()=>{if(this.entries.get(id)===fresh)this.entries.delete(id);});
+   entry=fresh;this.entries.set(id,entry);
+  }
+  const held=entry;
+  held.refs++;
+  // Evict only after the new lease is counted, so a fresh document is never
+  // mistaken for an idle one.
+  this.evict();
+  return held.promise.then(doc=>{
+   let released=false;
+   return {doc,release:()=>{if(released)return;released=true;held.refs--;if(held.refs<=0&&held.dead)this.destroyEntry(held);else this.evict();}};
+  },error=>{held.refs--;if(held.refs<=0&&held.dead)this.destroyEntry(held);else this.evict();throw error;});
+ }
+ /** Drops one file (or all files without a path). A document with live leases
+  * is destroyed when the last one is returned. */
+ invalidate(path?:string):void{
+  for(const [id,entry] of [...this.entries]){
+   if(path!==undefined&&!id.startsWith(path+'\u0000'))continue;
+   entry.dead=true;this.entries.delete(id);
+   if(entry.refs<=0)this.destroyEntry(entry);
+  }
+ }
+ destroyAll():void{this.invalidate();}
+ private evict():void{
+  while(this.entries.size>this.capacity){
+   const idle=[...this.entries].find(([,item])=>item.refs<=0);
+   if(!idle)return; // every document is in use; a live read is never evicted
+   const [id,entry]=idle;
+   entry.dead=true;this.entries.delete(id);this.destroyEntry(entry);
+  }
+ }
+ private destroyEntry(entry:PdfCacheEntry):void{
+  entry.dead=true;
+  const target=entry.doc??entry.loading;
+  entry.doc=null;entry.loading=null;
+  if(target)void target.destroy().catch(()=>{/* already destroyed */});
+ }
 }

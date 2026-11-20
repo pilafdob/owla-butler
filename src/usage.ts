@@ -18,7 +18,7 @@ function decodeWindow(value:unknown):LimitWindow|null|undefined{
  if(value===null)return null;
  const {usedPercent,windowDurationMins,resetsAt}=record(value);
  if(typeof usedPercent!=='number'||!Number.isFinite(usedPercent))return undefined;
- return {usedPercent,windowDurationMins:typeof windowDurationMins==='number'?windowDurationMins:null,resetsAt:typeof resetsAt==='number'?resetsAt:null};
+ return {usedPercent,windowDurationMins:typeof windowDurationMins==='number'?windowDurationMins:null,resetsAt:typeof resetsAt==='number'&&Number.isFinite(resetsAt)?resetsAt:null};
 }
 function decodeBucket(value:unknown):LimitBucket|null|undefined{
  if(value===null)return null;
@@ -45,7 +45,7 @@ function decodeMeter(value:unknown,label:string):LimitWindow|null{
  const data=record(value);
  if(typeof data.percent!=='number'||!Number.isFinite(data.percent))return null;
  if(data.limited===false)return null;
- return {usedPercent:Math.min(100,Math.max(0,data.percent)),resetsAt:typeof data.resetsAt==='number'?Math.round(data.resetsAt/1000):null,label};
+ return {usedPercent:Math.min(100,Math.max(0,data.percent)),resetsAt:typeof data.resetsAt==='number'&&Number.isFinite(data.resetsAt)?Math.round(data.resetsAt/1000):null,label};
 }
 /** Keeps only OpenCode Go's own meters, so a console budget or another
  *  source's window cannot be mistaken for Go plan scarcity. */
@@ -94,7 +94,7 @@ function claudeWindow(name:string,value:unknown):LimitWindow|null{
  if(utilization===null&&!rejected)return null;
  const known=CLAUDE_WINDOWS[name];
  const used=rejected?100:Math.round(Math.min(1,Math.max(0,utilization??0))*1000)/10;
- return {usedPercent:used,windowDurationMins:known?.mins??null,resetsAt:typeof data.resetsAt==='number'?data.resetsAt:null,label:known?.label??name.replace(/_/g,' ')};
+ return {usedPercent:used,windowDurationMins:known?.mins??null,resetsAt:typeof data.resetsAt==='number'&&Number.isFinite(data.resetsAt)?data.resetsAt:null,label:known?.label??name.replace(/_/g,' ')};
 }
 /**
  * Decodes Claude Code's get_usage control response, which reports plan limits

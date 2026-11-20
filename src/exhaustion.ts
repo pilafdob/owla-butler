@@ -54,8 +54,8 @@ export function codexExhaustion(usage: UsageSnapshot | null, error?: string, now
  */
 export function opencodeExhaustion(error: unknown, resetsAt: number | null): ProviderExhaustion {
   const text = error instanceof Error ? error.message : String(error);
-  if (!/free-limit|free usage limit|usage limit|rate.?limit|quota|\b429\b|too many requests|limit reached/i.test(text)) return OK('opencode');
   const free = /free-limit|free usage limit/i.test(text);
+  if (!free && !LIMIT_ERROR.test(text)) return OK('opencode');
   return {
     provider: 'opencode',
     exhausted: true,
@@ -76,13 +76,13 @@ export function claudeExhaustion(usage: UsageSnapshot | null, error?: string, no
   for (const bucket of Object.values(usage?.rateLimitsByLimitId ?? {})) {
     for (const window of [bucket.primary, bucket.secondary]) {
       if (!window || typeof window.usedPercent !== 'number' || !Number.isFinite(window.usedPercent) || window.usedPercent < 100) continue;
-      const reset = typeof window.resetsAt === 'number' ? window.resetsAt : null;
+      const reset = typeof window.resetsAt === 'number' && Number.isFinite(window.resetsAt) ? window.resetsAt : null;
       if (reset !== null && reset <= now) continue;
       exhausted = true;
       if (reset !== null && (resetsAt === null || reset > resetsAt)) resetsAt = reset;
     }
   }
-  if (!exhausted && error && /rate.?limit|usage limit|limit reached|429|quota/i.test(error)) exhausted = true;
+  if (!exhausted && error && LIMIT_ERROR.test(error)) exhausted = true;
   return exhausted
     ? { provider: 'claude', exhausted: true, resetsAt, reason: 'Claude usage limit reached.', scope: 'provider' }
     : OK('claude');

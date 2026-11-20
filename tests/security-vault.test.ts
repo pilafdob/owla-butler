@@ -11,6 +11,10 @@ import {loadMain} from './helpers/load-main';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let Butler:any,obsidian:any,Organization:any;
 let scratch:string,vault:string,outside:string;
+// Windows without Developer Mode refuses FILE symlinks (EPERM). The hard-link
+// and junction fixtures below work unprivileged; the one genuine file-symlink
+// assertion skips itself at runtime when the OS refused the fixture.
+let fileSymlinks=true;
 
 before(async()=>{
  ({Butler,obsidian}=await loadMain());
@@ -26,7 +30,11 @@ before(async()=>{
  writeFileSync(join(outside,'target.md'),'outside');
  writeFileSync(join(outside,'Notes/ok.md'),'outside ok');
  linkSync(join(outside,'target.md'),join(vault,'Notes/hard.md'));
- symlinkSync(join(vault,'Notes/hard.md'),join(vault,'Notes/sym-hard.md'));
+ try{symlinkSync(join(vault,'Notes/hard.md'),join(vault,'Notes/sym-hard.md'));}
+ catch{fileSymlinks=false;}
+ // A directory link out of the vault: a junction on Windows (unprivileged),
+ // a symlink elsewhere. The realpath refusal must catch both spellings.
+ symlinkSync(join(outside,'Notes'),join(vault,'Notes/junc-out'),process.platform==='win32'?'junction':undefined);
 });
 after(()=>{if(scratch)rmSync(scratch,{recursive:true,force:true});});
 
@@ -84,23 +92,36 @@ test('allowedVaultFile resolves the on-disk name, so a case-fold alias meets the
  const butler=makeButler(makeApp(),'Secret');
  assert.equal(butler.allowedVaultFile('Secret/note.md'),false);
  assert.equal(butler.allowedVaultFile('ſecret/note.md'),false);
- assert.equal(butler.allowedVaultFile('Dr./notes.md'),true);
+ // A trailing-dot segment is valid on POSIX but refused on Windows, where the
+ // filesystem drops the dot (the platform rule has its own test above).
+ assert.equal(butler.allowedVaultFile('Dr./notes.md'),process.platform!=='win32');
 });
 
-test('folders pass; hardlinked files and symlinks to them do not',()=>{
+test('folders pass; hardlinked files do not',()=>{
  const butler=makeButler();
  assert.equal(butler.allowedVaultFile('Notes'),true);
  assert.equal(butler.allowedVaultFile('Notes/ok.md'),true);
  assert.equal(butler.allowedNote('Notes/ok.md'),true);
  assert.equal(butler.allowedVaultFile('Notes/hard.md'),false);
+});
+
+test('symlinks to hardlinked files do not pass',t=>{
+ if(!fileSymlinks)return t.skip('needs Windows Developer Mode');
+ const butler=makeButler();
  assert.equal(butler.allowedVaultFile('Notes/sym-hard.md'),false);
+});
+
+test('a directory link out of the vault is refused (junction on Windows)',()=>{
+ const butler=makeButler();
+ assert.equal(butler.allowedVaultFile('Notes/junc-out'),false);
+ assert.equal(butler.allowedVaultFile('Notes/junc-out/ok.md'),false);
 });
 
 test('an external symlink swap is seen on the next check (no cross-turn cache)',()=>{
  const butler=makeButler();
  assert.equal(butler.allowedVaultFile('Notes/ok.md'),true);
  renameSync(join(vault,'Notes'),join(vault,'Notes-real'));
- symlinkSync(join(outside,'Notes'),join(vault,'Notes'));
+ symlinkSync(join(outside,'Notes'),join(vault,'Notes'),process.platform==='win32'?'junction':undefined);
  try{assert.equal(butler.allowedVaultFile('Notes/ok.md'),false);}
  finally{rmSync(join(vault,'Notes'));renameSync(join(vault,'Notes-real'),join(vault,'Notes'));}
  assert.equal(butler.allowedVaultFile('Notes/ok.md'),true);
@@ -126,6 +147,9 @@ test('organization refuses a destination that is a case-fold alias of an exclude
  await assert.rejects(sharp.preview([{from:'Notes/a.md',to:'STRAẞE/a.md'}],'move'));
  const ok=await org.preview([{from:'Notes/a.md',to:'Archive/a.md'}],'move');
  assert.deepEqual(ok.moves,[{from:'Notes/a.md',to:'Archive/a.md'}]);
+ // A junction (Windows) or symlink destination resolving outside the vault is
+ // refused by the same realpath check, on every platform.
+ await assert.rejects(org.preview([{from:'Notes/a.md',to:'Notes/junc-out/a.md'}],'move'));
 });
 
 test('organization refuses to move a hardlinked file',async()=>{

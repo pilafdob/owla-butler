@@ -1,5 +1,72 @@
 # OWLA Butler verification
 
+## 3.7.0 RC — Windows independent verification (2026-11-20)
+
+This entry supersedes Windows gate assertions from the earlier hardening
+pass, without changing the historical macOS live-check record below.
+
+- **Host:** Windows 11 (build 26300), Node 24.14.0, npm 11.9.0; branch
+  `3.7.0-RC`, base `81540fb`. Dependencies already installed; no lockfile or
+  dependency update was required. Ubuntu CI/release workflows use Node 22, so
+  this run does not establish identical behavior under that runtime.
+- **Final gates (after the follow-up fixes):** `npm run check`, `npm run lint`
+  (0 problems), `npm test` (**774 total / 773 pass / 0 fail / 1 skipped**),
+  `npm run build` (**993.2 kb**, esbuild display), `npm run check:release`,
+  `npm run guard:test` and `git diff --check` passed. The full suite was run
+  repeatedly; the only intermittent failure observed was an opencode-lifecycle
+  scratch-folder teardown hitting a transient Windows EPERM under parallel
+  load, not a product assertion — its cleanup now retries on
+  EPERM/EBUSY/EACCES and subsequent runs were green.
+- **Follow-up fixes:** every defect from the independent review was fixed with a
+  regression — recovery-journal read-failure preservation (observed RED then
+  GREEN), absolute Node resolution for npm shims, stale Hermes
+  credential-directory sweep, lone-CR `.env` filtering, system-directory
+  artifact validation, CRLF apply/rollback offsets, external-PDF cache identity,
+  graph pagination continuation, UTF-8 sample-boundary decoding, case-alias
+  unsaved reads, single view-level observer cleanup, post-trim routing
+  eligibility, atomic history persistence and PDF lease-release eviction.
+  Findings, fixes and file references are tabulated in `AUDIT.md`.
+- **Dependency scan:** `npm audit --omit=dev --json` returned **0 advisories**
+  across all severities. This scans production dependency advisories, not
+  arbitrary application vulnerabilities or development dependencies.
+- **Skip accounting:** the visible runner skip is the genuine file-symlink
+  test requiring Windows Developer Mode. Some pre-existing tests also return
+  early on unsupported platforms; a green runner total is not evidence those
+  opposite-platform bodies executed. Hard-link and junction containment tests
+  do execute on this Windows host.
+- **Optional ZIP packaging:** `node scripts/package.mjs <scratch-output.zip>`
+  passed metadata/content preflight but failed at `spawnSync zip ENOENT`. The
+  external `zip` executable is absent here. This is distinct from the passing
+  three-file release check. The Ubuntu release workflow runs packaging; its
+  result and downloaded artifacts have not been verified by this local run.
+- **Live availability:** desktop discovery reports Obsidian not running; no
+  existing Obsidian debugging endpoint was available on the checked local
+  ports. Unit/fake-protocol evidence must not be labelled a live-vault pass.
+
+### Windows release checks still required
+
+- Install the exact final `main.js`, `manifest.json` and `styles.css` together
+  in the disposable Test vault, keeping prior plugin files and `data.json`;
+  reload and verify the executed runtime copy, not merely the source file.
+- Exercise actual installed Codex/OpenCode/Claude/Hermes connect, one tool turn,
+  cancellation and reconnect. In particular, test multiline instructions
+  through a real npm Claude shim and confirm Hermes uses its private home.
+  Do not induce real quota exhaustion or log credentials.
+- Exercise CRLF Markdown proposal highlights, Accept/Decline and stale-text
+  refusal; preserve raw drawing/Canvas/Base safety and excluded/case-alias
+  guards. Verify detached-view cleanup and that Automatic stays unavailable
+  on Windows.
+- Exercise PDF continuation reuse, external modification, Stop/new-chat/close
+  and password/failure paths in the running app. Snapshot-consistent cache
+  identity and immediate in-flight parse cancellation remain scoped follow-ups.
+- Re-run optional ZIP packaging with its `zip` prerequisite, inspect the ZIP,
+  and verify remote CI/release assets before publication.
+
+Evidence map: [Windows handoff](audits/3.7.0-rc/REVIEW-windows-hardening-pass.md),
+[consolidation log](audits/3.7.0-rc/windows-consolidation-log.md),
+`tests/audit-win-*.test.ts`, and the cumulative 3.7.0 RC entry in `AUDIT.md`.
+
+
 ## 3.7.0 — live release check (2026-11-19, Agentbrain test vault)
 
 - **Gates (final tree):** `npm run check`, `npm run lint` (0 problems), `npm test` (488 pass, 0 fail), `npm run build`, `RELEASE_TAG=3.7.0 npm run check:release`, `npm run guard:test` and `node scripts/package.mjs` (43 files) pass.
