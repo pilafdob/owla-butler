@@ -155,3 +155,13 @@ test('distinct external Files with identical name/size/time get separate parses'
  assert.equal(state.parses,before+2,'each File object must have its own cache entry');
  assert.equal(view.pdfCache.size,2);
 });
+test('a cached continuation does not read the whole PDF from disk again',async()=>{
+ const {view}=makeView();
+ state.readFail='';state.mode='ok';
+ const parses=state.parses,reads=state.readAttempts;
+ await read(view,{path:'Doc.pdf',page:1});
+ await read(view,{path:'Doc.pdf',page:2});
+ await read(view,{path:'Doc.pdf',query:'word'});
+ assert.equal(state.parses-parses,1,'one parse serves every continuation');
+ assert.equal(state.readAttempts-reads,1,'the bytes are read only for that parse');
+});

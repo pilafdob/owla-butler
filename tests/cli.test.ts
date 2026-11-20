@@ -68,7 +68,7 @@ test('Windows executable rules require an absolute path with a launcher extensio
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-test('Windows discovery probes launcher extensions and the semicolon-separated PATH',()=>{
+test('Windows discovery probes launcher extensions and the semicolon-separated PATH',{skip:process.platform!=='win32'&&'probes real Windows paths'},()=>{
  const root=mkdtempSync(join(tmpdir(),'owla-cli-winpath-'));
  try{
   const bin=join(root,'bin'),other=join(root,'other');
@@ -86,10 +86,10 @@ test('Windows discovery probes launcher extensions and the semicolon-separated P
 test('Windows default directories cover the per-user install locations',()=>{
  const home='/Users/u',env={APPDATA:'/Users/u/AppData/Roaming',LOCALAPPDATA:'/Users/u/AppData/Local'};
  const dirs=defaultCliDirectories([],'win32',home,env);
- for(const expected of [join(home,'.local','bin'),join(home,'.claude','local'),join('/Users/u/AppData/Roaming','npm'),join('/Users/u/AppData/Local','Programs','OpenCode'),join('/Users/u/AppData/Local','pnpm'),join(home,'scoop','shims'),join(home,'.volta','bin'),join(home,'.bun','bin')])
+ for(const expected of [win32.join(home,'.local','bin'),win32.join(home,'.claude','local'),win32.join('/Users/u/AppData/Roaming','npm'),win32.join('/Users/u/AppData/Local','Programs','OpenCode'),win32.join('/Users/u/AppData/Local','pnpm'),win32.join(home,'scoop','shims'),win32.join(home,'.volta','bin'),win32.join(home,'.bun','bin')])
   assert.ok(dirs.includes(expected),expected);
- assert.ok(!defaultCliDirectories([],'win32',home,{}).includes(join('/Users/u/AppData/Local','pnpm')));
- assert.ok(defaultCliDirectories([],'win32',home,{}).includes(join(home,'.bun','bin')));
+ assert.ok(!defaultCliDirectories([],'win32',home,{}).includes(win32.join('/Users/u/AppData/Local','pnpm')));
+ assert.ok(defaultCliDirectories([],'win32',home,{}).includes(win32.join(home,'.bun','bin')));
 });
 
 test('Windows system tools resolve from SystemRoot with fallbacks',()=>{

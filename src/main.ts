@@ -1573,16 +1573,19 @@ export class ButlerView extends ItemView {
   this.addPdf(file,page);
   this.renderAttachments();
  }
- private readPdfBytes(file:File|TFile){
+ private readPdfBytes(file:File|TFile){return this.pdfReader(file)();}
+ /** Checks the size budget and exclusions now and returns a deferred read, so a
+  * cached parse is reused without reading the whole file again. */
+ private pdfReader(file:File|TFile):()=>Promise<ArrayBuffer>{
   const size=file instanceof TFile?file.stat.size:file.size;
   if(size>512*1024*1024)throw Error('This PDF exceeds the 512 MB reading budget.');
   if(file instanceof TFile){
    if(!this.butler.allowedPdf(file.path))throw Error('This PDF is unavailable or excluded.');
-   return readBinaryRetry(()=>this.app.vault.readBinary(file));
+   return ()=>readBinaryRetry(()=>this.app.vault.readBinary(file));
   }
-  return file.arrayBuffer();
+  return ()=>file.arrayBuffer();
  }
- private async readPdfPage(bytes:ArrayBuffer,key:PdfDocumentKey,source:string,number:number,visual=false):Promise<ToolOutput> {
+ private async readPdfPage(bytes:()=>Promise<ArrayBuffer>,key:PdfDocumentKey,source:string,number:number,visual=false):Promise<ToolOutput> {
   return withPdfDocument(this.pdfCache,key,bytes,async doc=>{
    const n=pdfPageNumber(String(number),doc.numPages),page=await doc.getPage(n);
    try{
@@ -1728,7 +1731,7 @@ export class ButlerView extends ItemView {
    if(page!==undefined&&typeof page!=='number'||endPage!==undefined&&typeof endPage!=='number'||offset!==undefined&&typeof offset!=='number')throw Error('Provide numeric page bounds and text offset.');
    const signal=this.controller?.signal;
    signal?.throwIfAborted();
-   const bytes=await this.readPdfBytes(file);
+   const bytes=this.pdfReader(file);
    const key=pdfCacheKey(file);
    const cite=(number:number)=>{
     const label='PDF: '+pdfSource(source,number);
@@ -2929,12 +2932,14 @@ async function readBinaryRetry(read:()=>Promise<ArrayBuffer>):Promise<ArrayBuffe
    await new Promise(r=>nodeTimeout(r,25*3**attempt));}
  }
 }
-async function withPdfDocument<T>(cache:PdfDocumentCache,key:PdfDocumentKey,bytes:ArrayBuffer,read:(doc:PdfDocument)=>Promise<T>,signal?:AbortSignal):Promise<T>{
+async function withPdfDocument<T>(cache:PdfDocumentCache,key:PdfDocumentKey,bytes:()=>Promise<ArrayBuffer>,read:(doc:PdfDocument)=>Promise<T>,signal?:AbortSignal):Promise<T>{
  signal?.throwIfAborted();
  const pdf=await loadPdfJs() as PdfJs;
  signal?.throwIfAborted();
  const lease=await cache.open(key,async()=>{
-  const loading=pdf.getDocument({data:new Uint8Array(bytes),isEvalSupported:false,useSystemFonts:true});
+  const data=new Uint8Array(await bytes());
+  signal?.throwIfAborted();
+  const loading=pdf.getDocument({data,isEvalSupported:false,useSystemFonts:true});
   let passwordRequired=false;
   loading.onPassword=()=>{passwordRequired=true;void loading.destroy().catch(()=>{});};
   try{const doc=await loading.promise;return {doc,loading};}

@@ -5,7 +5,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,chmodSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,win32} from 'node:path';
 import {isolatedOpencodeEnv,findOpencodeExecutable,supportedOpencodeVersion} from '../src/opencode';
 import {defaultCliDirectories,runCli,sanitizedEnv} from '../src/cli';
 
@@ -101,18 +101,18 @@ test('OpenCode discovery covers the Windows install shapes',()=>{
 
 test('the default CLI directories cover every Windows per-user installer',()=>{
  const home='C:\\Users\\First Last';
- const env={APPDATA:join(home,'AppData','Roaming'),LOCALAPPDATA:join(home,'AppData','Local')};
+ const env={APPDATA:win32.join(home,'AppData','Roaming'),LOCALAPPDATA:win32.join(home,'AppData','Local')};
  const dirs=defaultCliDirectories([],'win32',home,env);
  for(const dir of [
-  join(home,'.local','bin'),join(home,'.claude','local'),
-  join(env.APPDATA,'npm'),
-  join(env.LOCALAPPDATA,'Programs','OpenCode'),join(env.LOCALAPPDATA,'pnpm'),
-  join(home,'scoop','shims'),join(home,'.volta','bin'),join(home,'.bun','bin'),
+  win32.join(home,'.local','bin'),win32.join(home,'.claude','local'),
+  win32.join(env.APPDATA,'npm'),
+  win32.join(env.LOCALAPPDATA,'Programs','OpenCode'),win32.join(env.LOCALAPPDATA,'pnpm'),
+  win32.join(home,'scoop','shims'),win32.join(home,'.volta','bin'),win32.join(home,'.bun','bin'),
  ])assert.ok(dirs.includes(dir),dir);
  // Without the environment variables the per-user installers are still covered.
  const bare=defaultCliDirectories([],'win32',home,{});
- assert.ok(bare.includes(join(home,'.bun','bin')));
- assert.ok(!bare.includes(join(home,'AppData','Local','pnpm')));
+ assert.ok(bare.includes(win32.join(home,'.bun','bin')));
+ assert.ok(!bare.includes(win32.join(home,'AppData','Local','pnpm')));
  // POSIX behaviour is unchanged.
  assert.deepEqual(defaultCliDirectories([],'linux','/home/u',{}),['/usr/local/bin','/opt/homebrew/bin',join('/home/u','.local','bin')]);
 });

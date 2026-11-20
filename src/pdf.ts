@@ -103,7 +103,7 @@ export async function searchPdfText(
 export interface PdfDocumentKey{path:string;size:number;mtime:number;}
 /** A borrowed document; release() returns it (idempotent per lease). */
 export interface PdfDocumentLease{doc:PdfDocument;release():void;}
-interface PdfCacheEntry{promise:Promise<PdfDocument>;doc:PdfDocument|null;loading:PdfLoadingTask|null;refs:number;dead:boolean;}
+interface PdfCacheEntry{promise:Promise<PdfDocument>;doc:PdfDocument|null;loading:PdfLoadingTask|null;refs:number;dead:boolean;bytes:number;}
 /**
  * A small LRU of parsed PDF documents, so continuation reads of one file do
  * not re-parse it (round-1 deferred item 5.1). Every open takes a lease;
@@ -111,10 +111,14 @@ interface PdfCacheEntry{promise:Promise<PdfDocument>;doc:PdfDocument|null;loadin
  * lease is returned, so an in-flight read is never torn down mid-page. Failed
  * loads are not cached. The bytes are read before parsing and no file handle
  * is kept, so the cache cannot hold a Windows file lock (EBUSY/OneDrive).
+ * Idle documents are also bounded by their total file size (maxBytes): a
+ * large PDF is parsed for each read rather than kept resident between reads.
  */
+/** Total file size of the PDFs the cache may keep parsed between reads. */
+export const PDF_CACHE_MAX_BYTES=64*1024*1024;
 export class PdfDocumentCache{
  private entries=new Map<string,PdfCacheEntry>();
- constructor(private capacity=2){}
+ constructor(private capacity=2,private maxBytes=PDF_CACHE_MAX_BYTES){}
  get size():number{return this.entries.size;}
  /** Opens (or reuses) the document for the key; concurrent opens share one parse. */
  open(key:PdfDocumentKey,load:()=>Promise<{doc:PdfDocument;loading:PdfLoadingTask}>):Promise<PdfDocumentLease>{
@@ -124,7 +128,7 @@ export class PdfDocumentCache{
   else{
    let fresh:PdfCacheEntry;
    const promise=Promise.resolve().then(async()=>{const loaded=await load();fresh.doc=loaded.doc;fresh.loading=loaded.loading;return loaded.doc;});
-   fresh={promise,doc:null,loading:null,refs:0,dead:false};
+   fresh={promise,doc:null,loading:null,refs:0,dead:false,bytes:Number.isFinite(key.size)&&key.size>0?key.size:0};
    promise.catch(()=>{if(this.entries.get(id)===fresh)this.entries.delete(id);});
    entry=fresh;this.entries.set(id,entry);
   }
@@ -149,7 +153,8 @@ export class PdfDocumentCache{
  }
  destroyAll():void{this.invalidate();}
  private evict():void{
-  while(this.entries.size>this.capacity){
+  const total=()=>{let sum=0;for(const item of this.entries.values())sum+=item.bytes;return sum;};
+  while(this.entries.size>this.capacity||total()>this.maxBytes){
    const idle=[...this.entries].find(([,item])=>item.refs<=0);
    if(!idle)return; // every document is in use; a live read is never evicted
    const [id,entry]=idle;

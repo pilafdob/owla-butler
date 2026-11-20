@@ -431,7 +431,7 @@ test('reconnect skips unchanged config/skills rewrites, never the validation',()
   for(const file of [configPath,envPath,skillPath])utimesSync(file,past,past);
   // Nothing changed: the second pass must not rewrite the owned files.
   bridge.ensurePrivateHome('',false,endpoint,realHome);
-  for(const file of [configPath,envPath,skillPath])assert.equal(lstatSync(file).mtimeMs,past.getTime(),file+' was rewritten although unchanged');
+  for(const file of [configPath,envPath,skillPath])assert.equal(Math.round(lstatSync(file).mtimeMs),past.getTime(),file+' was rewritten although unchanged');
   // A changed endpoint token is a content change: the config is rewritten.
   bridge.ensurePrivateHome('',false,{url:endpoint.url,token:'tok2'},realHome);
   assert.ok(readFileSync(configPath,'utf8').includes('Bearer tok2'));
@@ -668,8 +668,11 @@ test('instruction refusal follows a junction or symlink ancestor to its target',
 
 test('instruction walk terminates at drive roots and UNC share roots',{timeout:10000},()=>{
  // Nonexistent paths: the walk must terminate (no infinite loop) and find nothing.
- assert.deepEqual(hermesInheritedInstructions('\\\\owla-no-such-server\\share\\repo\\session','\\\\owla-no-such-server\\share\\home','win32'),[]);
- assert.deepEqual(hermesInheritedInstructions('C:\\owla-no-such-dir\\session','C:\\','win32'),[]);
+ // The win32 shapes resolve through the host's realpath/resolve, so they only mean something on Windows.
+ if(process.platform==='win32'){
+  assert.deepEqual(hermesInheritedInstructions('\\\\owla-no-such-server\\share\\repo\\session','\\\\owla-no-such-server\\share\\home','win32'),[]);
+  assert.deepEqual(hermesInheritedInstructions('C:\\owla-no-such-dir\\session','C:\\','win32'),[]);
+ }
  assert.deepEqual(hermesInheritedInstructions('/owla-no-such-dir/session','/','linux'),[]);
 });
 

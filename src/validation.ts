@@ -43,5 +43,5 @@ export function redactErrorDetail(text:string,home=homedir(),platform:NodeJS.Pla
  * An embedded closing tag is escaped so content cannot pose as the boundary.
  */
 export function untrustedToolText(text:string):string{
- return '<untrusted_content>\n'+text.replace(/<\/untrusted_content>/gi,'<\\/untrusted_content>')+'\n</untrusted_content>';
+ return '<untrusted_content>\n'+text.replace(/<\s*\/\s*untrusted_content\s*>/gi,'<\\/untrusted_content>')+'\n</untrusted_content>';
 }
