@@ -10,8 +10,15 @@ export function pdfPageText(items:unknown[]):string{
 }
 export function pdfPageNumber(value:string,total:number):number{if(!/^\d+$/.test(value))throw Error('Enter a page number.');const page=Number(value);if(page<1||page>total)throw Error(`Choose a page from 1 to ${total}.`);return page;}
 export function pdfSource(name:string,page:number):string{return name.replace(/\p{Cc}/gu,' ')+', p. '+page;}
-/** Clipboard link for a PDF page: a wikilink to the vault path at that page, aliased as the file name without folders or extension (either path separator), then ',p.' and the page number. */
-export function pdfPageReference(path:string,page:number):string{const target=path.replace(/\\/g,'/').replace(/\p{Cc}/gu,' '),name=(target.split('/').pop()||target).replace(/\.pdf$/i,'');return '[['+target+'#page='+page+'|'+name+',p.'+page+']]';}
+/** Wikilink syntax characters; Obsidian cannot link a path containing them. */
+const WIKILINK_RESERVED=/[[\]|#^]/;
+/** Clipboard link for a PDF page: a wikilink to the vault path at that page, aliased as the file name without folders or extension (either path separator), then ',p.' and the page number.
+ *  A path containing wikilink syntax cannot be linked and must not break out of the link, so it falls back to the plain citation with those characters neutralized. */
+export function pdfPageReference(path:string,page:number):string{
+ const target=path.replace(/\\/g,'/').replace(/\p{Cc}/gu,' '),name=(target.split('/').pop()||target).replace(/\.pdf$/i,''),citation=name+',p.'+page;
+ if(WIKILINK_RESERVED.test(target))return citation.replace(/[[\]|#^]/g,' ');
+ return '[['+target+'#page='+page+'|'+citation+']]';
+}
 
 export function markdownSource(value:string):string{return value.replace(/([\\`*_[\]<>])/g,'\\$1');}
 
