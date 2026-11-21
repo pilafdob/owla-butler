@@ -227,6 +227,10 @@ node scripts/package.mjs
 
 The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. Starting with 1.0.1, GitHub release attachments contain only the three files Obsidian installs. The optional ZIP and checksum list are stored separately with the release workflow run; you can also generate them locally with the commands above.
 
+### Branches
+
+`main` is the stable line. New features and fixes are developed on `OWLA-RC` and reach `main` only through a pull request from `OWLA-RC`; nothing is merged into `OWLA-RC`. See [CONTRIBUTING.md](CONTRIBUTING.md#owla-rc-branch).
+
 ## Licence and credits
 
 OWLA Butler: [MIT](LICENSE). The bird icon is from [Phosphor Icons](https://github.com/phosphor-icons/core) (MIT). The original Obsidian Markdown, Bases and Canvas skills are from [Steph Ango’s Obsidian Skills](https://github.com/kepano/obsidian-skills) (MIT). Reviewed diffs use [jsdiff](https://github.com/kpdecker/jsdiff) (BSD-3-Clause). Complete notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), the assets folder and the built plugin. Obsidian and Codex are separate products with their own terms.
