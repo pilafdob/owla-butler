@@ -19,7 +19,7 @@
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.0",
     "eslint": "^9.39.5",
-    "eslint-plugin-obsidianmd": "^0.4.2",
+    "eslint-plugin-obsidianmd": "^0.6.0",
     "obsidian": "latest",
     "tsx": "^4.0.0",
     "typescript": "^5.8.0",
