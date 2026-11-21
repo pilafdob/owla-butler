@@ -1,0 +1,27 @@
+# One-way branch guard: Developer-Prerelease receives merges from main but is
+# never merged anywhere else. This check fails any pull request whose HEAD is
+# Developer-Prerelease; pull requests targeting the branch are allowed. The
+# "Block merges from Developer-Prerelease" check is required by the "Main"
+# branch ruleset. Keep this file identical on main: a pull request runs the
+# workflow files from its head/base merge ref, so the check only runs for
+# every pull request into main once main carries this file too.
+name: Dev branch guard
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+permissions: {}
+jobs:
+  block-merges-from-dev:
+    name: Block merges from Developer-Prerelease
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse pull requests opened from Developer-Prerelease
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$HEAD_REF" = "Developer-Prerelease" ]; then
+            echo "::error::Developer-Prerelease is a one-way development branch: it receives merges from main and must never be the head of a pull request. Close this pull request. See CONTRIBUTING.md (Developer-Prerelease branch)."
+            exit 1
+          fi
+          echo "Pull request head '$HEAD_REF' -> '$BASE_REF' is allowed."
