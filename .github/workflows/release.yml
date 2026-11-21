@@ -57,4 +57,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --draft --title "OWLA Butler $RELEASE_TAG" --notes-file RELEASE-NOTES.md main.js manifest.json styles.css
+        run: |
+          # Only this version's section of the release log, not the whole file.
+          node scripts/release-notes.mjs "$RELEASE_TAG" "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" --draft --title "OWLA Butler $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md" main.js manifest.json styles.css

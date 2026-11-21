@@ -1,3 +1,5 @@
+<!-- Release log: one "# OWLA Butler <version>" section per release, newest first. Each GitHub release shows only its own section (scripts/release-notes.mjs), followed by a link to CHANGELOG.md. Add the new version's section at the top. -->
+
 # OWLA Butler 3.7.1
 
 - **PDF page links are links again:** **Copy link to page** copies a link such as `[[Biology/ebooks/Kernbereiche Biologie 6.pdf#page=18|Kernbereiche Biologie 6,p.18]]`, which shows the citation and opens the page.
