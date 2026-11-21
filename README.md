@@ -228,7 +228,7 @@ Stop cancels the request. Disconnect is also available in settings. To uninstall
 
 ## Install the dev version
 
-Dev builds are published as GitHub Releases marked **Pre-release**, tagged `<stable>-dev.<n>` (for example `3.7.1-dev.1`). They are for testing only, may contain unfinished work and are never offered through Obsidian's Community plugins. Try them in a disposable or backed-up vault.
+Dev builds are published as GitHub Releases marked **Pre-release**, tagged `<version>-dev` (for example `3.7.1-dev`). They are for testing only, may contain unfinished work and are never offered through Obsidian's Community plugins. Try them in a disposable or backed-up vault.
 
 1. Open the repository's [Releases page](https://github.com/pilafdob/owla-butler/releases) and pick the newest release labelled **Pre-release**.
 2. Under **Assets**, download `main.js`, `manifest.json` and `styles.css`.

@@ -1,7 +1,8 @@
 // Dev-release verification and changelog for the Developer-Prerelease branch.
 // Run by .github/workflows/release.yml after the release gates, with
 // RELEASE_TAG set and origin/main fetched. This branch never bumps versions
-// and never publishes a "latest" release: tags are <stable>-dev.<n>, the
+// and never publishes a "latest" release: tags are <stable>-dev (an extra build of the same
+// stable version may use <stable>-dev.<n>, n >= 2), the
 // stable version of record comes from main's manifest.json, and the
 // changelog's first line is fixed.
 import assert from 'node:assert/strict';
@@ -13,12 +14,12 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = path => readFileSync(resolve(root, path), 'utf8');
 const tag = process.env.RELEASE_TAG || '';
-const match = tag.match(/^(\d+\.\d+\.\d+)-dev\.([1-9]\d*)$/);
+const match = tag.match(/^(\d+\.\d+\.\d+)-dev(?:\.([2-9]|[1-9]\d+))?$/);
 if (!match) {
-  console.error(`Invalid dev tag "${tag}". Developer-Prerelease publishes prereleases tagged <stable>-dev.<n> (for example 3.7.0-dev.1); version numbers are not bumped on this branch. Plain semver releases are tagged on main, which keeps its own release workflow.`);
+  console.error(`Invalid dev tag "${tag}". Developer-Prerelease publishes prereleases tagged <stable>-dev (for example 3.7.1-dev; a further build of the same stable version may use 3.7.1-dev.2); version numbers are not bumped on this branch. Plain semver releases are tagged on main, which keeps its own release workflow.`);
   process.exit(1);
 }
-const [, base, devNumber] = match;
+const [, base, devNumber = '1'] = match;
 const manifest = JSON.parse(read('manifest.json'));
 const pkg = JSON.parse(read('package.json'));
 const versions = JSON.parse(read('versions.json'));
