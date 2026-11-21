@@ -1,3 +1,9 @@
+# OWLA Butler 3.7.1
+
+- **PDF page links are links again:** **Copy link to page** copies a link such as `[[Biology/ebooks/Kernbereiche Biologie 6.pdf#page=18|Kernbereiche Biologie 6,p.18]]`, which shows the citation and opens the page.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
+
 # OWLA Butler 3.7.0
 
 - **Tables to chat:** right-click a Markdown table and choose **Add table to OWLA Butler** to attach it, or use **Select table** to select it.
