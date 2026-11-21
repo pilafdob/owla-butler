@@ -213,7 +213,21 @@ Disable OWLA, copy updated packaged files into the existing plugin folder, prese
 
 Stop cancels the request. Disconnect is also available in settings. To uninstall, disable and remove the plugin folder. Keep or separately remove external saved chats/recovery files after reviewing them. OWLA does not uninstall Codex, OpenCode or Claude Code, erase their logins or change their global configuration.
 
+## Install the dev version
+
+Dev builds are published as GitHub Releases marked **Pre-release**, tagged `<stable>-dev.<n>` (for example `3.7.1-dev.1`). They are for testing only, may contain unfinished work and are never offered through Obsidian's Community plugins. Try them in a disposable or backed-up vault.
+
+1. Open the repository's [Releases page](https://github.com/pilafdob/owla-butler/releases) and pick the newest release labelled **Pre-release**.
+2. Under **Assets**, download `main.js`, `manifest.json` and `styles.css`.
+3. In Obsidian, disable OWLA Butler (Settings → Community plugins).
+4. Copy the three files into `<vault>/.obsidian/plugins/owla-butler/`, replacing the existing ones. Create the folder if OWLA is not installed yet. Keep the existing `data.json`, which holds your settings. The `.obsidian` folder is hidden by default; on macOS press Cmd+Shift+. in Finder to show it.
+5. Re-enable OWLA Butler, or restart Obsidian.
+
+To go back to the stable version, install the latest non-pre-release from the same page in the same way, or reinstall OWLA through Community plugins.
+
 ## Development
+
+New features and fixes are developed on the [`OWLA-RC`](https://github.com/pilafdob/owla-butler/tree/OWLA-RC) branch and reach `main` with each release (see [Branches](#branches)).
 
 ```sh
 npm ci
@@ -226,6 +240,10 @@ node scripts/package.mjs
 ```
 
 The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. Starting with 1.0.1, GitHub release attachments contain only the three files Obsidian installs. The optional ZIP and checksum list are stored separately with the release workflow run; you can also generate them locally with the commands above.
+
+### Branches
+
+`main` is the stable line. New features and fixes are developed on `OWLA-RC` and reach `main` only through a pull request from `OWLA-RC`; nothing is merged into `OWLA-RC`. See [CONTRIBUTING.md](CONTRIBUTING.md#owla-rc-branch).
 
 ## Licence and credits
 
