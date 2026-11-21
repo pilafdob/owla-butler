@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releaseSection } from './release-notes.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = path => readFileSync(resolve(root, path), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
@@ -23,6 +24,7 @@ if (process.env.RELEASE_TAG) assert.equal(process.env.RELEASE_TAG, manifest.vers
 for (const path of ['main.js', 'manifest.json', 'styles.css', 'README.md', 'LICENSE', 'CHANGELOG.md', 'RELEASE-NOTES.md', 'COMMUNITY-RELEASE.md', 'THIRD-PARTY-NOTICES.md']) {
   assert.ok(statSync(resolve(root, path)).size > 0, `missing ${path}`);
 }
+assert.ok(releaseSection(read('RELEASE-NOTES.md'), manifest.version), `RELEASE-NOTES.md has no "# OWLA Butler ${manifest.version}" section`);
 const main = read('main.js');
 for (const path of ['LICENSE', 'assets/PHOSPHOR-LICENSE', 'assets/CROSS-SPAWN-LICENSE', 'assets/skills/OBSIDIAN-SKILLS-LICENSE', 'assets/DIFF-LICENSE', 'assets/FFLATE-LICENSE', 'assets/PDF-LIB-LICENSE', 'assets/PDF-FONTS-LICENSE', 'assets/PDF-UPNG-LICENSE', 'assets/PAKO-LICENSE', 'assets/TSLIB-COPYRIGHT', 'assets/TSLIB-LICENSE']) {
   assert.ok(main.includes(read(path).trim().replace(/\*\//g, '* /')), `built bundle lacks full notice: ${path}`);

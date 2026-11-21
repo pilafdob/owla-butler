@@ -8,6 +8,27 @@ The 1.0.0 release and initial listing instructions below are historical. The com
 
 The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
 
+## 3.7.1 — release status
+
+3.7.1 is a patch release: **Copy link to page** copies a page wikilink again
+(a PDF path containing wikilink syntax falls back to the plain citation). It is
+the first release made through `OWLA-RC`: pull request #5 merged `OWLA-RC` into
+`main` as `7c8908c`, and the plain `3.7.1` tag points at that commit.
+
+Verified on 2026-11-21:
+- Local gates on the merged tree (identical to `OWLA-RC` at `3b50848`):
+  `npm run check`, `lint`, `test` (777 pass, 0 fail, 6 Windows-only skips),
+  `build`, `check:release`.
+- Pull request checks passed (`check`, `Block merges into OWLA-RC`,
+  `Block merges from Developer-Prerelease`), as did `main` CI on `7c8908c`.
+- The tag workflow passed and created a draft with only `main.js`,
+  `manifest.json` and `styles.css`. All three are byte-identical (SHA-256) to a
+  local build of the same tree, the manifest says `3.7.1`, and
+  `gh attestation verify` accepts `main.js`. The draft was then published as
+  Latest.
+
+Not yet verified: copying a page link from a running Obsidian PDF viewer.
+
 ## 3.7.0 — release status
 
 3.7.0 is released from `main` through the tag workflow. The automated suite
