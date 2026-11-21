@@ -213,7 +213,21 @@ Disable OWLA, copy updated packaged files into the existing plugin folder, prese
 
 Stop cancels the request. Disconnect is also available in settings. To uninstall, disable and remove the plugin folder. Keep or separately remove external saved chats/recovery files after reviewing them. OWLA does not uninstall Codex, OpenCode or Claude Code, erase their logins or change their global configuration.
 
+## Install the dev version
+
+Dev builds are published as GitHub Releases marked **Pre-release**, tagged `<stable>-dev.<n>` (for example `3.7.1-dev.1`). They are for testing only, may contain unfinished work and are never offered through Obsidian's Community plugins. Try them in a disposable or backed-up vault.
+
+1. Open the repository's [Releases page](https://github.com/pilafdob/owla-butler/releases) and pick the newest release labelled **Pre-release**.
+2. Under **Assets**, download `main.js`, `manifest.json` and `styles.css`.
+3. In Obsidian, disable OWLA Butler (Settings → Community plugins).
+4. Copy the three files into `<vault>/.obsidian/plugins/owla-butler/`, replacing the existing ones. Create the folder if OWLA is not installed yet. Keep the existing `data.json`, which holds your settings. The `.obsidian` folder is hidden by default; on macOS press Cmd+Shift+. in Finder to show it.
+5. Re-enable OWLA Butler, or restart Obsidian.
+
+To go back to the stable version, install the latest non-pre-release from the same page in the same way, or reinstall OWLA through Community plugins.
+
 ## Development
+
+New features and fixes are developed on the [`OWLA-RC`](https://github.com/pilafdob/owla-butler/tree/OWLA-RC) branch and reach `main` with each release (see [Branches](#branches)).
 
 ```sh
 npm ci
