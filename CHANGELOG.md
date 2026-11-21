@@ -2,6 +2,12 @@
 
 Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”) and do not bump version numbers. Each dev release's changelog starts with: “Dev build of the latest stable version. No new features are included in this build.” The stable version is inserted automatically from `main`'s `manifest.json`.
 
+## 3.7.1
+
+### Fixes
+
+- **PDF page links are links again:** **Copy link to page** in the PDF viewer copies a wikilink to the page with the citation as its label, such as `[[Biology/ebooks/Kernbereiche Biologie 6.pdf#page=18|Kernbereiche Biologie 6,p.18]]`, instead of plain text. Pasted into a note it shows `Kernbereiche Biologie 6,p.18` and opens that page.
+
 ## 3.7.0
 
 ### New features

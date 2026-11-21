@@ -19,3 +19,12 @@ See COMMUNITY-RELEASE.md for release and submission steps. Do not publish an unt
 - **No merges from this branch.** No pull request may use `Developer-Prerelease` as its head branch. The `Dev branch guard` workflow fails any such pull request, and its `Block merges from Developer-Prerelease` check is a required status check in the `Main` branch ruleset. Pull requests **targeting** this branch are allowed.
 - **Dev changelog.** Every dev release's changelog starts with the exact line "Dev build of the latest stable version. No new features are included in this build." The stable version number is inserted automatically from `manifest.json` on `main` by `scripts/dev-release.mjs`, and must match this branch's un-bumped version.
 - Dev prereleases are for testing only and are never submitted to the Obsidian Community directory; stable releases follow COMMUNITY-RELEASE.md.
+
+## OWLA-RC branch
+
+`OWLA-RC` is where all new features and fixes are developed; `main` is the stable line. Commit new work directly to `OWLA-RC`.
+
+- **One-way merges.** `OWLA-RC` is merged **into** `main` through a pull request whose head is `OWLA-RC` and whose base is `main`. Nothing is merged **into** `OWLA-RC`: the `RC branch guard` workflow fails any pull request whose base branch is `OWLA-RC`, and its `Block merges into OWLA-RC` check is a required status check in the `OWLA-RC` branch ruleset.
+- **Version numbers are bumped here.** `manifest.json`, `package.json`, `package-lock.json` and `versions.json` carry the next version on `OWLA-RC`, with a matching `CHANGELOG.md` and `RELEASE-NOTES.md` entry, so the merge into `main` is release-ready.
+- **CI runs on every push to `OWLA-RC`** as well as on pull requests, with the same gates as `main`.
+- **Stable releases are tagged on `main`** after the merge, with a plain semver tag (no `v` prefix), following COMMUNITY-RELEASE.md.

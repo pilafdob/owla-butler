@@ -90,13 +90,13 @@ test('a large UTF-16 attachment is still bounded and marked shortened',async()=>
 
 // PDF page citations: Windows separators, spaces and commas in file names.
 test('pdfPageReference accepts Windows backslash paths',()=>{
- assert.equal(pdfPageReference('C:\\Vault\\Bio\\Kernbereiche Biologie 6.pdf',15),'Kernbereiche Biologie 6,p.15');
- assert.equal(pdfPageReference('School/Bio\\Book.pdf',3),'Book,p.3');
+ assert.equal(pdfPageReference('Bio\\Kernbereiche Biologie 6.pdf',15),'[[Bio/Kernbereiche Biologie 6.pdf#page=15|Kernbereiche Biologie 6,p.15]]');
+ assert.equal(pdfPageReference('School/Bio\\Book.pdf',3),'[[School/Bio/Book.pdf#page=3|Book,p.3]]');
 });
-test('pdfPageReference keeps the round-1 format for vault paths, spaces and commas',()=>{
- assert.equal(pdfPageReference('School/Bio/Kernbereiche Biologie 6.pdf',15),'Kernbereiche Biologie 6,p.15');
- assert.equal(pdfPageReference('Bio, Chapter 3.pdf',15),'Bio, Chapter 3,p.15');
- assert.equal(pdfPageReference('My Book.PDF',2),'My Book,p.2');
+test('pdfPageReference keeps the name,p.page alias for vault paths, spaces and commas',()=>{
+ assert.equal(pdfPageReference('School/Bio/Kernbereiche Biologie 6.pdf',15),'[[School/Bio/Kernbereiche Biologie 6.pdf#page=15|Kernbereiche Biologie 6,p.15]]');
+ assert.equal(pdfPageReference('Bio, Chapter 3.pdf',15),'[[Bio, Chapter 3.pdf#page=15|Bio, Chapter 3,p.15]]');
+ assert.equal(pdfPageReference('My Book.PDF',2),'[[My Book.PDF#page=2|My Book,p.2]]');
 });
 
 // Selection clip contract: clip counts characters. Editor selections arrive
