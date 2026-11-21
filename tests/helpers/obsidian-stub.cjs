@@ -24,6 +24,7 @@ module.exports={
  setIcon:noop,setTooltip:noop,addIcon:noop,loadPdfJs:async()=>({}),getLanguage:()=>'en',
  parseLinktext:linktext=>{const i=linktext.indexOf('#');return i<0?{path:linktext,subpath:''}:{path:linktext.slice(0,i),subpath:linktext.slice(i)};},
  parseYaml:()=>({}),stringifyYaml:()=>'',resolveSubpath:()=>null,getAllTags:()=>[],editorInfoField:{},
+ apiVersion:'1.10.0',
  // electron
  shell:{openExternal:async()=>{}},webUtils:{getPathForFile:()=>''},
 };

@@ -45,3 +45,43 @@ export function redactErrorDetail(text:string,home=homedir(),platform:NodeJS.Pla
 export function untrustedToolText(text:string):string{
  return '<untrusted_content>\n'+text.replace(/<\s*\/\s*untrusted_content\s*>/gi,'<\\/untrusted_content>')+'\n</untrusted_content>';
 }
+
+/** Quoted credential assignments, including values with spaces; runs before
+ *  redactErrorDetail, whose unquoted pattern stops at the first space. */
+const QUOTED_VALUE_RE=/\b(password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|token|authorization)\s*[:=]\s*(["'])[^\n]*?\2/gi;
+/** Unquoted compound credential keys the generic redactErrorDetail pattern
+ *  cannot see (no word boundary inside client_secret). */
+const UNQUOTED_COMPOUND_RE=/\b(client[_-]?secret|consumer[_-]?secret|private[_-]?key|session[_-]?token|auth[_-]?token)\s*[:=]\s*["']?[^\s"',}]+/gi;
+/** Bearer leftovers the generic token pattern missed: token-shaped (at least
+ *  8 characters and a digit) so ordinary prose such as "bearer of record"
+ *  is never touched. */
+const BEARER_LEFTOVER=/\bBearer\s+(?=[^\s"']*\d)[A-Za-z0-9._~+/=$!:-]{8,}/gi;
+/** Standalone credential shapes no assignment rule can see. Word boundaries
+ *  keep prose such as "task-12345678" or "monkey-12345678" intact. */
+const KEY_SHAPES=[
+ /\bsk-[A-Za-z0-9_-]{8,}/g,
+ /\bkey-[A-Za-z0-9_-]{8,}/g,
+ /\bghp_[A-Za-z0-9]{8,}/g,
+ /\bgithub_pat_[A-Za-z0-9_]{8,}/g,
+ /\bxox[baprse]-[A-Za-z0-9-]{8,}/g,
+ /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g,
+ /\bAKIA[0-9A-Z]{16}\b/g,
+ /\bAIza[0-9A-Za-z_-]{35}\b/g,
+];
+
+// CLI failures often embed JSON. Match the closing quote of the key and
+// escaped value characters too; assignment-only patterns miss that boundary.
+const JSON_VALUE_RE=/("|')(password|passwd|pwd|secret|client[_-]?secret|consumer[_-]?secret|private[_-]?key|session[_-]?token|auth[_-]?token|api[_-]?key|access[_-]?token|refresh[_-]?token|token|authorization)\1\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}]+)/gi;
+
+/**
+ * redactErrorDetail plus standalone credential shapes, quoted secrets and
+ * compound keys. Used for every error/detail string that leaves the plugin
+ * in a Developer mode export or diagnostics report (audit F1/F2). Ordinary
+ * prose survives; note content is never passed through this function.
+ */
+export function redactSensitive(text:string):string{
+ let out=text.replace(JSON_VALUE_RE,'$1$2$1:"[redacted]"').replace(QUOTED_VALUE_RE,'$1=[redacted]').replace(UNQUOTED_COMPOUND_RE,'$1=[redacted]').replace(BEARER_LEFTOVER,'Bearer [redacted]');
+ out=redactErrorDetail(out);
+ for(const shape of KEY_SHAPES)out=out.replace(shape,'[redacted]');
+ return out;
+}

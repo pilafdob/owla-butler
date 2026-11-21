@@ -36,6 +36,8 @@ export interface ButlerSettings {
  diffView:DiffView;
  storageRoot:string;
  excludedFolders:string;
+ /** Developer mode: record chats, tool calls and events locally and unlock diagnostics downloads. */
+ developerMode:boolean;
 }
 export const DEFAULTS:ButlerSettings={
  schemaVersion:3,
@@ -62,7 +64,8 @@ export const DEFAULTS:ButlerSettings={
  visualScreenshots:true,
  diffView:'none',
  storageRoot:'',
- excludedFolders:''
+ excludedFolders:'',
+ developerMode:false
 };
 export function migrateSettings(value:unknown):ButlerSettings{
  const data=record(value);
@@ -83,6 +86,7 @@ export function migrateSettings(value:unknown):ButlerSettings{
  const fallback:FallbackChoice=storedFallback??(data.codexAutoFallback===true&&provider==='codex'?'opencode':'none');
  const routingMode:RoutingMode=['cost','balance','intelligence'].includes(String(data.routingMode))?data.routingMode as RoutingMode:'balance';
  return {...DEFAULTS,
+  developerMode:data.developerMode===true,
   diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',
   storageRoot:string('storageRoot'),
   excludedFolders:string('excludedFolders'),

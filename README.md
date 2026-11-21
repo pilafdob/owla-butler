@@ -56,6 +56,7 @@ OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or 
 - Change properties as a reviewed edit that leaves the note body untouched. Proposed links that would not resolve are caught before you review them, and cited blocks (`[[note#^id]]`) can be read exactly.
 - Switch between Codex, OpenCode, Claude Code and Hermes Agent, with the same features, skills and review flow on all of them.
 - Keep the same chat while the backend automatically stops between replies.
+- Optional Developer mode: record chats with their tool calls, save developer sessions and download a full diagnostics report.
 
 ## Setup
 
@@ -150,6 +151,18 @@ Settings → OWLA Butler shows the usage limits reported by the selected provide
 
 If the assistant you are using reports that its usage limit is reached, OWLA explains it in the chat instead of failing silently. **Fallback provider** in settings chooses what happens next: leave it on **None** to be told instead of switched, or pick another provider to serve the next messages until the limit resets. OWLA then switches back on its own as soon as the provider reports that the limit has reset, and your choice of provider in settings is never overwritten: the switch is temporary and is shown as such. If every connected provider is exhausted at once, the chat says so and lists each provider with its reset time.
 
+### Developer mode
+
+**Developer mode** in settings unlocks tools for inspecting and improving OWLA. While it is on, OWLA records the current chat locally: every message, every tool call (the commands the assistant runs) with its arguments, result and duration, and events such as tool-budget stops, repeated calls, refused paths, context shortening, retries, quality escalations and exhausted providers. Recording is bounded (the latest 100 turns and 500 events) and stays in OWLA's private storage on this device; nothing is sent to a provider, and nothing new is recorded while the toggle is off.
+
+With Developer mode on, settings shows:
+
+- **Developer session** — save the current chat with its recorded tool calls and events (also in the chat's options menu and the command palette), or download it as JSON. Saved sessions are listed with download and delete buttons; up to 10 are kept.
+- **Diagnostics report** — download a JSON file with everything OWLA can currently see: enabled and disabled features, provider connections, versions and plans, provider-reported usage limits, model unavailability memory, saved chats, routing history with latencies, token estimates, performance percentiles, rule violations (unoffered tools, refused paths, budget stops, repeated calls) and data/token/quality-loss indicators (edit conflicts, shortened context, retries, escalations, empty replies). **Copy summary** puts a readable Markdown overview on the clipboard.
+- **Clear developer data** — delete the recorded turns, events and saved developer sessions. Saved chats and notes are not affected.
+
+Token counts in the report are estimates (~3.5 characters per token): providers do not report exact token counts to OWLA, while the usage-limit percentages are provider-reported. The assistants have no shell or file tools by design, so the recorded tool calls are the commands they ran; each provider's own session directory (listed in the report) holds the full raw transcripts.
+
 ## Edits and recovery
 
 Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. Vault sources in **Sources & activity** open the exact PDF page or note heading when OWLA has one. Change cards above **Sources & activity** show affected files and folders. Open an existing file, reveal a folder in File Explorer, or preview a new note draft. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
@@ -226,6 +239,10 @@ node scripts/package.mjs
 ```
 
 The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. Starting with 1.0.1, GitHub release attachments contain only the three files Obsidian installs. The optional ZIP and checksum list are stored separately with the release workflow run; you can also generate them locally with the commands above.
+
+### Branches and prereleases
+
+`main` is the stable line. `Developer-Prerelease` is a separate development branch that is **never merged into `main`**. Prereleases are built from `Developer-Prerelease` with dev flags enabled (such as the Developer mode tooling described above). Updates flow one way only: `main` is merged **into** `Developer-Prerelease` to keep it current, and the development branch only receives updates — it never sends changes back to `main`.
 
 ## Licence and credits
 

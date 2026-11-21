@@ -8,6 +8,7 @@ data.json
 coverage/
 work/
 dist/
+DEV-RELEASE-NOTES.md
 *.tsbuildinfo
 
 # Local agent tooling (kept on disk, not published)

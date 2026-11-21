@@ -1,5 +1,7 @@
 # Changelog
 
+Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”) and do not bump version numbers. Each dev release's changelog starts with: “Dev build of the latest stable version. No new features are included in this build.” The stable version is inserted automatically from `main`'s `manifest.json`.
+
 ## 3.7.0
 
 ### New features

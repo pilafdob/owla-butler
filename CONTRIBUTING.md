@@ -9,3 +9,13 @@ For integration changes, repeat current-note/unsaved context, exact sources, rev
 Report bugs through the **Bug report** form on GitHub Issues — it asks for plugin/Obsidian/provider versions, OS version, steps and a minimal disposable example. Remove account identifiers, tokens, private note text, local paths and screenshots containing personal data. Never post data.json, Codex credentials, raw quota payloads or work/ logs without sanitising them. Quota and authentication failures can be tested deterministically without changing a real account.
 
 See COMMUNITY-RELEASE.md for release and submission steps. Do not publish an untested build or claim Community approval before it is granted.
+
+## Developer-Prerelease branch
+
+`Developer-Prerelease` is the development line and `main` is the stable line. The branch is one-way: updates merge **into** it from `main`; nothing merges out of it.
+
+- **Releases are prereleases, never latest.** The release workflow on this branch creates every GitHub Release with `prerelease: true` and `make_latest: false` (`gh release create --draft --prerelease --latest=false`). Do not mark a dev release as latest.
+- **Version numbers are not bumped on this branch.** `manifest.json` and `package.json` keep the stable version. Dev releases are tagged `<stable>-dev.<n>` (for example `3.7.0-dev.1`); the workflow rejects any other tag shape.
+- **No merges from this branch.** No pull request may use `Developer-Prerelease` as its head branch. The `Dev branch guard` workflow fails any such pull request, and its `Block merges from Developer-Prerelease` check is a required status check in the `Main` branch ruleset. Pull requests **targeting** this branch are allowed.
+- **Dev changelog.** Every dev release's changelog starts with the exact line "Dev build of the latest stable version. No new features are included in this build." The stable version number is inserted automatically from `manifest.json` on `main` by `scripts/dev-release.mjs`, and must match this branch's un-bumped version.
+- Dev prereleases are for testing only and are never submitted to the Obsidian Community directory; stable releases follow COMMUNITY-RELEASE.md.

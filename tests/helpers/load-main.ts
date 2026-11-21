@@ -2,6 +2,7 @@
 import {registerHooks} from 'node:module';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {DevJournal} from '../../src/dev-journal';
 
 const stub=pathToFileURL(join(__dirname,'obsidian-stub.cjs')).href;
 let registered=false;
@@ -36,6 +37,9 @@ async function viewClass(Butler:any){
   loadData:async()=>({}),saveData:async()=>{},save:async()=>{},
   vaultStorage:()=>storage,registerEditorExtension:()=>{},
   codexBridge:{},opencodeBridge:{},claudeBridge:{},hermesBridge:{},
+  // Class fields are not initialized on Object.create(Butler.prototype);
+  // onload reads devJournal, so the fake needs a real (pure) instance.
+  devJournal:new DevJournal(),
   registerView:(type:string,make:(leaf:unknown)=>unknown)=>{if(type==='owla-butler-chat'){factory=make;throw stopped;}},
  });
  try{await fake.onload();}catch(e){if(e!==stopped)throw e;}
