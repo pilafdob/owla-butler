@@ -1,8 +1,14 @@
 name: Release Obsidian plugin
 on:
   push:
+    # Stable releases only. Dev tags (<version>-dev, <version>-dev.<n>) belong
+    # to Developer-Prerelease, whose own release.yml builds them; renaming a
+    # dev release on GitHub can create its tag on main, which must not start
+    # a stable release run.
     tags:
       - '*'
+      - '!*-dev'
+      - '!*-dev.*'
   workflow_dispatch:
     inputs:
       tag:
