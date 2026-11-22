@@ -110,8 +110,9 @@ export async function captureCanvas(app:App,file:TFile,text?:string):Promise<{im
   const rect={x:0,y:0,width,height},tiny={x:0,y:0,width:8,height:8};
   try{
    canvas.deselectAll?.();
-   wrapper.addClass('is-screenshotting');
-   wrapper.setCssStyles({position:'fixed',left:'0',top:'0',width:width+'px',height:height+'px',zIndex:'var(--layer-modal)'});
+   // Placement is in styles.css (owla-canvas-capture); only the capture size changes per call.
+   wrapper.addClass('is-screenshotting','owla-canvas-capture');
+   wrapper.setCssProps({'--owla-capture-width':width+'px','--owla-capture-height':height+'px'});
    wrapper.doc.body.appendChild(wrapper);
    // A capture makes even a covered window paint; a tiny one first lets the canvas lay out at this size.
    await within(contents.capturePage(tiny),10000,'The canvas capture timed out.');
@@ -131,7 +132,7 @@ export async function captureCanvas(app:App,file:TFile,text?:string):Promise<{im
    if(image.isEmpty?.())throw Error('The canvas capture came back empty.');
    return {imageUrl:imageUrl(image),width,height};
   }finally{
-   wrapper.removeClass('is-screenshotting');
+   wrapper.removeClass('is-screenshotting','owla-canvas-capture');
    if(style===null)wrapper.removeAttribute('style');else wrapper.setAttribute('style',style);
    if(parent)parent.insertBefore(wrapper,next);
   }
