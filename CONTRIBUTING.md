@@ -8,6 +8,8 @@ For integration changes, repeat current-note/unsaved context, exact sources, rev
 
 Report bugs through the **Bug report** form on GitHub Issues — it asks for plugin/Obsidian/provider versions, OS version, steps and a minimal disposable example. Remove account identifiers, tokens, private note text, local paths and screenshots containing personal data. Never post data.json, Codex credentials, raw quota payloads or work/ logs without sanitising them. Quota and authentication failures can be tested deterministically without changing a real account.
 
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Report security problems privately as described in [SECURITY.md](SECURITY.md), never in a public issue. Accessibility support and known limitations are in [ACCESSIBILITY.md](ACCESSIBILITY.md). Pull requests use the template in `.github/pull_request_template.md`.
+
 See COMMUNITY-RELEASE.md for release and submission steps. Do not publish an untested build or claim Community approval before it is granted.
 
 ## Developer-Prerelease branch

@@ -8,6 +8,36 @@ The 1.0.0 release and initial listing instructions below are historical. The com
 
 The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
 
+## 3.7.2 — release status
+
+3.7.2 is a patch release: Codex calls OWLA's vault tools again. Codex's
+fetched model catalog had set `tool_mode: "code_mode_only"` on every model,
+which routes all tools through Code Mode; OWLA keeps Code Mode off, so every
+tool call failed and Codex replied that note access was unavailable. OWLA now
+passes its private Codex session a copy of that catalog with `tool_mode`
+cleared (`model_catalog_json`), renewed hourly. Pull request #9 merged
+`OWLA-RC` (`21788f6`) into `main` as `b68ff34`, and the plain `3.7.2` tag
+points at that commit.
+
+Verified on 2026-11-22:
+- Live Codex 0.169.0 probe through `CodexBridge`: before the fix
+  `gpt-5.6-terra` made no tool calls; after it `gpt-6-luna` and
+  `gpt-5.6-terra` both call `propose_edit`.
+- Local gates on `OWLA-RC` at `21788f6`: `npm run check`, `lint`, `test`
+  (784 pass, 0 fail, 6 Windows-only skips), `build`, `check:release` (also
+  with `RELEASE_TAG=3.7.2`), `guard:test`.
+- Pull request checks passed (`check`, `Block merges into OWLA-RC`,
+  `Block merges from Developer-Prerelease`), as did `main` CI on `b68ff34`.
+- The tag workflow passed and created a draft with only `main.js`,
+  `manifest.json` and `styles.css`. All three are byte-identical (SHA-256) to a
+  local build of the tag, the manifest says `3.7.2`, and
+  `gh attestation verify` accepts `main.js`. The draft was then published as
+  Latest.
+
+Not yet verified: a Codex turn inside a running Obsidian. Unchanged: Codex
+0.169 also offers its own `spawn_agent` with direct tools; OWLA's ThreadItem
+guard stops the turn if a model calls it.
+
 ## 3.7.1 — release status
 
 3.7.1 is a patch release: **Copy link to page** copies a page wikilink again
