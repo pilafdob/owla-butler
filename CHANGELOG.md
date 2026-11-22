@@ -2,6 +2,12 @@
 
 Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”) and do not bump version numbers. Each dev release's changelog starts with: “Dev build of the latest stable version. No new features are included in this build.” The stable version is inserted automatically from `main`'s `manifest.json`.
 
+## 3.7.2
+
+### Fixes
+
+- **Codex can edit notes again:** Codex's model catalog now marks every model as Code Mode only, which hides all tools, OWLA's included, behind Code Mode. OWLA keeps Code Mode off, so every vault tool call failed and Codex replied that note access was unavailable instead of proposing the edit. OWLA now gives its private Codex session a copy of Codex's own catalog with direct tool calls, applied with one restart when needed and renewed hourly. Code Mode and the rest of OWLA's isolation stay unchanged.
+
 ## 3.7.1
 
 ### Fixes

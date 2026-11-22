@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {CodexBridge,CodexIsolationError,CAPABILITY_FEATURES,MAX_FEATURE_OVERRIDES,assertSessionPrivacy,isolationReport,replayHistory,supportedVersion,friendlyError} from '../src/codex';import {PROBE_0169_CONFIG,PROBE_0169_FEATURES_330_OVERRIDES,PROBE_0169_FEATURES_FINAL} from './helpers/codex-probe';import {migrateSettings} from '../src/core';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {CodexBridge,CodexIsolationError,CODEX_TOOL_CATALOG,directToolCatalog,CAPABILITY_FEATURES,MAX_FEATURE_OVERRIDES,assertSessionPrivacy,isolationReport,replayHistory,supportedVersion,friendlyError} from '../src/codex';import {PROBE_0169_CONFIG,PROBE_0169_FEATURES_330_OVERRIDES,PROBE_0169_FEATURES_FINAL} from './helpers/codex-probe';import {migrateSettings} from '../src/core';
 // The configuration a correctly isolated Codex session reports for every turn.
 const isolatedConfig={config:{notify:[],hooks:{},sandbox_mode:'read-only',approval_policy:'never',features:{shell_tool:false,apps:false,hooks:false,unified_exec:false,computer_use:false,browser_use:false,browser_use_full_cdp_access:false,in_app_browser:false,image_generation:false,tool_suggest:false,skill_search:false,sleep_tool:false,goals:false,memories:false,code_mode:false,js_repl:false,multi_agent:false,view_image:false,skill_mcp_dependency_install:false,plugins:false,remote_plugin:false,plugin_sharing:false,browser_use_external:false,browser_annotation_api:false,in_app_local_automation:false,workspace_dependencies:false,shell_snapshot:false,tool_call_mcp_elicitation:false,code_mode_host:false,api_key_model_discovery:false,api_key_cyber_access_programs:false,auth_elicitation:false,mentions_v2:false,network_proxy:null},analytics:{enabled:false},feedback:{enabled:false},otel:{exporter:'none',trace_exporter:'none',metrics_exporter:'none'}}};
 test('migration removes inference configuration while preserving user work locations and exclusions',()=>{const s=migrateSettings({model:'qwen3:0.6b',executable:'/old/ollama',provider:'ollama',storageRoot:'/private/work',excludedFolders:'Private'});assert.equal(s.models.codex.model,'');assert.equal(s.storageRoot,'/private/work');assert.equal(s.excludedFolders,'Private');assert.equal('models' in s,true);assert.equal(s.provider,'codex');assert.equal(migrateSettings({...s,schemaVersion:3,models:{codex:{model:'selected',reasoning:'high'},opencode:{model:'',reasoning:''}}}).models.codex.model,'selected');});
@@ -218,7 +218,7 @@ test('the proactive list turns off the capability features that Codex enables by
 });
 
 // A fake `codex` (tests/fixtures/fake-codex.mjs) that applies -c feature overrides the way Codex 0.169.0 does.
-async function fakeCodex(scenario:{mcp_servers?:Record<string,unknown>;plugins?:Record<string,unknown>;defaults?:Record<string,unknown>;pinned?:Record<string,unknown>;hooks?:unknown;hookInventory?:unknown;hookInventoryError?:boolean}){
+async function fakeCodex(scenario:{catalog?:unknown[];mcp_servers?:Record<string,unknown>;plugins?:Record<string,unknown>;defaults?:Record<string,unknown>;pinned?:Record<string,unknown>;hooks?:unknown;hookInventory?:unknown;hookInventoryError?:boolean}){
  const {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync}=await import('node:fs');
  const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');
  const folder=mkdtempSync(join(tmpdir(),'owla-fake-codex-')),fixture=resolve('tests/fixtures/fake-codex.mjs');
@@ -229,6 +229,8 @@ async function fakeCodex(scenario:{mcp_servers?:Record<string,unknown>;plugins?:
  else{file=join(folder,'codex');writeFileSync(file,'#!/bin/sh\nexec "'+process.execPath+'" "'+fixture+'" "'+folder+'" "$@"\n',{mode:0o700});}
  const spawns=()=>existsSync(join(folder,'spawns.jsonl'))?readFileSync(join(folder,'spawns.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line) as string[]):[];
  const bridge=new CodexBridge();
+ // A private Codex home per fake keeps the real one (and its fetched catalog) out of the tests.
+ (bridge as any).privateHome=join(folder,'home');
  const cwd=join(folder,'session');
  const cleanup=async()=>{bridge.disconnect();await (bridge as any).closing;rmSync(folder,{recursive:true,force:true});};
  const requests=()=>existsSync(join(folder,'requests.jsonl'))?readFileSync(join(folder,'requests.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line) as {method:string;params:any}):[];
@@ -545,4 +547,60 @@ test('invalid protocol lines are quoted in the disconnect status; handler failur
  other.receiveChunk(other.child,'{}\n');
  assert.equal(other.child,null);
  assert.match(other.status,/protocol handling failed: handler exploded/);
+});
+
+// ---------------------------------------------------------------- Code Mode tool routing (3.7.2)
+test('directToolCatalog clears tool_mode on every model, and leaves a direct catalog alone',()=>{
+ const cache={fetched_at:'x',models:[{slug:'a',tool_mode:'code_mode_only',supports_search_tool:true},{slug:'b'}]};
+ assert.deepEqual(directToolCatalog(cache),{models:[{slug:'a',tool_mode:null,supports_search_tool:true},{slug:'b',tool_mode:null}]});
+ assert.equal(directToolCatalog({models:[{slug:'a',tool_mode:null},{slug:'b'}]}),null);
+ for(const bad of [null,'x',{models:'x'},{}])assert.equal(directToolCatalog(bad),null);
+});
+
+const catalogPath=(argv:string[])=>argv.find((arg,i)=>argv[i-1]==='-c'&&arg.startsWith('model_catalog_json='));
+
+test('a code_mode_only catalog is replaced by a direct-tool copy with one restart, so OWLA tool calls reach OWLA',async()=>{
+ const {readFileSync}=await import('node:fs');const {join}=await import('node:path');
+ const fake=await fakeCodex({defaults:PROBE_0169_FEATURES_330_OVERRIDES,catalog:[{slug:'gpt-6-luna',tool_mode:'code_mode_only'},{slug:'gpt-5.6-terra',tool_mode:'code_mode_only'}]});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  const [first,second]=fake.spawns();
+  assert.equal(fake.spawns().length,2);
+  assert.equal(catalogPath(first),undefined);
+  const path=join((fake.bridge as any).privateHome,CODEX_TOOL_CATALOG);
+  assert.equal(catalogPath(second),'model_catalog_json='+JSON.stringify(path));
+  const written=JSON.parse(readFileSync(path,'utf8'));
+  assert.deepEqual(written.models.map((m:any)=>m.tool_mode),[null,null]);
+  // Code Mode stays off: the fix never turns on exec or its host.
+  for(const argv of fake.spawns()){assert.ok(disables(argv,'code_mode'));assert.ok(disables(argv,'code_mode_host'));}
+  // A later start in the same session reuses the copy without another restart.
+  fake.bridge.disconnect();(fake.bridge as any).toolCatalog={path,at:Date.now()};
+  await fake.bridge.connect(fake.file,fake.cwd,true);
+  assert.equal(fake.spawns().length,3);
+  assert.ok(catalogPath(fake.spawns()[2]));
+ }finally{await fake.cleanup();}
+});
+
+test('a stale direct-tool copy is dropped so Codex fetches a fresh catalog',async()=>{
+ const fake=await fakeCodex({defaults:PROBE_0169_FEATURES_330_OVERRIDES});
+ try{
+  (fake.bridge as any).toolCatalog={path:'/nonexistent/'+CODEX_TOOL_CATALOG,at:Date.now()-2*60*60*1000};
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  assert.equal(fake.spawns().length,1);
+  assert.equal(catalogPath(fake.spawns()[0]),undefined);
+ }finally{await fake.cleanup();}
+});
+
+test('a catalog restart after a feature-isolation restart still connects',async()=>{
+ const fake=await fakeCodex({defaults:{...PROBE_0169_FEATURES_330_OVERRIDES,fancy_new_tool:true},catalog:[{slug:'m',tool_mode:'code_mode_only'}]});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd);
+  assert.equal(fake.bridge.ready,true);
+  const spawns=fake.spawns();
+  assert.equal(spawns.length,3);
+  assert.ok(disables(spawns[2],'fancy_new_tool'));
+  assert.ok(catalogPath(spawns[2]));
+ }finally{await fake.cleanup();}
 });
