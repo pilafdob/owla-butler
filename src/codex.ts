@@ -1,5 +1,5 @@
 import {ChildProcessWithoutNullStreams} from 'node:child_process';
-import {existsSync,linkSync,lstatSync,mkdirSync,readlinkSync,realpathSync,statSync,symlinkSync,unlinkSync} from 'node:fs';
+import {existsSync,linkSync,lstatSync,mkdirSync,readFileSync,readlinkSync,realpathSync,statSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {delimiter,dirname,isAbsolute,join,resolve,win32} from 'node:path';
 import {setTimeout,clearTimeout} from 'node:timers';
@@ -134,6 +134,33 @@ export function inheritedInstructions(directory:string,home=homedir(),platform:N
  * instructions, skills or config reach OWLA's session (SECURITY-AUDIT-3.6.2 H2).
  */
 export const CODEX_PRIVATE_HOME='Codex Private';
+/** The model catalog Codex fetches into its home, and OWLA's copy with direct tool calls. */
+export const CODEX_MODEL_CACHE='models_cache.json';
+export const CODEX_TOOL_CATALOG='owla-model-catalog.json';
+/** How long a learned catalog copy is reused before Codex fetches a fresh catalog again (Codex does not refresh while the copy is in use). */
+export const TOOL_CATALOG_MAX_AGE_MS=60*60*1000;
+/**
+ * Codex model metadata can set `tool_mode` (for example `code_mode_only`), which
+ * puts every tool, OWLA's included, behind Code Mode's `exec`. OWLA keeps Code
+ * Mode and its host off, so the model sees OWLA's tools but every call fails
+ * closed and the reply claims note access is unavailable. Returns the catalog
+ * with `tool_mode` cleared on every model, or null when no model sets it.
+ */
+export function directToolCatalog(cache:unknown):{models:unknown[]}|null{
+ const models=list(record(cache).models);
+ if(!models.some(model=>{const mode=record(model).tool_mode;return mode!==undefined&&mode!==null;}))return null;
+ return {models:models.map(model=>({...record(model),tool_mode:null}))};
+}
+/** Writes OWLA's direct-tool copy of Codex's fetched catalog into the private home; returns its path, or '' when none is needed or it cannot be written. */
+export function writeDirectToolCatalog(home:string):string{
+ try{
+  const catalog=directToolCatalog(JSON.parse(readFileSync(join(home,CODEX_MODEL_CACHE),'utf8')));
+  if(!catalog)return '';
+  const path=join(home,CODEX_TOOL_CATALOG);
+  writeFileSync(path,JSON.stringify(catalog),{mode:0o600});
+  return path;
+ }catch{return '';}
+}
 /** Sign-in files linked from the user's Codex home: the credentials and the locks that serialize their refresh. */
 export const CODEX_AUTH_FILES=['auth.json','auth.json.lock','auth.lock'] as const;
 /** The user's own Codex home, the only place OWLA reads a sign-in from. */
@@ -195,6 +222,8 @@ export class CodexBridge implements ProviderBridge{
  private lastFailure:Error|null=null;
  /** Features learned to be on in the user's Codex config; turned off on later starts (web re-keys) without a second probe. */
  private featureOverrides:string[]=[];
+ /** OWLA's direct-tool copy of the model catalog, learned on a connect and passed as model_catalog_json until it is an hour old. */
+ private toolCatalog:{path:string;at:number}|null=null;
  private privateHome=join(defaultStorageDirectory(),CODEX_PRIVATE_HOME);
  private env(){const env=sanitizedEnv();for(const key of Object.keys(env))if(key.toLowerCase()==='path'||key.toUpperCase()==='CODEX_HOME')delete env[key];env.PATH=[process.env.PATH,...defaultBinDirectories()].filter(Boolean).join(delimiter);env.CODEX_HOME=this.privateHome;return env;}
  private setStatus(s:string){this.status=s;this.onStatus(s);}
@@ -240,19 +269,24 @@ export class CodexBridge implements ProviderBridge{
  * off for OWLA's session only; the user's config is never changed.
  */
  private async start(executable:string,cwd:string,extra:string[]=[],web=false):Promise<void>{
-  const restart=await this.launch(executable,cwd,extra,web,false);
-  if(!restart.length)return;
-  const generation=this.generation;
-  await this.closing;
-  if(generation!==this.generation)throw Error('Codex connection cancelled.');
-  await this.launch(executable,cwd,[...extra,...restart],web,true);
+  if(this.toolCatalog&&(Date.now()-this.toolCatalog.at>TOOL_CATALOG_MAX_AGE_MS||!existsSync(this.toolCatalog.path)))this.toolCatalog=null;
+  let overrides=extra,retried=false,catalogRestarted=false;
+  for(;;){
+   const restart=await this.launch(executable,cwd,overrides,web,retried);
+   if(restart==='catalog'){if(catalogRestarted)return;catalogRestarted=true;}
+   else if(!restart.length)return;
+   else{if(retried)return;overrides=[...overrides,...restart];retried=true;}
+   const generation=this.generation;
+   await this.closing;
+   if(generation!==this.generation)throw Error('Codex connection cancelled.');
+  }
  }
  /**
   * One app-server start. Returns the `-c` overrides to add before the single
   * retry (enabled MCP servers and plugins, as in 3.2.0, and features that are
   * on), or [] when connected.
   */
- private async launch(executable:string,cwd:string,extra:string[],web:boolean,retried:boolean):Promise<string[]>{const generation=this.generation;const startup=new AbortController();this.startupAbort=startup;this.lastFailure=null;try{this.setStatus('Connecting…');const env=this.env(),file=executable||findCodexExecutable(env.PATH??'');
+ private async launch(executable:string,cwd:string,extra:string[],web:boolean,retried:boolean):Promise<string[]|'catalog'>{const generation=this.generation;const startup=new AbortController();this.startupAbort=startup;this.lastFailure=null;try{this.setStatus('Connecting…');const env=this.env(),file=executable||findCodexExecutable(env.PATH??'');
  if(!file||!isCliExecutable(file))throw Error('Codex was not found. Install and sign in to Codex, or choose its executable in settings.');
  this.version=(await command(file,['--version'],env,startup.signal)).trim();if(!supportedVersion(this.version))throw Error('Update Codex to version 0.162.1 or newer, then reconnect.');if(generation!==this.generation)throw Error('Codex connection cancelled.');this.executable=file;mkdirSync(cwd,{recursive:true,mode:0o700});
   // Codex project docs are also neutralized for OWLA sessions (project_doc_max_bytes=0);
@@ -260,7 +294,7 @@ export class CodexBridge implements ProviderBridge{
   ensureCodexPrivateHome(this.privateHome,userCodexHome());
   const inheritedFiles=[...inheritedInstructions(cwd),...privateHomeInstructions(this.privateHome)];
   if(inheritedFiles.length)throw Error('Codex would read project instructions from '+inheritedFiles.join(', ')+'. Remove those files or move the OWLA storage folder, then reconnect.');
- const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','sandbox_mode="read-only"','approval_policy="never"','notify=[]','project_doc_max_bytes=0','skills.include_instructions=false',...CAPABILITY_FEATURES.map(featureOverride),'web_search='+JSON.stringify(web?'live':'disabled'),...extra];
+ const overrides=['analytics.enabled=false','feedback.enabled=false','otel.exporter="none"','otel.trace_exporter="none"','otel.metrics_exporter="none"','model_provider="openai"','forced_login_method="chatgpt"','sandbox_mode="read-only"','approval_policy="never"','notify=[]','project_doc_max_bytes=0','skills.include_instructions=false',...CAPABILITY_FEATURES.map(featureOverride),'web_search='+JSON.stringify(web?'live':'disabled'),...(this.toolCatalog?['model_catalog_json='+JSON.stringify(this.toolCatalog.path)]:[]),...extra];
  const child=spawnCli(file,['app-server','--listen','stdio://',...overrides.flatMap(c=>['-c',c])],{cwd,env,detached:process.platform!=='win32'});this.child=child;this.lines=newProtocolLines();child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>this.receiveChunk(child,chunk));
  // Keep a bounded stderr tail so an unexpected exit names the real cause (a
  // panic, a config or sign-in failure) instead of a generic disconnect.
@@ -297,7 +331,10 @@ export class CodexBridge implements ProviderBridge{
  do{if(++pages>MAX_MODEL_PAGES)throw Error('Codex returned too many model catalog pages. Reconnect to retry.');const response=record(await this.request('model/list',{limit:100,includeHidden:false,...(cursor?{cursor}:{})}));for(const value of list(response.data)){const model=decodeModel(value);if(model&&!seenModels.has(model.id)){seenModels.add(model.id);this.models.push(model);}}
  cursor=typeof response.nextCursor==='string'&&response.nextCursor?response.nextCursor:undefined;
  if(cursor){if(seen.has(cursor))throw Error('Codex returned a repeated model catalog page.');seen.add(cursor);}}while(cursor);
- if(!this.models.length)throw Error('Codex returned no usable models for this account.');this.initialized=true;this.setStatus(this.plan?'Connected to Codex · '+this.plan:'Connected to Codex');return [];
+ if(!this.models.length)throw Error('Codex returned no usable models for this account.');
+ // A fetched catalog that routes tools through Code Mode is replaced by OWLA's direct-tool copy with one restart.
+ if(!this.toolCatalog){const path=writeDirectToolCatalog(this.privateHome);if(path){this.toolCatalog={path,at:Date.now()};this.close('Isolating OWLA tools…',true);return 'catalog';}}
+ this.initialized=true;this.setStatus(this.plan?'Connected to Codex · '+this.plan:'Connected to Codex');return [];
  }catch(e){if(generation!==this.generation){if(this.lastFailure)throw this.lastFailure;throw Error('Codex connection cancelled.');}this.close(friendlyError(e));throw e;}finally{if(this.startupAbort===startup)this.startupAbort=null;}
  }
  private async readAccount(){const response=record(await this.request('account/read',{refreshToken:false})),account=record(response.account);this.accountType=typeof account.type==='string'?account.type:'';this.plan=typeof account.planType==='string'?account.planType:'';if(response.account!=null&&this.accountType!=='chatgpt')throw Error('OWLA requires Codex signed in with ChatGPT. API-key authentication is not supported.');}
@@ -486,9 +523,9 @@ export class CodexBridge implements ProviderBridge{
  /** A protocol intake failure: recorded like fail(), but the status stays verbatim. */
  private protocolFailure(message:string){this.lastFailure=Error(message);this.close(message);}
  /** Verify connection: the next start probes the user's Codex config again without learned feature overrides. */
- recheck(){this.featureOverrides=[];}
+ recheck(){this.featureOverrides=[];this.toolCatalog=null;}
  /** Explicit disconnect (settings, unload). Forgets learned feature overrides so a reconnect probes cleanly. */
- disconnect(status='Disconnected',keepStartup=false){this.featureOverrides=[];this.close(status,keepStartup);}
+ disconnect(status='Disconnected',keepStartup=false){this.featureOverrides=[];this.toolCatalog=null;this.close(status,keepStartup);}
  /** Internal stop: rest, failures and mode switches keep the learned feature overrides. */
  private close(status='Disconnected',keepStartup=false){this.generation++;this.initialized=false;this.startupAbort?.abort();this.startupAbort=null;if(!keepStartup)this.connecting=null;if(this.idle)clearTimeout(this.idle);this.idle=undefined;this.finishSignIn=undefined;const child=this.child;this.child=null;this.lines=newProtocolLines();const active=this.active;this.active=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error(status));}this.pending.clear();const waiter=this.pendingDrained;this.pendingDrained=null;waiter?.();active?.reject(Error(status));if(child){const kill=(signal:NodeJS.Signals)=>terminateProcessTree(child,signal);if(child.exitCode!==null||child.signalCode!==null){kill('SIGTERM');this.closing=Promise.resolve();}else{this.closing=new Promise<void>(resolve=>{const force=setTimeout(()=>{kill('SIGKILL');setTimeout(resolve,100);},2000);child.once('exit',()=>{clearTimeout(force);resolve();});});}child.stdin.end();kill('SIGTERM');}this.setStatus(status);}
 }

@@ -6,9 +6,11 @@
 // `defaults` are the features `config/read` reports before any `-c` override,
 // `-c features.<key>=<true|false>` arguments are applied in order (the last one
 // wins, as in Codex 0.169.0), and `pinned` is applied last, like a managed
-// settings layer that outranks `-c`. Each app-server start appends its argv to
-// <scenario-dir>/spawns.jsonl.
-import {appendFileSync,readFileSync} from 'node:fs';
+// settings layer that outranks `-c`. `catalog` lists model metadata that
+// `model/list` writes to CODEX_HOME/models_cache.json, like Codex's remote
+// catalog fetch, unless `-c model_catalog_json=...` replaces the catalog.
+// Each app-server start appends its argv to <scenario-dir>/spawns.jsonl.
+import {appendFileSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 
 const [dir,...args]=process.argv.slice(2);
@@ -46,12 +48,18 @@ function config(){
  };
 }
 
+const listed=()=>({data:[{id:'fake',model:'fake',displayName:'Fake',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low',description:''}]}],nextCursor:null});
 const results={
  'initialize':()=>({}),
  'config/read':()=>({config:config()}),
  'hooks/list':params=>scenario().hookInventory??{data:[{cwd:params.cwds[0],hooks:[],warnings:[],errors:[]}]},
  'account/read':()=>({account:{type:'chatgpt',planType:'plus'}}),
- 'model/list':()=>({data:[{id:'fake',model:'fake',displayName:'Fake',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low',description:''}]}],nextCursor:null}),
+ 'model/list':()=>{
+  // Like Codex, fetch the remote catalog into CODEX_HOME unless model_catalog_json replaces it.
+  const catalog=overrides.find(entry=>entry.startsWith('model_catalog_json='));
+  if(scenario().catalog&&!catalog&&process.env.CODEX_HOME)writeFileSync(join(process.env.CODEX_HOME,'models_cache.json'),JSON.stringify({fetched_at:'2026-11-22T00:00:00Z',models:scenario().catalog}));
+  return listed();
+ },
  'account/rateLimits/read':()=>({rateLimits:null}),
 };
 
