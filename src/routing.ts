@@ -7,6 +7,7 @@ import type {CodexModel} from './codex';
 import {clip} from './core';
 import type {RoutingMode} from './core';
 import type {ProviderId} from './provider';
+import type {SelectionItem} from './pdf-selection';
 import {record} from './validation';
 
 const fm='/usr/bin/fm';
@@ -344,7 +345,7 @@ export const SELECTION_TRIM_MIN_KEEP_CHARS=300;
 const SELECTION_TRIM_MARKER=clip('x',0);
 
 export type SelectionTrimResult={
- selections:{path:string;text:string}[];
+ selections:SelectionItem[];
  estimatedTokens:number;
  notice:string|null;
  shortened:number;
@@ -363,18 +364,19 @@ export type SelectionTrimResult={
  * Pure string arithmetic: identical behaviour on every platform.
  */
 export function trimSelectionsToWindow(
- selections:readonly {path:string;text:string}[],
+ selections:readonly SelectionItem[],
  estimatedTokens:number,
  windowTokens:number
 ):SelectionTrimResult{
- const unchanged:SelectionTrimResult={selections:selections.map(item=>({path:item.path,text:item.text})),estimatedTokens,notice:null,shortened:0,removed:0};
+ const keep=(item:{path:string;text:string;pdf?:{page:number;pages?:number[]}}):SelectionItem=>({path:item.path,text:item.text,...(item.pdf?{pdf:{page:item.pdf.page,...(item.pdf.pages?{pages:item.pdf.pages}:{})}}:{})});
+ const unchanged:SelectionTrimResult={selections:selections.map(item=>({...item})),estimatedTokens,notice:null,shortened:0,removed:0};
  if(!Number.isFinite(windowTokens)||windowTokens<=0||!Number.isFinite(estimatedTokens)||estimatedTokens<=0||!selections.length)return unchanged;
  // routingModels keeps a model when context >= estimate*1.15.
  const target=Math.floor(windowTokens/1.15);
  if(estimatedTokens<=target)return unchanged;
  let excessChars=Math.ceil((estimatedTokens-target)*3.5);
  const markerLen=SELECTION_TRIM_MARKER.length;
- const work=selections.map((item,index)=>({index,path:item.path,text:item.text,dropped:false}));
+ const work=selections.map((item,index)=>({index,path:item.path,text:item.text,pdf:item.pdf,dropped:false}));
  const bySize=[...work].sort((a,b)=>b.text.length-a.text.length||a.index-b.index);
  let shortened=0;
  for(const item of bySize){
@@ -398,7 +400,7 @@ export function trimSelectionsToWindow(
   }
  }
  if(!shortened&&!removed)return unchanged;
- const kept=work.filter(item=>!item.dropped).sort((a,b)=>a.index-b.index).map(item=>({path:item.path,text:item.text}));
+ const kept=work.filter(item=>!item.dropped).sort((a,b)=>a.index-b.index).map(item=>keep(item));
  const cutChars=selections.reduce((sum,item)=>sum+item.text.length,0)-kept.reduce((sum,item)=>sum+item.text.length,0);
  // ceil(C/3.5)-ceil((C-R)/3.5) >= floor(R/3.5): subtracting floor(R/3.5) never
  // undershoots the recomputed estimate, and lands at or below target once the
@@ -556,7 +558,9 @@ export type BuildRoutingContextInput={
  prompt:string;
  attachments:RoutingAttachment[];
  activeNoteText?:string;
- selections:{path:string;text:string}[];
+ /** Characters of the properties/outline/links block sent with the active note. */
+ noteContextChars?:number;
+ selections:SelectionItem[];
  recentMessages:{role:string;content:string;context?:string}[];
  previousImages:number;
  previousPdfs:number;
@@ -578,6 +582,7 @@ export function buildRoutingContext(input:BuildRoutingContextInput):RoutingConte
   prompt,
   attachments,
   activeNoteText,
+  noteContextChars=0,
   selections,
   recentMessages,
   previousImages,
@@ -613,7 +618,7 @@ export function buildRoutingContext(input:BuildRoutingContextInput):RoutingConte
   :sum,0);
  const estimatedTokens=estimateContextTokens({
   promptChars,
-  activeNoteChars,
+  activeNoteChars:activeNoteChars+noteContextChars,
   selectedChars,
   recentMessageChars,
   attachedNotes:counts.note,

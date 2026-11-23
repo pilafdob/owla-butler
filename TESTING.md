@@ -1,5 +1,35 @@
 # OWLA Butler verification
 
+## 3.8.0 — release candidate (2026-11-23, macOS, Agentbrain)
+
+Prepared, not committed, tagged or pushed. Review: `audits/3.8.0/REVIEW-3.8.0.md` (B1 and S1–S3 resolved, see its addendum).
+
+- **Local gates (final tree):**
+  - `npm run check`, `npm run lint` (0 errors, 8 warnings, the same as before), `npm test` (**884 total / 878 pass / 0 fail / 6 skipped**, the Windows-only tests), `npm run build` (1.0 MB), `npm run guard:test`, `RELEASE_TAG=3.8.0 npm run check:release` and `git diff --check` all pass. `npm audit --omit=dev` finds 0 vulnerabilities.
+  - `node scripts/package.mjs` produced a 44-file ZIP (`7d56d7d1…`), 3.7.0's 43 files plus the new `owla-obsidian-guide` skill. It contains no sources, tests or `data.json`.
+- **Install:** `main.js` (SHA-256 `855c0ce4…be50fade1d9`), `manifest.json` and `styles.css` were installed in Agentbrain. The previous 3.7.0 files and `data.json` were backed up first. The plugin was reloaded with `obsidian plugin:reload`: version 3.8.0, no console errors, and `data.json` unchanged (same SHA-1) after all checks.
+- **Driver:** `obsidian eval` called the real `ButlerView.tool`, `exportPdf`, `decideEdit` and `send`. Fixtures are in `OWLA Butler Test/3.8.0 live/`.
+- **PDF export (Obsidian 1.15.1):**
+  - Route B (Obsidian's own exporter, no dialog) saved `Export Layout.pdf` (43 KB, 2 pages) at the exact path in 2.4 s. The temporary tab was closed, and `Modal.prototype.open` was restored: the command palette still opens.
+  - The read-back found the stranded heading that the pre-export estimate predicted.
+  - With the `propose_page_breaks` edit accepted, the second export (`Export Layout 1.pdf`, collision suffix) had no stranded heading. So Obsidian's print renderer honours the `owla-page-break` div.
+  - Revert restored the note.
+  - Excluded notes and excluded or hidden output folders are refused.
+- **Card and confirmation:** the chat card opens the confirmation dialog. Cancel writes nothing. While the note's edit is pending, Export is refused with a notice; after Accept, the export saved `Export Layout 2.pdf` with a clean read-back.
+- **Real model turn:** Codex `gpt-5.6-sol` (low), 41 s. It called `export_pdf`, staged the page break with `propose_page_breaks`, re-checked the estimate on the staged preview, and left both for review.
+- **PDF selection:**
+  - A real page render produced a JPEG data URL of 22 KB, and a second request reused the cache.
+  - The password-protected `locked.pdf` was dropped with a notice, without blocking.
+  - An excluded PDF selection was refused.
+- **Properties and outline with real YAML:**
+  - Set, rename and checkbox changes kept the comment, the date value and the key order, and `done` stayed a checkbox.
+  - A section move keeps blank-line spacing. This was found live and fixed, with a regression test.
+- **Excalidraw:**
+  - The 124-stroke handwriting drawing lists located ink clusters, and `read_note` at offset 5000 returns the redirect, not drawing data.
+  - A plain note that mentions `excalidraw-plugin:` reads normally (S1).
+  - On the original 289-element evidence drawing (decompressed in memory, read-only), the summary is 3,125 chars with 13 located clusters, and `delete_cluster {cluster:"all"}` removes all 274 strokes in one operation.
+- **Not verified:** a Windows live pass; Claude Code, OpenCode and Hermes model turns for the new tools (exposure is checked by unit tests only); route A (dialog fallback) in the real app (unit-tested only); and whether Community review accepts the scoped `Modal.prototype.open` capture used by route B.
+
 ## 3.7.0 — GitHub release (2026-11-20)
 
 - **Source:** tag `3.7.0` on `main` at `a1e4f27` (PR #2 merged the RC, PR #3 the
