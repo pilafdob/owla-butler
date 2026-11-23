@@ -83,7 +83,7 @@ test('the OpenCode session allows only the OWLA tools and the bundled skills',()
 
 test('bundled skills keep their content and name the OpenCode tools',()=>{
  const skills=skillDefinitions();
- assert.equal(skills.length,11);
+ assert.equal(skills.length,12);
  for(const id of ['owla-excalidraw','owla-canvas','owla-bases'])assert.ok(skills.some(skill=>skill.id===id&&skill.name.startsWith('OWLA ')),id);
  assert.equal(adaptSkillContent('Use read_excalidraw, then propose_canvas.'),'Use owla_read_excalidraw, then owla_propose_canvas.');
  assert.ok(skills.every(skill=>skill.id&&skill.name&&skill.description&&skill.content.length>0));

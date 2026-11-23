@@ -53,7 +53,8 @@ OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or 
 - Review file and folder moves or renames as one batch, including new folders and affected links.
 - Choose models and reasoning effort; see provider-reported usage limits.
 - Ask about your vault's structure: backlinks, broken links, orphan notes, tags and properties come straight from Obsidian's own metadata, without reading every note.
-- Change properties as a reviewed edit that leaves the note body untouched. Proposed links that would not resolve are caught before you review them, and cited blocks (`[[note#^id]]`) can be read exactly.
+- Change properties and headings as reviewed edits: rename, add or remove properties (comments, order and value types are kept), and rename, promote, demote, move or insert headings with their sections. Proposed links that would not resolve are caught before you review them, and cited blocks (`[[note#^id]]`) can be read exactly.
+- Export a note to PDF with Obsidian's own exporter after you confirm it in chat. OWLA checks the print layout first, can stage page breaks for you to review, and reads the PDF back to confirm that no heading is stranded (desktop).
 - Switch between Codex, OpenCode, Claude Code and Hermes Agent, with the same features, skills and review flow on all of them.
 - Keep the same chat while the backend automatically stops between replies.
 - Optional Developer mode: record chats with their tool calls, save developer sessions and download a full diagnostics report.
@@ -82,7 +83,7 @@ The sidebar starts with a clean message area. Choose the **model** and **reasoni
 
 Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. A selection you add stays in the composer as a chip, and the sent message shows it as a card with the excerpt it carries, so you can see that it went with the prompt. A selection added while a reply is still running is marked **next message** and waits for the message after that. The assistant can search and read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
 
-Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. The assistant reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page. For transcription, ask it to preserve visible symbols and mark uncertainty.
+Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. The assistant reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page, or highlight text and choose **Add selection to OWLA** to send the text with its page citation. Models that read images also get that page as a background image, to check text the PDF text layer misread. For transcription, ask it to preserve visible symbols and mark uncertainty.
 
 Web search is enabled by default so the assistant can check current facts when needed. Turn it off in settings if unwanted. Selected note contents, attachments and recent chat are processed by the selected provider; web queries may draw on that context. Responses expose readable activity, used note/page sources and linked web references. Source links do not guarantee that every interpretation is correct.
 
@@ -106,7 +107,7 @@ The router runs on your own Mac through Apple’s Foundation Models CLI, never i
 
 ### What happens when you send a message
 
-1. **Context.** OWLA collects the note you are looking at, including unsaved text, the cursor position or selected passage, any images, PDFs, notes and folders you attached, and the last exchanges of this chat. Nothing else is added.
+1. **Context.** OWLA collects the note you are looking at, including unsaved text, the cursor position or selected passage, and a short summary of that note (its properties, outline, outgoing links and the paths of notes that link to it, never from excluded folders). It also adds any images, PDFs (with the page image of a highlighted PDF selection), notes and folders you attached, and the last exchanges of this chat. Nothing else is added.
 2. **The assistant starts.** If the selected provider is not already running, OWLA starts it in a private working directory of its own and asks for the model you chose, or the one the local router selected.
 3. **The assistant works.** It reads and searches only through OWLA’s tools. It is never given a shell, a file path outside the vault, or your credentials.
 4. **The answer streams back.** Text appears while it is written, and the activity behind it is available under **Working**. Any change it proposes to a note is applied provisionally and waits for your **Accept** or **Decline**.
@@ -185,7 +186,7 @@ With **Plugin Interconnectivity** on, OWLA works with Obsidian's **Canvas** and 
 
 - **Canvas** — OWLA reads every card, group and connection, and can look at the canvas as Obsidian draws it. For that picture the canvas is shown over the window for under a second and captured, which works even when Obsidian is in the background; Sources & activity notes each one. Turn **Background screenshots** off in settings to keep Canvas text-only.
 - **Bases** — Obsidian's own Bases engine checks every base OWLA reads or proposes, reports formula and view errors, and shows the rows the base will list. A proposal with an error is not staged.
-- **Excalidraw** — OWLA reads shapes, text, arrows and frames, and sees the drawing as Excalidraw renders it. New shapes, texts, arrows and frames are created by Excalidraw's own scripting API.
+- **Excalidraw** — OWLA reads shapes, text, arrows and frames, and sees the drawing as Excalidraw renders it. Freehand handwriting is summarised as located ink clusters, and a clean-up can remove a cluster or all ink in one step. New shapes, texts, arrows and frames are created by Excalidraw's own scripting API.
 
 Pictures go to the selected provider like an attached image; automatic selection picks a model that can read images.
 
@@ -207,7 +208,7 @@ There are no downloaded models, Ollama servers or native OCR runtimes. Typing in
 
 ## Skills and verification
 
-Original Obsidian Markdown, Bases and JSON Canvas skills, all references and licence are bundled. OWLA also includes guidance for Mermaid diagrams and native note formatting, including coloured highlights. OWLA PDF, MathJax and image/transcription guidance is also retained and available through read_reference. These are instructions, not model training. Codex reads them through the read_reference tool; OpenCode receives the same content as registered skills, and Claude Code receives the same content through the bundled tools, so every provider works from identical guidance.
+Original Obsidian Markdown, Bases and JSON Canvas skills, all references and licence are bundled. OWLA also includes guidance for Mermaid diagrams and native note formatting, including coloured highlights, and a formatting and layout guide (images side by side, image sizes, callouts, professional structure) used when you ask to improve how a note looks. OWLA PDF, MathJax and image/transcription guidance is also retained and available through read_reference. These are instructions, not model training. Codex reads them through the read_reference tool; OpenCode receives the same content as registered skills, and Claude Code receives the same content through the bundled tools, so every provider works from identical guidance.
 
 See audits/1.0.0/CAPABILITY-CHECKLIST.md and TESTING.md for the eight requested checks, real question results and limits. AUDIT.md and audits/1.0.1/RELEASE-CANDIDATE.md identify the candidate and release gate.
 

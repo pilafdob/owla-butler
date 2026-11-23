@@ -116,7 +116,8 @@ export function toolName(provider: ProviderId, base: string): string {
 const OWLA_TOOL_NAMES = [
   'read_reference', 'read_pdf', 'propose_pdf_annotation', 'read_note', 'search_vault',
   'propose_edit', 'propose_note', 'propose_deletion', 'read_attachment',
-  'list_vault_paths', 'propose_organization', 'query_vault_graph', 'propose_properties',
+  'list_vault_paths', 'propose_organization', 'query_vault_graph', 'propose_properties', 'propose_outline',
+  'export_pdf', 'propose_page_breaks',
   'read_canvas', 'propose_canvas', 'read_base', 'propose_base', 'read_excalidraw', 'propose_excalidraw',
 ];
 

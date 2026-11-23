@@ -11,13 +11,14 @@ export interface SkillDefinition {id:string;name:string;description:string;conte
 
 // The bundled Obsidian skills and the OWLA guides. Codex reads them through
 // read_reference; OpenCode registers them as native skills with the same IDs.
-const SKILL_IDS=['obsidian-markdown','obsidian-bases','json-canvas','owla-formatting','owla-math','owla-mermaid','owla-ocr','owla-pdf','owla-excalidraw','owla-canvas','owla-bases'];
+const SKILL_IDS=['obsidian-markdown','obsidian-bases','json-canvas','owla-formatting','owla-math','owla-mermaid','owla-ocr','owla-pdf','owla-excalidraw','owla-canvas','owla-bases','owla-obsidian-guide'];
 const SKILL_FALLBACK:Record<string,{name:string;description:string}>={
  'owla-formatting':{name:'OWLA formatting',description:'Native Obsidian Markdown formatting, including coloured highlights and list conventions.'},
  'owla-math':{name:'OWLA math',description:'MathJax-compatible LaTeX for Obsidian notes, with transcription and solving rules.'},
  'owla-mermaid':{name:'OWLA Mermaid',description:'Mermaid diagrams inside Obsidian Markdown fences.'},
  'owla-ocr':{name:'OWLA OCR',description:'Faithful transcription of screenshots and images into Obsidian Markdown and LaTeX.'},
- 'owla-pdf':{name:'OWLA PDF',description:'Reading, transcribing and citing PDF pages, text layers and scanned pages.'}
+ 'owla-pdf':{name:'OWLA PDF',description:'Reading, transcribing and citing PDF pages, text layers and scanned pages.'},
+ 'owla-obsidian-guide':{name:'OWLA Obsidian Guide',description:'Visual and layout improvements: image sizing and side-by-side placement, professional document structure, layout tricks. Use when the user asks for formatting help or a visual improvement.'}
 };
 function frontmatter(body:string){
  const match=body.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -39,8 +40,26 @@ export function skillDefinitions():SkillDefinition[]{
  });
 }
 
+// Requests to improve how a note looks or to place images load owla-obsidian-guide.
+// Standalone image nouns trigger the image section unless the request is about
+// image CONTENT (describe/OCR), which belongs to vision or transcription.
+// Checked after mermaid (diagram requests keep their syntax guide, e.g.
+// "Flussdiagramm nebeneinander"; note: German "Diagramme" is NOT in the mermaid
+// alternation, so it falls through to the guide) and before owla-formatting (a bare
+// "formatting"/"formatier" request stays with the native syntax guide, while
+// "improve the formatting" means the visual guide).
+export function guideRequested(request:string):boolean{
+ const r=request.toLowerCase();
+ if(/professional|professionel/.test(r))return true;
+ if(/\blayout\b|side by side|next to each other|beside each other|nebeneinander|\b(darstellung|aussehen|optik|erscheinungsbild)\b/.test(r))return true;
+ if(/\b(improve|polish|better|nicer|prettier|besser|verbessern?|verschönern?|aufwerten|aufhübsch|schöner|hübscher)\b/.test(r)&&/\b(format|formatting|formatier(?:ung)?|layout|look|design|optik|darstellung|aussehen|stil)\b/.test(r))return true;
+ if(/\b(images?|pictures?|photos?|bilder|fotos)\b/.test(r)&&!/\b(describ|explain|summar|transcrib|ocr|erklär|beschreib)|\bread\s+(the\s+|this\s+)?images?\b/.test(r))return true;
+ return false;
+}
+
 export function taskReference(request:string):{name:string;text:string}|null{
  if(/\b(mermaid|diagrams?|flowcharts?|graphs?|sequence diagram|timelines?|diagramm|flussdiagramm)\b/i.test(request))return {name:'owla-mermaid',text:readReference('owla-mermaid')};
+ if(guideRequested(request))return {name:'owla-obsidian-guide',text:readReference('owla-obsidian-guide')};
  if(/highlight|formatting|formatier|markier/i.test(request))return {name:'owla-formatting',text:readReference('owla-formatting')};
  if(/latex|math|equation|solve|algebra|gleichung|\\frac|\$/.test(request.toLowerCase())){const doc=(references as Record<string,string>)['obsidian-markdown'];const section=doc.split('## Math (LaTeX)')[1]?.split('\n## ')[0]??'';return {name:'obsidian-markdown / Math',text:section.trim().slice(0,500)};}
  if(/frontmatter|yaml|properties|wikilink|callout/.test(request.toLowerCase()))return {name:'obsidian-markdown',text:readReference('obsidian-markdown',0).slice(0,650)};

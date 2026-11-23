@@ -15,6 +15,7 @@ Use OWLA tools only: no shell, filesystem searches, plugin/config discovery, scr
 ## Read before you change
 Drawings may be `.excalidraw.md`, `.excalidraw` (plain JSON) or `.md` notes with `excalidraw-plugin` frontmatter. Both drawing tools support all three; keep an existing file's exact path. OWLA handles encoding and compression.
 - `read_excalidraw` lists elements, ids, positions, sizes, text, colours, frames and connections. Follow continuation offsets until all relevant elements are covered.
+- Freehand ink (freedraw strokes) is listed as clusters — e.g. `ink cluster c1: 23 strokes at (-447,-270) 210×95`. Each cluster covers at most about 240×120 px, so clusters c1, c2, … (top to bottom) mark where each piece of handwriting is. Handwriting inside ink can only be read with `visual: true`; a text summary cannot read what ink says.
 - Read an existing drawing before proposing edits. A new destination needs no read before creation.
 - Use `visual: true` when meaning depends on layout, colours, handwriting, images or unbound arrows. Mark unclear content rather than guessing.
 
@@ -26,7 +27,14 @@ Drawings may be `.excalidraw.md`, `.excalidraw` (plain JSON) or `.md` notes with
 - `add_frame` {x, y, width, height, name, contains?}
 - `update_text` {id, text} — the id of a text element or of a shape with text.
 - `move` {id, x, y} or {id, dx, dy}; `resize` {id, width, height}; `set_style` {id, style}; `delete` {id} (removes its text and unbinds arrows).
+- `delete_many` {ids} — removes several elements at once; every id must exist.
+- `delete_cluster` {cluster} — removes every stroke of an ink cluster (`c1`, `c2`, …) from the read summary in one operation; `{cluster: "all"}` removes all freehand ink at once. A wrong name errors with the valid cluster names.
 New elements get ids you cannot predict. To connect new shapes, add them in one proposal, read the drawing again (it shows the staged version), then add arrows in a second proposal.
+
+## Replacing handwriting (ink)
+- Read the drawing with `visual: true` to see what the ink says; the text listing cannot read handwriting.
+- Remove ink with `delete_cluster` (`"all"` for a full cleanup, or `delete_many`), then rebuild the structure with `add_shape`/`add_text` at the ink cluster's position, so the layout is kept.
+- If you cannot tell what a cluster says, say so and ask the user rather than guessing.
 
 ## Layout that reads well
 - Leave at least 40 px between shapes and 80–120 px between rows or columns. Align centres on a grid rather than placing shapes ad hoc.
