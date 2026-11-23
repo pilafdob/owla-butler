@@ -14,12 +14,13 @@ See COMMUNITY-RELEASE.md for release and submission steps. Do not publish an unt
 
 ## Developer-Prerelease branch
 
-`Developer-Prerelease` is the development line and `main` is the stable line. The branch is one-way: updates merge **into** it from `main`; nothing merges out of it.
+`Developer-Prerelease` is the prerelease testing line, `OWLA-RC` is where new features and fixes are made, and `main` is the stable line. Updates merge **into** this branch from `OWLA-RC` and `main`; nothing merges out of it. A verified dev prerelease means `OWLA-RC` can be merged straight into `main`, without any dev flags.
 
+- **No features are developed or committed on this branch.** It receives only merges of `OWLA-RC` and `main`. A direct commit may touch only dev-flag code (`src/dev-*.ts` and its tests), release tooling (`scripts/dev-release.mjs`, `.github/workflows/`) and documentation. A merge may not change files that the merged branch did not change, so feature code cannot ride in on one. `scripts/dev-release.mjs` checks this for every first-parent commit since the rules baseline, and the release fails otherwise.
+- **Versions come from `OWLA-RC` or `main`, never bumped here.** A version ahead of `main`'s stable one is allowed only when it is `OWLA-RC`'s version. Dev releases are tagged `<version>-dev` (for example `3.8.0-dev`); a further build of the same version may use `<version>-dev.<n>` from 2 up (`3.8.0-dev.2`). The workflow rejects any other tag shape.
 - **Releases are prereleases, never latest.** The release workflow on this branch creates every GitHub Release with `prerelease: true` and `make_latest: false` (`gh release create --draft --prerelease --latest=false`). Do not mark a dev release as latest.
-- **Version numbers are not bumped on this branch.** `manifest.json` and `package.json` keep the stable version. Dev releases are tagged `<stable>-dev` (for example `3.7.1-dev`); a further build of the same stable version may use `<stable>-dev.<n>` from 2 up (`3.7.1-dev.2`). The workflow rejects any other tag shape.
 - **No merges from this branch.** No pull request may use `Developer-Prerelease` as its head branch. The `Dev branch guard` workflow fails any such pull request, and its `Block merges from Developer-Prerelease` check is a required status check in the `Main` branch ruleset. Pull requests **targeting** this branch are allowed.
-- **Dev changelog.** Every dev release's changelog starts with the exact line "Dev build of the latest stable version. No new features are included in this build." The stable version number is inserted automatically from `manifest.json` on `main` by `scripts/dev-release.mjs`, and must match this branch's un-bumped version.
+- **Dev changelog.** `scripts/dev-release.mjs` writes it. A dev build of `main`'s stable version starts with the exact line "Dev build of the latest stable version. No new features are included in this build." A prerelease of `OWLA-RC`'s newer version starts with "Dev prerelease of OWLA Butler <version> from `OWLA-RC`…" and carries that version's section of `RELEASE-NOTES.md`.
 - Dev prereleases are for testing only and are never submitted to the Obsidian Community directory; stable releases follow COMMUNITY-RELEASE.md.
 
 ## OWLA-RC branch

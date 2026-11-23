@@ -1,6 +1,6 @@
 # Changelog
 
-Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”) and do not bump version numbers. Each dev release's changelog starts with: “Dev build of the latest stable version. No new features are included in this build.” The stable version is inserted automatically from `main`'s `manifest.json`.
+Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”). The branch only receives `OWLA-RC` and `main`, so a dev build is either the latest stable version (its changelog starts with “Dev build of the latest stable version. No new features are included in this build.”) or a prerelease of `OWLA-RC`'s next version, whose changelog is that version's section below.
 
 ## 3.8.0
 
