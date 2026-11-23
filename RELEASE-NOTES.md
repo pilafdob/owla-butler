@@ -1,5 +1,16 @@
 <!-- Release log: one "# OWLA Butler <version>" section per release, newest first. Each GitHub release shows only its own section (scripts/release-notes.mjs), followed by a link to CHANGELOG.md. Add the new version's section at the top. -->
 
+# OWLA Butler 3.8.0
+
+- **Export notes to PDF:** OWLA exports a note with Obsidian's own Export to PDF after you confirm it in chat. It checks the print layout first, can fix a heading stranded at the bottom of a page with a page break you review, and reads the PDF back to confirm the fix. Desktop only.
+- **Add highlighted PDF text:** select text in a PDF and choose **Add selection to OWLA**. The page is attached as an image in the background, so models that read images can correct badly extracted text.
+- **More context about your note:** OWLA now sees the active note's properties, outline, links and backlinks.
+- **Edit headings and properties through review:** rename, promote, demote, move or insert headings, and rename properties. Comments, order and value types are kept, and every change can be declined.
+- **Formatting help:** a new guide helps with images side by side, image sizes, callouts and a more professional layout when you ask for it.
+- **Large handwritten Excalidraw drawings:** handwriting is summarised as located ink clusters, a full clean-up takes one operation, and drawing data no longer fills the chat context.
+
+Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
+
 # OWLA Butler 3.7.2
 
 - **Codex can edit notes again:** Codex models had stopped calling OWLA's tools, so instead of proposing an edit they replied that note access was unavailable. Reading, searching and proposing edits through Codex work again.

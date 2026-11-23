@@ -34,7 +34,13 @@ export function isExcalidrawNote(text:string){
 }
 
 /** True when the text is an Excalidraw plugin drawing (JSON scene, frontmatter key or drawing block). */
-export function isExcalidrawText(text:string){return isExcalidrawJson(text)||/^---[\s\S]*?excalidraw-plugin:/m.test(text.slice(0,2000))||DRAWING.test(text);}
+/**
+ * A drawing's text: a JSON scene, a note whose own frontmatter carries the
+ * excalidraw-plugin key, or a `## Drawing` data fence. A plain note that only
+ * mentions `excalidraw-plugin:` after a horizontal rule or in a code example is
+ * not a drawing (it must stay readable with read_note).
+ */
+export function isExcalidrawText(text:string){return isExcalidrawJson(text)||isExcalidrawNote(text.replace(/^\uFEFF/,''))||DRAWING.test(text);}
 
 /** Reads the scene. Compressed drawings need the plugin's LZ-string decoder. */
 const sceneOf=(value:unknown):ExcalidrawScene=>{
@@ -75,11 +81,94 @@ export function textOf(scene:ExcalidrawScene,element:ExcalidrawElement):Excalidr
  return bound?scene.elements.find(item=>item.id===bound.id&&!item.isDeleted):undefined;
 }
 
-/** One line per element: what it is, where, what it says and what it connects. */
-export function describeElements(scene:ExcalidrawScene,files:Record<string,string>={}):string[]{
+/** How many cluster member ids a summary lists before folding the rest into a count. */
+const CLUSTER_IDS_SHOWN=2;
+/** Grid cell size (scene pixels) that joins nearby strokes into one ink cluster. */
+const INK_CELL=160;
+/**
+ * Largest cluster region (scene pixels). Dense handwriting chains into one
+ * group, so a larger group is split into tiles of this size by stroke centre:
+ * each cluster then marks where its ink is, and the model can replace it in place.
+ */
+const INK_TILE_W=240,INK_TILE_H=120;
+/** delete_cluster name for every ink cluster at once. */
+export const ALL_INK='all';
+export type InkCluster={cluster:string;count:number;x:number;y:number;width:number;height:number;ids:string[]};
+
+/**
+ * Groups live freedraw strokes by proximity so a summary lists handwriting as
+ * clusters instead of one unreadable line per stroke. Clusters come from
+ * positions only, so they are deterministic for one scene: the same scene
+ * always yields the same names (c1, c2, …). `delete_cluster` resolves names
+ * against the scene the proposal starts from (the one read_excalidraw listed),
+ * so deleting c1 does not renumber c2 within the same proposal. Strokes touching the
+ * same grid cell (through their bounding box) belong to one cluster.
+ */
+export function inkClusters(scene:ExcalidrawScene):InkCluster[]{
+ const strokes=live(scene).filter(element=>element.type==='freedraw');
+ const parent=strokes.map((_element,index)=>index);
+ const find=(n:number):number=>{while(parent[n]!==n){parent[n]=parent[parent[n]];n=parent[n];}return n;};
+ const union=(a:number,b:number)=>{const rootA=find(a),rootB=find(b);if(rootA!==rootB)parent[rootA]=rootB;};
+ const cells=new Map<number,number[]>();
+ for(const [index,element] of strokes.entries()){
+  const x0=Math.floor(element.x/INK_CELL),y0=Math.floor(element.y/INK_CELL);
+  const x1=Math.floor((element.x+Math.max(0,element.width))/INK_CELL),y1=Math.floor((element.y+Math.max(0,element.height))/INK_CELL);
+  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const key=(cy+1)*1_048_576+cx;const cell=cells.get(key);if(cell)cell.push(index);else cells.set(key,[index]);}
+ }
+ for(const members of cells.values())for(let i=1;i<members.length;i++)union(members[0],members[i]);
+ const groups=new Map<number,number[]>();
+ for(let index=0;index<strokes.length;index++){const root=find(index);const group=groups.get(root);if(group)group.push(index);else groups.set(root,[index]);}
+ const box=(members:number[])=>{
+  let x=Infinity,y=Infinity,x2=-Infinity,y2=-Infinity;
+  for(const index of members){const element=strokes[index];x=Math.min(x,element.x);y=Math.min(y,element.y);x2=Math.max(x2,element.x+element.width);y2=Math.max(y2,element.y+element.height);}
+  return {x,y,width:x2-x,height:y2-y};
+ };
+ const parts:number[][]=[];
+ for(const members of groups.values()){
+  const area=box(members);
+  if(area.width<=INK_TILE_W&&area.height<=INK_TILE_H){parts.push(members);continue;}
+  // Tiles row by row, top to bottom, so names read like the drawing.
+  const tiles=new Map<number,number[]>();
+  for(const index of members){
+   const element=strokes[index],cx=element.x+element.width/2,cy=element.y+element.height/2;
+   const key=Math.floor((cy-area.y)/INK_TILE_H)*100_000+Math.floor((cx-area.x)/INK_TILE_W);
+   const tile=tiles.get(key);if(tile)tile.push(index);else tiles.set(key,[index]);
+  }
+  for(const key of [...tiles.keys()].sort((a,b)=>a-b))parts.push(tiles.get(key)!);
+ }
+ const clusters:InkCluster[]=[];let n=0;
+ for(const members of parts){
+  members.sort((a,b)=>a-b); // scene order
+  clusters.push({cluster:'c'+(++n),count:members.length,...box(members),ids:members.map(index=>strokes[index].id)});
+ }
+ return clusters;
+}
+
+/** One line per element: what it is, where, what it says and what it connects. Freedraw ink collapses into proximity clusters. */
+export function describeElements(scene:ExcalidrawScene,files:Record<string,string>={},budget=EXCALIDRAW_SUMMARY_LIMIT):string[]{
  const byId=new Map(scene.elements.map(element=>[element.id,element]));
  const named=(id?:string|null)=>{const element=id?byId.get(id):undefined;if(!element)return id??'?';const text=textOf(scene,element);return '['+element.id+']'+(text?' '+JSON.stringify(label(text).slice(0,40)):'');};
- return live(scene).filter(element=>!(element.type==='text'&&element.containerId)).map(element=>{
+ const lines:string[]=[];let spent=0;let skipped=0;
+ const push=(line:string)=>{if(spent<=budget){spent+=line.length;lines.push(line);}else skipped++;};
+ const clusters=inkClusters(scene);
+ const clusterOf=new Map<string,InkCluster>();for(const cluster of clusters)for(const id of cluster.ids)clusterOf.set(id,cluster);
+ const emitted=new Set<InkCluster>();
+ for(const entry of live(scene).filter(element=>!(element.type==='text'&&element.containerId))){
+  if(entry.type==='freedraw'){
+   const cluster=clusterOf.get(entry.id);
+   if(!cluster){push('- freedraw ['+entry.id+'] at ('+Math.round(entry.x)+','+Math.round(entry.y)+') '+Math.round(entry.width)+'×'+Math.round(entry.height));continue;}
+   // All ink is listed together at the first stroke, in cluster-name order (top to bottom).
+   if(emitted.size)continue;
+   for(const item of clusters){
+    emitted.add(item);
+    if(item.count===1){const stroke=byId.get(item.ids[0])!;push('- freedraw ['+stroke.id+'] at ('+Math.round(stroke.x)+','+Math.round(stroke.y)+') '+Math.round(stroke.width)+'×'+Math.round(stroke.height));continue;}
+    const ids=item.ids.slice(0,CLUSTER_IDS_SHOWN);
+    const tail=ids.length<item.ids.length?' +'+(item.ids.length-ids.length)+' more':'';
+    push('- ink cluster '+item.cluster+': '+item.count+' strokes at ('+Math.round(item.x)+','+Math.round(item.y)+') '+Math.round(item.width)+'×'+Math.round(item.height)+' ids=['+ids.join(', ')+tail+']');
+   }
+   continue;
+  }
+  const element=byId.get(entry.id)!;
   const where=' at ('+Math.round(element.x)+','+Math.round(element.y)+') '+Math.round(element.width)+'×'+Math.round(element.height);
   const text=textOf(scene,element);
   const parts=[element.type+' ['+element.id+']'+where];
@@ -92,8 +181,10 @@ export function describeElements(scene:ExcalidrawScene,files:Record<string,strin
   if(element.link)parts.push('link '+element.link);
   if(element.strokeColor&&element.strokeColor!=='#1e1e1e')parts.push('stroke '+element.strokeColor);
   if(element.backgroundColor&&element.backgroundColor!=='transparent')parts.push('fill '+element.backgroundColor);
-  return '- '+parts.join(' · ');
- });
+  push('- '+parts.join(' · '));
+ }
+ if(skipped)lines.push('… '+skipped+' more elements not listed (the summary stops at '+budget+' characters; remove ink with delete_cluster/delete_many or read a section again).');
+ return lines;
 }
 
 /** `fileId: [[link]]` lines of the Embedded Files section. */
@@ -106,7 +197,14 @@ export function summarizeExcalidraw(file:ExcalidrawFile):string{
  const elements=live(file.scene);
  const counts=new Map<string,number>();
  for(const element of elements)counts.set(element.type,(counts.get(element.type)??0)+1);
- return ['Excalidraw drawing: '+elements.length+' elements ('+[...counts].map(([type,count])=>count+' '+type).join(', ')+'). Coordinates are scene pixels; x grows right, y grows down. Text inside a shape is listed with the shape.',...describeElements(file.scene,embeddedFiles(file.text))].join('\n');
+ return ['Excalidraw drawing: '+elements.length+' elements ('+[...counts].map(([type,count])=>count+' '+type).join(', ')+'). Coordinates are scene pixels; x grows right, y grows down. Freehand ink (freedraw) is listed as clusters (c1, c2, …) that mark where the ink is; delete_cluster removes a whole cluster, delete_cluster {cluster:"all"} removes all ink. Text inside a shape is listed with the shape.',...describeElements(file.scene,embeddedFiles(file.text))].join('\n');
+}
+
+/** The message shown when a scene is too large to render visually; '' when it renders. */
+export function excalidrawRenderLimitNotice(scene:ExcalidrawScene,limit=EXCALIDRAW_RENDER_LIMIT):string{
+ const count=live(scene).length;
+ if(count<=limit)return '';
+ return '[The drawing is too large to render visually ('+count+' live elements; the limit is '+limit+'). Work from the element list above. '+EXCALIDRAW_BULK_HINT+']';
 }
 
 /** Builds new elements with the plugin's own defaults. Implemented with ExcalidrawAutomate in main.ts. */
@@ -125,9 +223,20 @@ export interface ElementFactory{
 const STYLE_KEYS=new Set(['strokeColor','backgroundColor','fillStyle','strokeWidth','strokeStyle','roughness','opacity','fontSize','fontFamily','textAlign','roundness','startArrowHead','endArrowHead']);
 function style(value:unknown){const result:Record<string,unknown>={};for(const [key,item] of Object.entries(record(value)))if(STYLE_KEYS.has(key))result[key]=item;return result;}
 const num=(value:unknown,name:string,at:string)=>{if(typeof value!=='number'||!Number.isFinite(value))throw Error(at+': '+name+' must be a number.');return value;};
-/** Bounds model-supplied text and operations so a huge argument cannot leak into memory or the next turn. */
+/**
+ * Bounds model-supplied text and operations so a huge argument cannot leak
+ * into memory or the next turn.
+ */
 export const EXCALIDRAW_TEXT_LIMIT=10_000;
 export const EXCALIDRAW_OPERATIONS_LIMIT=100_000;
+/** Most operations one proposal may carry; bulk operations keep big cleanups within it. */
+export const EXCALIDRAW_MAX_OPS_PER_PROPOSAL=200;
+/** Live elements allowed in one visual render; larger drawings stay text-only. */
+export const EXCALIDRAW_RENDER_LIMIT=1_500;
+/** Characters of element lines in one summary; the rest collapse into a count line. */
+export const EXCALIDRAW_SUMMARY_LIMIT=6_000;
+/** The alternative every limit message names, so oversized work stays possible. */
+export const EXCALIDRAW_BULK_HINT='Use delete_many {ids:[…]}, delete_cluster {cluster:"c1"} or delete_cluster {cluster:"all"} to remove whole ink groups in one operation.';
 const requiredText=(value:unknown,at:string)=>{if(typeof value!=='string'||!value)throw Error(at+': text is required.');if(value.length>EXCALIDRAW_TEXT_LIMIT)throw Error(at+': text is too long (max '+EXCALIDRAW_TEXT_LIMIT+' characters).');return value;};
 
 /**
@@ -145,10 +254,28 @@ function touch(element:ExcalidrawElement,random:()=>number){element.version=(ele
  * together with their bound text, and clears arrow bindings that pointed at them.
  */
 export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unknown,factory:ElementFactory,random:()=>number=Math.random):ExcalidrawScene{
- if(!Array.isArray(operations)||!operations.length||operations.length>200)throw Error('Provide between 1 and 200 drawing operations.');
- if(JSON.stringify(operations).length>EXCALIDRAW_OPERATIONS_LIMIT)throw Error('The drawing operations are too large. Split them into smaller proposals.');
+ if(!Array.isArray(operations)||!operations.length||operations.length>EXCALIDRAW_MAX_OPS_PER_PROPOSAL)throw Error('Provide between 1 and '+EXCALIDRAW_MAX_OPS_PER_PROPOSAL+' drawing operations per proposal. '+EXCALIDRAW_BULK_HINT+' Split unrelated changes across proposals.');
+ if(JSON.stringify(operations).length>EXCALIDRAW_OPERATIONS_LIMIT)throw Error('The drawing operations are too large (over '+EXCALIDRAW_OPERATIONS_LIMIT+' characters). '+EXCALIDRAW_BULK_HINT+' Split them into smaller proposals.');
  factory.load(structuredClone(scene.elements));
+ // Cluster names as read_excalidraw listed them; fixed for the whole proposal.
+ let readClusters:InkCluster[]|undefined;
  const find=(id:unknown,at:string)=>{const element=factory.elements().find(item=>item.id===id&&!item.isDeleted);if(!element)throw Error(at+': no element '+JSON.stringify(id)+'.');return element;};
+ /**
+  * Marks ids deleted (as Excalidraw does), removes them from bindings and
+  * clears frame membership that pointed at them. Shared by `delete`,
+  * `delete_many` and `delete_cluster`.
+  */
+ const eraseGone=(gone:Set<string>)=>{
+  for(const item of factory.elements()){
+   if(gone.has(item.id)){item.isDeleted=true;touch(item,random);continue;}
+   let changed=false;
+   if(Array.isArray(item.boundElements)){const kept=item.boundElements.filter(bound=>!gone.has(bound.id));if(kept.length!==item.boundElements.length){item.boundElements=kept;changed=true;}}
+   if(item.startBinding&&gone.has(item.startBinding.elementId)){item.startBinding=null;changed=true;}
+   if(item.endBinding&&gone.has(item.endBinding.elementId)){item.endBinding=null;changed=true;}
+   if(item.frameId&&gone.has(item.frameId)){item.frameId=null;changed=true;}
+   if(changed)touch(item,random);
+  }
+ };
  for(const [index,raw] of (operations as unknown[]).entries()){
   const operation=record(raw),at='operation '+(index+1);
   switch(operation.op){
@@ -210,18 +337,35 @@ export function applyExcalidrawOperations(scene:ExcalidrawScene,operations:unkno
     break;
    }
    case 'delete':{
-    const element=find(operation.id,at),all=factory.elements();
-    const gone=new Set([element.id,...boundList(element).filter(item=>item.type==='text').map(item=>item.id)]);
-    if(element.type==='frame')for(const item of all)if(item.frameId===element.id)item.frameId=null;
-    for(const item of all){
-     if(gone.has(item.id)){item.isDeleted=true;touch(item,random);continue;}
-     if(Array.isArray(item.boundElements)&&item.boundElements.some(bound=>gone.has(bound.id))){item.boundElements=item.boundElements.filter(bound=>!gone.has(bound.id));touch(item,random);}
-     if(item.startBinding&&gone.has(item.startBinding.elementId)){item.startBinding=null;touch(item,random);}
-     if(item.endBinding&&gone.has(item.endBinding.elementId)){item.endBinding=null;touch(item,random);}
-    }
+    const element=find(operation.id,at);
+    eraseGone(new Set([element.id,...boundList(element).filter(item=>item.type==='text').map(item=>item.id)]));
     break;
    }
-   default:throw Error(at+': unknown op '+JSON.stringify(operation.op)+'. Use add_shape, add_text, add_arrow, add_frame, update_text, move, resize, set_style or delete.');
+   case 'delete_many':{
+    const ids=operation.ids;
+    if(!Array.isArray(ids)||!ids.length||ids.some(id=>typeof id!=='string'||!id))throw Error(at+': give ids as a nonempty list of element ids.');
+    const gone=new Set<string>(),unknown:string[]=[];
+    for(const id of ids){
+     const element=factory.elements().find(item=>item.id===id&&!item.isDeleted);
+     if(!element){unknown.push(JSON.stringify(id));continue;}
+     gone.add(element.id);
+     for(const bound of boundList(element))if(bound.type==='text')gone.add(bound.id);
+    }
+    if(unknown.length)throw Error(at+': unknown ids '+unknown.join(', ')+'. Nothing was deleted; check read_excalidraw for the current ids.');
+    eraseGone(gone);
+    break;
+   }
+   case 'delete_cluster':{
+    const name=operation.cluster;
+    if(typeof name!=='string'||!name)throw Error(at+': give the cluster name from read_excalidraw, e.g. delete_cluster {cluster:"c1"}.');
+    const clusters=readClusters??=inkClusters(scene);
+    const target=name===ALL_INK?{ids:clusters.flatMap(cluster=>cluster.ids)}:clusters.find(cluster=>cluster.cluster===name);
+    if(!target)throw Error(at+': no cluster '+JSON.stringify(name)+'. The scene has clusters '+(clusters.map(cluster=>cluster.cluster).join(', ')||'none')+'. Use one of these, "all" for every ink cluster, or delete_many with explicit ids.');
+    const liveIds=new Set(factory.elements().filter(item=>!item.isDeleted).map(item=>item.id));
+    eraseGone(new Set(target.ids.filter(id=>liveIds.has(id))));
+    break;
+   }
+   default:throw Error(at+': unknown op '+JSON.stringify(operation.op)+'. Use add_shape, add_text, add_arrow, add_frame, update_text, move, resize, set_style, delete, delete_many or delete_cluster.');
   }
  }
  return {...scene,elements:factory.elements()};

@@ -4,6 +4,7 @@ import {posix,win32} from 'node:path';
 import {record} from './validation';
 import type {FallbackChoice,ProviderId} from './provider';
 import {sanitizeModelUnavailability,type ModelUnavailabilityEntry} from './opencode-availability';
+import {pdfSelectionChipLabel,type SelectionItem} from './pdf-selection';
 export type DiffView='highlights'|'none'|'split';
 export type RoutingMode='cost'|'balance'|'intelligence';
 export interface ProviderPrefs {model:string;reasoning:string;}
@@ -197,9 +198,11 @@ export interface SentCard {label:string;icon:string;detail?:string;tooltip?:stri
  * file, with the excerpt it carries, so it is visible that it went with the
  * prompt instead of only living in the composer.
  */
-export function sentCards(selections:readonly {path:string;text:string}[],folders:readonly string[],files:readonly string[]):SentCard[] {
+export function sentCards(selections:readonly SelectionItem[],folders:readonly string[],files:readonly string[]):SentCard[] {
  return [
-  ...selections.map(selection=>({label:'Selection · '+selection.path,icon:'text-select',detail:selectionExcerpt(selection.text),tooltip:selectionExcerpt(selection.text,600)})),
+  ...selections.map(selection=>selection.pdf
+   ?{label:pdfSelectionChipLabel(selection.path,selection.pdf.page,selection.text),icon:'text-select',detail:selectionExcerpt(selection.text),tooltip:selectionExcerpt(selection.text,600)}
+   :{label:'Selection · '+selection.path,icon:'text-select',detail:selectionExcerpt(selection.text),tooltip:selectionExcerpt(selection.text,600)}),
   ...folders.map(path=>({label:path,icon:'folder'})),
   ...files.map(path=>({label:path,icon:'file-text'})),
  ];

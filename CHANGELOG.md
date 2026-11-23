@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.8.0
+
+### New features
+
+- **Export notes to PDF:** ask OWLA for a PDF of a note and it uses Obsidian's own Export to PDF (desktop only). OWLA first estimates the print layout: a heading stranded at the bottom of a page, a title alone on page 1, a table or code block split across pages. It then offers an export card in chat, and nothing is written until you confirm it there. The PDF is saved next to the note (or at another allowed vault path) and never replaces an existing file. After the export OWLA reads the PDF back and tells the assistant, with your next message, about any heading that really ended up stranded. If Obsidian's internal exporter is unavailable, OWLA opens Obsidian's Export to PDF dialog instead.
+- **Page-break fixes for print:** the new `propose_page_breaks` tool stages page breaks before the headings that should start a new page, through the normal accept/decline review. It only adds or removes `<div class="owla-page-break">` markers and never changes text. At most two fix rounds per note.
+- **Add highlighted PDF text to OWLA:** select text in Obsidian's PDF viewer and choose **Add selection to OWLA** (right-click, or the command **Add PDF selection to OWLA**). The chip shows the file, page and first words. With the text, OWLA attaches the page as an image in the background for models that can read images, so the model can check text the PDF text layer misread. A selection across pages attaches at most two page images. Text-only models get the text with a note. A page that cannot be rendered (for example an encrypted PDF) is skipped with a notice and never blocks the message.
+- **Richer note context:** every message now carries the active note's properties, full outline, outgoing links (unresolved ones flagged) and backlinks, about 2,500 characters at most. Excluded folders never appear.
+- **Edit the outline through review:** the new `propose_outline` tool renames a heading, promotes or demotes it with its subsections, moves a whole section (up, down, before, after or under another heading) or inserts a heading. It reports heading links a rename would break. Every change goes through the accept/decline review and reverts exactly, CRLF included.
+- **Safer property edits:** `propose_properties` can now rename properties. Untouched properties, comments, key order and values such as dates stay byte for byte. An existing checkbox, number or list keeps its type. Invalid YAML is refused.
+- **Obsidian formatting guide:** a new bundled guide (`owla-obsidian-guide`) gives the model tested advice when you ask to improve how a note looks or lays out: image sizes, images side by side, captions, callouts, tables and a more professional document structure. It loads automatically for requests such as "make this look professional", "images next to each other" or "Bilder nebeneinander".
+
+### Excalidraw
+
+- **Handwriting is summarised, not dumped:** `read_excalidraw` lists freehand ink as clusters with their position and size. Each covers at most about 240×120 px, so the model knows where each piece of handwriting is, instead of getting one line per stroke. On a real 289-element drawing the read went from about 16,000 to about 3,100 characters.
+- **Bulk clean-up:** `propose_excalidraw` gains `delete_many {ids}` and `delete_cluster {cluster}`; `delete_cluster {cluster:"all"}` removes all freehand ink in one operation. Unknown ids or cluster names are reported instead of skipped. Limit errors name these alternatives, and drawings with more than 1,500 elements are not rendered visually.
+- **No drawing data in note reads:** `read_note` and `search_vault` never return an Excalidraw drawing's compressed scene data, at any offset, heading or block. They point to `read_excalidraw` instead. Ordinary notes that only mention `excalidraw-plugin:` stay readable.
+
+### Fixes
+
+- Adding properties to a large note without frontmatter no longer fails at the proposal size limit: only the changed lines are staged.
+- Shortening attached selections to fit a model's context window also works when a PDF selection is attached.
+- A moved outline section keeps a blank line before the next heading, and the note keeps a single line break at its end.
+
 ## 3.7.2
 
 ### Fixes

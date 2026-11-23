@@ -21,6 +21,7 @@ module.exports={
  App:Base,Plugin,Component,View,ItemView,WorkspaceLeaf:Base,MarkdownView,TAbstractFile,TFile,TFolder,FileSystemAdapter,
  PluginSettingTab,SettingTab:Base,Setting:Base,SettingDefinitionItem:Base,ButtonComponent:Base,Notice:class Notice extends Base{},
  Modal,FuzzySuggestModal,MarkdownRenderer:{render:async()=>{}},Editor:Base,Menu:Base,
+ Platform:{isDesktopApp:true,isDesktop:true,isMobile:false,isMobileApp:false},
  setIcon:noop,setTooltip:noop,addIcon:noop,loadPdfJs:async()=>({}),getLanguage:()=>'en',
  parseLinktext:linktext=>{const i=linktext.indexOf('#');return i<0?{path:linktext,subpath:''}:{path:linktext.slice(0,i),subpath:linktext.slice(i)};},
  parseYaml:()=>({}),stringifyYaml:()=>'',resolveSubpath:()=>null,getAllTags:()=>[],editorInfoField:{},

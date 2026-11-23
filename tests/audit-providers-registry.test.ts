@@ -55,7 +55,7 @@ test('exhaustion starts unknown-not-exhausted for every provider',()=>{
 });
 
 test('instruction tool names are rewritten once per provider and never double-prefixed',()=>{
- const tools=['read_reference','read_pdf','propose_pdf_annotation','read_note','search_vault','propose_edit','propose_note','propose_deletion','read_attachment','list_vault_paths','propose_organization','query_vault_graph','propose_properties','read_canvas','propose_canvas','read_base','propose_base','read_excalidraw','propose_excalidraw'];
+ const tools=['read_reference','read_pdf','propose_pdf_annotation','read_note','search_vault','propose_edit','propose_note','propose_deletion','read_attachment','list_vault_paths','propose_organization','query_vault_graph','propose_properties','propose_outline','export_pdf','propose_page_breaks','read_canvas','propose_canvas','read_base','propose_base','read_excalidraw','propose_excalidraw'];
  const text='Use '+tools.join(', ')+'.';
  for(const id of PROVIDER_IDS){
   const once=prefixToolNames(text,id);
