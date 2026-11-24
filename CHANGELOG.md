@@ -4,6 +4,15 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.0-dev.3
+
+Third prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev.2`, from testing Siri AI in a running Obsidian and from Developer mode recordings:
+
+- **Siri AI works:** every Siri AI message failed in dev.2, because `fm` refused one of OWLA's tool schemas. A refused tool call no longer ends the reply, and the on-device model gets the core note tools and a bounded transcript. A context-size error is no longer reported as a usage limit. Tested on macOS 27.3: a question answered in about 10 seconds and an edit staged in about 16 seconds. Apple refuses Private Cloud Compute inside Obsidian, so only the on-device model is used, and it can place edits imprecisely: check each diff.
+- **One-message override lists Siri AI** when it is switched on and connected.
+- **Faster drawing and canvas reads:** repeated visual reads of an unchanged canvas or drawing reuse the picture; the third identical tool call is refused before it runs; no visual check is requested for a canvas that cannot be drawn yet.
+- **Developer mode** records early repeat refusals as rule events, as before.
+
 ### 3.8.0-dev.2
 
 Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
