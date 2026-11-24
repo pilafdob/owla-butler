@@ -36,7 +36,7 @@ async function viewClass(Butler:any){
   app:{vault:{adapter:{},getName:()=>'test'},workspace:{}},
   loadData:async()=>({}),saveData:async()=>{},save:async()=>{},
   vaultStorage:()=>storage,registerEditorExtension:()=>{},
-  codexBridge:{},opencodeBridge:{},claudeBridge:{},hermesBridge:{},
+  codexBridge:{},opencodeBridge:{},claudeBridge:{},hermesBridge:{},siriBridge:{},
   // Class fields are not initialized on Object.create(Butler.prototype);
   // onload reads devJournal, so the fake needs a real (pure) instance.
   devJournal:new DevJournal(),

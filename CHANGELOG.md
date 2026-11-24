@@ -14,6 +14,21 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest�
 - **Safer property edits:** `propose_properties` can now rename properties. Untouched properties, comments, key order and values such as dates stay byte for byte. An existing checkbox, number or list keeps its type. Invalid YAML is refused.
 - **Obsidian formatting guide:** a new bundled guide (`owla-obsidian-guide`) gives the model tested advice when you ask to improve how a note looks or lays out: image sizes, images side by side, captions, callouts, tables and a more professional document structure. It loads automatically for requests such as "make this look professional", "images next to each other" or "Bilder nebeneinander".
 
+### Settings and providers
+
+- **Tabbed settings:** the settings page is split into General, Codex, Claude, OpenCode, Hermes, Siri AI (only on macOS 27 with Apple's `fm` tool) and Automatic (macOS only). General holds the provider order, the Siri AI fallback, privacy, web search, plugin interconnectivity, screenshots, diff view, excluded folders and the model unavailability memory. Each provider tab holds that provider's connection, executable and usage limits. Usage is read only when its tab is opened.
+- **Provider switches:** a **Use <provider>** switch heads every provider tab. A switched-off provider is never started, warmed up, measured or offered to Automatic selection, and is left out of the provider order; its process is stopped at once and its connection is kept for later. Turning off the primary moves Primary to the next enabled provider. At least one provider stays on. Existing providers start on, Siri AI starts off.
+- **Ordered fallbacks:** the single fallback provider becomes an ordered list: Primary, Secondary, Third, Fourth, Fifth. When the providers above have reached their usage limits, OWLA serves the next messages with the first one that has usage left and returns as soon as a limit resets. An existing fallback becomes the Secondary provider (`fallbacks` in `data.json`, per platform; `fallback` stays as the first entry).
+- **One Automatic switch:** the **Automatic** entry of the provider dropdown and the **Automatic model and reasoning effort** toggle are merged into that toggle on the new Automatic tab, together with the selection priority, thorough selection, privacy mode and details options. When it is on, OWLA chooses the provider, model and effort among the enabled providers, and the provider order in General is greyed out. A saved setting with either the Automatic provider or automatic model selection on turns the merged switch on.
+
+### Siri AI (macOS 27)
+
+- **New provider:** Siri AI uses Apple Foundation Models through the `fm` tool in macOS 27. OWLA starts a private `fm serve` on a Unix socket only you can write to, and talks to it with the Chat Completions protocol and OWLA's own vault tools. `fm` gets no file, shell, MCP or built-in tools of its own, and OWLA never uses a custom model provider from `~/.fm/config.json`. The server rests after 90 seconds without a reply.
+- **Models:** `Siri AI · Private Cloud Compute` (Apple Account usage limits) and the `Apple on-device model` (no usage limits, small context window). If Private Cloud Compute refuses the request, OWLA uses the on-device model and shows Apple's reason in settings.
+- **Global fallback:** **Siri AI as global fallback** (General) lets Siri AI answer once every other enabled provider has reached its usage limit, both with a fixed provider order and with Automatic selection. Automatic selection otherwise leaves Siri AI out.
+- **Usage limits:** the Siri AI tab shows the Private Cloud Compute quota reported by `fm quota-usage`. A quota error marks Siri AI as exhausted and retries after 15 minutes.
+- **Limits:** text only (attached images are not sent, with a notice), no web search, and one reasoning setting chosen by Apple.
+
 ### Excalidraw
 
 - **Handwriting is summarised, not dumped:** `read_excalidraw` lists freehand ink as clusters with their position and size. Each covers at most about 240×120 px, so the model knows where each piece of handwriting is, instead of getting one line per stroke. On a real 289-element drawing the read went from about 16,000 to about 3,100 characters.

@@ -70,7 +70,7 @@ test('onload enables the journal from saved settings and registers gated command
   prefs:{...DEFAULTS,storageRoot:storage},
   devJournal:new (await import('../src/dev-journal')).DevJournal(),
   sessionAvailability:{load:()=>{}},
-  codexBridge:{onStatus:null},opencodeBridge:{onStatus:null},claudeBridge:{onStatus:null},hermesBridge:{onStatus:null},
+  codexBridge:{onStatus:null},opencodeBridge:{onStatus:null},claudeBridge:{onStatus:null},hermesBridge:{onStatus:null},siriBridge:{onStatus:null},
   registerEditorExtension:()=>{},registerView:()=>{},addRibbonIcon:()=>{},
   addCommand:(command:any)=>{commands.set(command.id,command);},
   registerEvent:()=>{},registerDomEvent:()=>{},
@@ -100,7 +100,7 @@ test('onload with developer mode off leaves the journal disabled',async()=>{
   prefs:{...DEFAULTS,storageRoot:storage},
   devJournal:new (await import('../src/dev-journal')).DevJournal(),
   sessionAvailability:{load:()=>{}},
-  codexBridge:{onStatus:null},opencodeBridge:{onStatus:null},claudeBridge:{onStatus:null},hermesBridge:{onStatus:null},
+  codexBridge:{onStatus:null},opencodeBridge:{onStatus:null},claudeBridge:{onStatus:null},hermesBridge:{onStatus:null},siriBridge:{onStatus:null},
   registerEditorExtension:()=>{},registerView:()=>{},addRibbonIcon:()=>{},
   addCommand:()=>{},registerEvent:()=>{},registerDomEvent:()=>{},
   addSettingTab:()=>{throw stopped;},
@@ -146,7 +146,7 @@ test('developerDiagnostics collects every report section from the live plugin st
  for(const key of ['developerMode','webSearch','pluginInterconnectivity','visualScreenshots','automaticProvider','automaticRouting','routingMode','diffView','fallback','codexConnected','opencodeConnected','claudeConnected','hermesConnected','canvas','bases','excalidraw']){
   assert.ok(key in report.features,'features include '+key);
  }
- assert.equal(report.providers.length,4);
+ assert.equal(report.providers.length,5);
  for(const provider of report.providers){
   assert.ok('usageWindows' in provider&&'exhaustion' in provider&&'sessionDirectory' in provider);
  }

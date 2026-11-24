@@ -9,10 +9,13 @@
 
 import type { UsageSnapshot } from './usage';
 
-export type ProviderId = 'codex' | 'opencode' | 'claude' | 'hermes';
+export type ProviderId = 'codex' | 'opencode' | 'claude' | 'hermes' | 'siri';
 
-/** Every provider, in the order the settings list them. */
-export const PROVIDER_IDS: readonly ProviderId[] = ['codex', 'opencode', 'claude', 'hermes'];
+/** Every provider. Siri AI is listed last: it exists only on macOS 27. */
+export const PROVIDER_IDS: readonly ProviderId[] = ['codex', 'opencode', 'claude', 'hermes', 'siri'];
+
+/** The order of the provider tabs in settings. */
+export const PROVIDER_TAB_ORDER: readonly ProviderId[] = ['codex', 'claude', 'opencode', 'hermes', 'siri'];
 
 /** The provider to use when the selected one runs out of usage. */
 export type FallbackChoice = ProviderId | 'none';
@@ -103,6 +106,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   opencode: 'OpenCode',
   claude: 'Claude Code',
   hermes: 'Hermes Agent',
+  siri: 'Siri AI',
 };
 
 /** The name a tool carries inside the assistant's instruction text. */
@@ -126,7 +130,8 @@ const OWLA_TOOL_NAMES = [
  * names the active provider actually exposes.
  */
 export function prefixToolNames(text: string, provider: ProviderId): string {
-  if (provider === 'codex') return text;
+  // Codex and Siri AI receive OWLA's tools under their own names.
+  if (provider === 'codex' || provider === 'siri') return text;
   let result = text;
   for (const name of OWLA_TOOL_NAMES) {
     result = result.replace(new RegExp('(?<![A-Za-z0-9_])' + name + '(?![A-Za-z0-9_])', 'g'), toolName(provider, name));

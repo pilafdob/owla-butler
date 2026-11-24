@@ -8,6 +8,10 @@
 - **Edit headings and properties through review:** rename, promote, demote, move or insert headings, and rename properties. Comments, order and value types are kept, and every change can be declined.
 - **Formatting help:** a new guide helps with images side by side, image sizes, callouts and a more professional layout when you ask for it.
 - **Large handwritten Excalidraw drawings:** handwriting is summarised as located ink clusters, a full clean-up takes one operation, and drawing data no longer fills the chat context.
+- **Settings in tabs:** General, Codex, Claude, OpenCode, Hermes, Siri AI and Automatic. Each provider's tab holds its connection, executable and usage limits, with a switch at the top to turn the provider on or off. A provider that is off is never started, warmed up or weighed by Automatic selection.
+- **Provider order:** choose a primary, secondary, third provider and more in General. When one reaches its usage limit, OWLA moves to the next and returns as soon as the limit resets.
+- **One Automatic switch:** **Automatic model and reasoning effort** (Automatic tab) now chooses the provider too. While it is on, the provider order is not used.
+- **Siri AI (macOS 27):** a new provider for Apple Foundation Models on Private Cloud Compute, with the on-device model as backup. It can also be the global fallback when every other provider is out of usage. Siri AI reads text only and does not search the web.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
 
