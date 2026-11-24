@@ -26,6 +26,15 @@
 - **Global fallback:** **Siri AI as global fallback** (General) lets Siri AI answer once every other enabled provider has reached its usage limit, both with a fixed provider order and with Automatic selection. Automatic selection otherwise leaves Siri AI out.
 - **Usage limits:** the Siri AI tab shows the Private Cloud Compute quota reported by `fm quota-usage`. A quota error marks Siri AI as exhausted and retries after 15 minutes.
 - **Limits:** text only (attached images are not sent, with a notice), no web search, and one reasoning setting chosen by Apple.
+- **Tested in a running Obsidian on macOS 27.3:** Apple refuses Private Cloud Compute to Obsidian ("not available in this context. Please use the Terminal app"), so OWLA uses the on-device model there. It answers questions in about 10 seconds and stages edits through review, but it places edits less reliably than the other providers: check each diff.
+- **Robust tool use:** a schema `fm` cannot express (a map with typed values, as in `propose_properties`) is sent as a free-form object instead of failing every request; a refused tool call (bad arguments, a missing heading) goes back to the model so it can correct itself instead of ending the reply; the on-device model gets the core note tools only, and its transcript stays bounded (long tool results shortened, earlier rounds collapsed). A context-size error is reported as such, not as a usage limit.
+- **One-message override:** Siri AI is listed with the other providers when it is switched on and connected; Automatic selection still picks it only as the last resort.
+
+### Performance
+
+- **Pictures are reused within a reply:** a repeated visual read of an unchanged canvas or drawing reuses the picture and its handwriting OCR instead of rendering again. Developer-mode recordings showed the same drawing rendered two and three times in one reply, each render holding up the calls queued behind it.
+- **Repeats are refused before the work:** the third identical tool call is refused before it runs (it used to render the picture first and only then be refused). Staging a proposal resets the repeat check, because reads then show the staged preview.
+- **No pointless visual checks:** after a new canvas is staged, or with Background screenshots off, the tool result no longer asks the model to check the layout with `visual=true`, which returned text only and cost the model a round.
 
 ### Excalidraw
 

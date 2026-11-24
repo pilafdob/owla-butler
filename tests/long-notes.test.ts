@@ -118,3 +118,15 @@ test('read_note: unsaved editor text is read by heading instead of failing',asyn
  assert.ok(section.includes('unsaved line'));
  await assert.rejects(read({heading:'Nope'}),/No heading "Nope"/);
 });
+
+test('ToolGuard refuses a third identical call before it runs, and forgets repeats after a proposal',()=>{
+ const guard=new ToolGuard(10,12);
+ const args={path:'a.canvas',visual:true};
+ assert.equal(guard.repeated('read_canvas',args),null);
+ guard.after('read_canvas',args,'same');
+ assert.equal(guard.repeated('read_canvas',args),null);
+ guard.after('read_canvas',args,'same');
+ assert.match(String(guard.repeated('read_canvas',args)),/already returned the same result/);
+ guard.changed();
+ assert.equal(guard.repeated('read_canvas',args),null);
+});
