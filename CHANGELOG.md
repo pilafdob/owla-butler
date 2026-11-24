@@ -2,6 +2,19 @@
 
 Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”). The branch only receives `OWLA-RC` and `main`, so a dev build is either the latest stable version (its changelog starts with “Dev build of the latest stable version. No new features are included in this build.”) or a prerelease of `OWLA-RC`'s next version, whose changelog is that version's section below.
 
+## Dev builds
+
+### 3.8.0-dev.2
+
+Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
+
+- **Tabbed settings:** General, Codex, Claude, OpenCode, Hermes, Siri AI and Automatic. Developer mode and its tools are in the General tab.
+- **Provider switches:** a **Use <provider>** switch at the top of each provider tab. A switched-off provider is never started, warmed up, measured or offered to Automatic selection.
+- **Provider order:** Primary, Secondary, Third provider and more in General replace the single fallback.
+- **One Automatic switch:** the Automatic provider and **Automatic model and reasoning effort** are merged into one switch on the Automatic tab; the provider order is greyed out while it is on.
+- **Siri AI (macOS 27):** new provider for Apple Foundation Models through `fm`, optionally the global fallback once every other provider is out of usage. Tested: the on-device model answers and calls OWLA's vault tools. Not yet tested: Private Cloud Compute from inside Obsidian (Apple refused it outside Terminal during testing), its quota report and its context size. If Private Cloud Compute is refused, OWLA uses the on-device model and shows Apple's reason in the Siri AI tab.
+- **Developer mode diagnostics** list Siri AI with the other providers.
+
 ## 3.8.0
 
 ### New features
