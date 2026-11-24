@@ -134,3 +134,10 @@ test('the one-message image decision follows the open drawing',()=>{
  const plainView=new ButlerView({app:plainApp},makeButler(plainApp));
  assert.equal(plainView.activeCanvasOrDrawingNeedsImage(),false);
 });
+
+test('picture cache keys follow the exact content drawn',async()=>{
+ const {pictureKey}=await import('../src/main');
+ assert.equal(pictureKey('canvas','a.canvas','{}'),pictureKey('canvas','a.canvas','{}'));
+ assert.notEqual(pictureKey('canvas','a.canvas','{}'),pictureKey('canvas','a.canvas','{"nodes":[]}'));
+ assert.notEqual(pictureKey('canvas','a.canvas','{}'),pictureKey('excalidraw','a.canvas','{}'));
+});

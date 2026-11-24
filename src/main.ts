@@ -72,6 +72,10 @@ function downloadJson(filename:string,data:unknown){
  nodeTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 const devFileStamp=()=>new Date().toISOString().replace(/[:.]/g,'-');
+/** Cache key for a rendered picture: kind, path and a hash of the exact content drawn. */
+export function pictureKey(kind:'canvas'|'excalidraw',path:string,text:string):string{
+ return kind+'\u0000'+path+'\u0000'+createHash('sha256').update(text).digest('hex');
+}
 type Captured={path:string;text:string;start:number;end:number};
 type Attachment={name:string;url:string};
 type PdfAttachment={name:string;source:string;file:File|TFile;page?:number};
@@ -490,11 +494,15 @@ export default class Butler extends Plugin {
   finally{await release();}
   this.recordExhaustion('codex');
  }
- /** Providers that can be offered to Automatic selection this turn. */
- automaticCandidates():ProviderId[]{
+ /**
+  * Providers that can be offered to Automatic selection this turn. Siri AI is
+  * chosen automatically only as the last resort, but a one-message override
+  * (choosing by hand) lists it whenever it is switched on and connected.
+  */
+ automaticCandidates(manual=false):ProviderId[]{
   const candidates=PROVIDER_IDS.filter(provider=>{
    // Switched-off providers are never started, weighed or offered.
-   if(provider==='siri'||!this.isProviderEnabled(provider)||!this.isProviderConnected(provider))return false;
+   if((provider==='siri'&&!manual)||!this.isProviderEnabled(provider)||!this.isProviderConnected(provider))return false;
    if(provider==='opencode'&&!(this.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'')))return false;
    if(provider==='hermes'&&!(this.prefs.hermesExecutable||findHermesExecutable(process.env.PATH??'')))return false;
    if(provider==='claude'&&!(this.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'')))return false;
@@ -506,8 +514,8 @@ export default class Butler extends Plugin {
   return candidates;
  }
  /** Connects every candidate in parallel and collects what each can offer. */
- async automaticOffers(tools:ToolSpec[]):Promise<{offers:ProviderOffer[];failed:{provider:ProviderId;message:string}[]}>{
-  const candidates=this.automaticCandidates();
+ async automaticOffers(tools:ToolSpec[],manual=false):Promise<{offers:ProviderOffer[];failed:{provider:ProviderId;message:string}[]}>{
+  const candidates=this.automaticCandidates(manual);
   // Exhausted providers are not offered; say so, with their reset time.
   const exhausted=PROVIDER_IDS.filter(provider=>!candidates.includes(provider)&&this.exhaustionOf(provider).exhausted)
    .map(provider=>({provider,message:exhaustionLabel(this.exhaustionOf(provider))}));
@@ -1386,7 +1394,7 @@ export class ButlerView extends ItemView {
    let skipped:{provider:ProviderId;message:string}[]=[];
    if(this.butler.prefs.automaticProvider){
     const specs=this.butler.buildToolSpecs().specs;
-    const {offers,failed}=await this.butler.automaticOffers(specs);
+    const {offers,failed}=await this.butler.automaticOffers(specs,true);
     skipped=failed;
     if(this.closing||this.isBusy()||!this.butler.automaticModels)return;
     // The override is chosen by hand: list every model the offers make
@@ -1504,7 +1512,7 @@ export class ButlerView extends ItemView {
   this.butler.devJournal.event('chat-cleared','Started a new chat.');this.butler.devJournal.newChat();
   // Persist the rotated chat id so a reload does not merge the new chat into the old one.
   if(this.butler.developerMode){try{this.butler.devJournal.save(this.butler.vaultStorage());}catch{/* Recording is best-effort. */}}
-  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText('Automatic selection');this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfCache.destroyAll();this.pdfSelectionImageCache.clear();for(const card of this.pdfExportDrafts.values())card.remove();this.pdfExportDrafts.clear();this.pdfExportFindings.clear();this.pdfExportRounds.clear();this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.discardReplyObservers();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
+  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText('Automatic selection');this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfCache.destroyAll();this.pdfSelectionImageCache.clear();for(const card of this.pdfExportDrafts.values())card.remove();this.pdfExportDrafts.clear();this.pdfExportFindings.clear();this.pdfExportRounds.clear();this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.pictureCache.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.discardReplyObservers();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
   return true;
  }
  /** A cleared feed discards its replies: disconnect their sanitize observers so
@@ -1982,6 +1990,18 @@ export class ButlerView extends ItemView {
    totals:graph?{outgoing:graph.outgoingCount,unresolved:graph.unresolvedCount,backlinks:graph.backlinkCount}:undefined,
   });
  }
+ /**
+  * Pictures of canvases and drawings rendered during the current reply, keyed
+  * by kind, path and exact content. A repeated visual read of an unchanged
+  * file reuses the picture instead of rendering it again (diagnostics showed
+  * the same drawing rendered two and three times in one reply).
+  */
+ private pictureCache=new Map<string,{text:string;imageUrl:string}>();
+ private rememberPicture(key:string,picture:{text:string;imageUrl:string}){
+  // A handful per reply; each holds a full image data URL.
+  if(this.pictureCache.size>=6){const oldest=this.pictureCache.keys().next().value;if(oldest!==undefined)this.pictureCache.delete(oldest);}
+  this.pictureCache.set(key,picture);
+ }
  private async tool(name:string,value:unknown,log:HTMLElement,batches?:Map<string,EditBatch>,organization?:OrganizationDraft,sourcePath=''):Promise<ToolOutput>{
   if(!this.offeredToolNames?.has(name))throw Error('This tool is not available in this mode.');
   const args=record(value),p=this.butler.prefs,epoch=this.attachmentEpoch;
@@ -2159,10 +2179,14 @@ export class ButlerView extends ItemView {
     if(!visual)return body;
     if(!p.visualScreenshots)return body+'\n[Canvas pictures are turned off in OWLA settings (Background screenshots). Work from the text above.]';
     if(!file)return body+'\n[A new canvas has no picture until it is created.]';
+    const cached=this.pictureCache.get(pictureKey('canvas',path,text));
+    if(cached){log.createDiv({text:'Reused the picture of '+path,cls:'owla-activity'});return {text:body+cached.text,imageUrl:cached.imageUrl};}
     log.createDiv({text:'Took a background screenshot of '+path+(pending?' (staged version)':''),cls:'owla-activity'});
     const shot=await captureCanvas(this.app,file,pending?text:undefined);
     const canvasOcr=ocrSection(await ocrImageDataUrl(shot.imageUrl,this.butler.vaultStorage()));
-    return {text:body+'\n[Picture: the canvas as Obsidian draws it'+(pending?', with the staged changes':'')+'.]'+canvasOcr,imageUrl:shot.imageUrl};
+    const picture={text:'\n[Picture: the canvas as Obsidian draws it'+(pending?', with the staged changes':'')+'.]'+canvasOcr,imageUrl:shot.imageUrl};
+    this.rememberPicture(pictureKey('canvas',path,text),picture);
+    return {text:body+picture.text,imageUrl:picture.imageUrl};
    }
    if(kind==='base'){
     const data=parseBase(text,parseYaml),problems=baseProblems(data);
@@ -2177,11 +2201,15 @@ export class ButlerView extends ItemView {
    // chew minutes of render time; the message names the bulk alternatives.
    const renderNotice=excalidrawRenderLimitNotice(drawing.scene);
    if(renderNotice)return body+'\n'+renderNotice;
+   const cached=this.pictureCache.get(pictureKey('excalidraw',path,text));
+   if(cached){log.createDiv({text:'Reused the picture of '+path,cls:'owla-activity'});return {text:body+cached.text,imageUrl:cached.imageUrl};}
    log.createDiv({text:'Rendered '+path+' with Excalidraw'+(pending?' (staged version)':''),cls:'owla-activity'});
    const image=pending||!file?await excalidrawSceneImage(drawing.scene.elements):await excalidrawImage(file);
    const drawingOcrText=await ocrImageDataUrl(image,this.butler.vaultStorage());
    if(drawingOcrText)log.createDiv({text:'Read handwriting in '+path+' with macOS Vision OCR',cls:'owla-activity'});
-   return {text:body+'\n[Picture: the drawing as Excalidraw renders it'+(pending?', with the staged changes':'')+'.]'+ocrSection(drawingOcrText),imageUrl:image};
+   const picture={text:'\n[Picture: the drawing as Excalidraw renders it'+(pending?', with the staged changes':'')+'.]'+ocrSection(drawingOcrText),imageUrl:image};
+   this.rememberPicture(pictureKey('excalidraw',path,text),picture);
+   return {text:body+picture.text,imageUrl:picture.imageUrl};
   }
   if(name==='propose_canvas'||name==='propose_base'||name==='propose_excalidraw'){
    if(!batches)throw Error('No active request permits proposals.');
@@ -2224,7 +2252,9 @@ export class ButlerView extends ItemView {
    const edit:Proposal={path,before,after,reason,...(create?{create:true as const}:{})};
    if(create)await this.butler.validateNewNote(edit);
    batches.set(path,{edit,reasons:[...(pending?.reasons??[]),reason]});
-   const check=kind==='canvas'?' Check the layout with read_canvas visual=true.':kind==='excalidraw'?' Check it with read_excalidraw visual=true.':'';
+   // A new canvas has no picture until it is created, and none at all with screenshots off:
+   // asking for a visual check then only costs the model a round that returns text.
+   const check=kind==='canvas'?(create||!p.visualScreenshots?' No picture of it is available before it is created; check positions, sizes and groups with read_canvas.':' Check the layout with read_canvas visual=true.'):kind==='excalidraw'?' Check it with read_excalidraw visual=true.':'';
    return (create?'New '+kind+' staged for review at '+path+'. It is created when the user accepts it.':'Change staged for '+path+'. The user accepts or declines it after this reply.')+note+check;
   }
   if (name==='read_note') {
@@ -2904,7 +2934,7 @@ export class ButlerView extends ItemView {
  answer.createDiv('owla-tool-cards');
  const actions=answer.createDiv('owla-message-actions');
  const changes=answer.createDiv('owla-change-summary');
- this.controller=new AbortController();let releaseReply=bridge.hold();this.releaseReply=releaseReply;this.clearWarmup();const signal=this.controller.signal;this.sendBtn.setText('Stop');this.refreshModel();this.renderConnection();this.turnSources.clear();this.sourceLinks.clear();this.snapshots.clear();if(captured)this.snapshots.set(captured.path,captured.text);let text='',pendingText='';let streamTimer:ReturnType<typeof nodeTimeout>|undefined;const stream=content.createSpan('owla-stream-text');const streamNode=content.ownerDocument.createTextNode('');stream.appendChild(streamNode);
+ this.controller=new AbortController();let releaseReply=bridge.hold();this.releaseReply=releaseReply;this.clearWarmup();const signal=this.controller.signal;this.sendBtn.setText('Stop');this.refreshModel();this.renderConnection();this.turnSources.clear();this.sourceLinks.clear();this.pictureCache.clear();this.snapshots.clear();if(captured)this.snapshots.set(captured.path,captured.text);let text='',pendingText='';let streamTimer:ReturnType<typeof nodeTimeout>|undefined;const stream=content.createSpan('owla-stream-text');const streamNode=content.ownerDocument.createTextNode('');stream.appendChild(streamNode);
  try{
  this.annotationDrafts.clear();
  const {specs,pluginTurn}=this.butler.buildToolSpecs();
@@ -3170,11 +3200,17 @@ export class ButlerView extends ItemView {
       if(devTurn)this.butler.devJournal.event('tool-budget-soft',verdict.message,devTurn);
       throw verdict;
      }
+     const early=toolGuard.repeated(name,args);
+     if(early){
+      if(devTurn)this.butler.devJournal.event('repeat-call',name+' · '+early.message,devTurn);
+      throw early;
+     }
      let output:ToolOutput;
      if(pluginTurn.handles(name)){
       output=pluginTurn.invoke(name,args);
       activity.createDiv({text:'Checked a Pilafdob plugin option',cls:'owla-activity'});
      }else output=await this.tool(name,args,activity,batches,organization,sourcePath);
+     if(name.startsWith('propose_'))toolGuard.changed();
      const repeated=toolGuard.after(name,args,typeof output==='string'?output:output.text);
      if(repeated){
       if(devTurn)this.butler.devJournal.event('repeat-call',name+' · '+repeated.message,devTurn);

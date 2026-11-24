@@ -91,17 +91,58 @@ export function parseSiriQuota(text:string,now=Date.now()):UsageSnapshot|null{
  return {rateLimitsByLimitId:{siri:{limitId:'siri',limitName:'Private Cloud Compute',primary:{usedPercent:Math.max(0,Math.min(100,used)),resetsAt,label:'Apple Account quota'}}}};
 }
 
+export const SIRI_CONTEXT_ERROR=/context (?:size|window|length)/i;
+/** Longest tool result the on-device model receives in one piece. */
+export const ON_DEVICE_TOOL_RESULT=1_500;
+/**
+ * Keeps the on-device transcript inside its small context: each tool result is
+ * shortened, and results from earlier rounds are replaced by a one-line note
+ * once the model has moved on. Private Cloud Compute keeps full results.
+ */
+export function compactTranscript(messages:{role:string;content?:unknown}[],model:string):void{
+ if(model!=='system')return;
+ const lastAssistant=messages.map(message=>message.role).lastIndexOf('assistant');
+ messages.forEach((message,index)=>{
+  if(message.role!=='tool'||typeof message.content!=='string')return;
+  if(index<lastAssistant)message.content='[Earlier tool result omitted to fit the on-device model. Call the tool again if you still need it.]';
+  else if(message.content.length>ON_DEVICE_TOOL_RESULT)message.content=message.content.slice(0,ON_DEVICE_TOOL_RESULT)+'\n[Result shortened for the on-device model. Read a specific heading or offset for more.]';
+ });
+}
 /** A quota or rate-limit error from Private Cloud Compute. */
 export function siriExhaustion(error:unknown,now=Date.now()/1000):ProviderExhaustion|null{
  const text=error instanceof Error?error.message:String(error);
- if(!LIMIT_ERROR.test(text)&&!/quota|exceeded/i.test(text))return null;
+ // "The session's transcript exceeded the model's context size" is not a usage limit.
+ if(SIRI_CONTEXT_ERROR.test(text))return null;
+ if(!LIMIT_ERROR.test(text)&&!/quota (?:is )?exceeded|exceeded (?:the |your )?quota/i.test(text))return null;
  // PCC reports no reset time in the error; try again after a bounded wait.
  return {provider:'siri',exhausted:true,resetsAt:now+15*60,reason:'Siri AI usage limit reached.',scope:'provider'};
 }
 
-/** OWLA's tools in Chat Completions form. */
-export function chatTools(specs:ToolSpec[]){
- return specs.map(spec=>({type:'function',function:{name:spec.name,description:spec.description,parameters:spec.inputSchema}}));
+/**
+ * `fm serve` turns each object schema into a named type and cannot express a
+ * map whose values have their own schema: `additionalProperties: {type:…}`
+ * becomes an undefined reference and the whole request is refused (seen with
+ * propose_properties' `rename`). Such maps are sent as free-form objects;
+ * OWLA validates the values when the tool runs.
+ */
+export function fmSchema(schema:unknown):unknown{
+ if(Array.isArray(schema))return schema.map(fmSchema);
+ if(!schema||typeof schema!=='object')return schema;
+ const result:Record<string,unknown>={};
+ for(const [key,value] of Object.entries(schema as Record<string,unknown>))
+  result[key]=key==='additionalProperties'&&value&&typeof value==='object'?true:fmSchema(value);
+ return result;
+}
+/**
+ * The tools the on-device model gets. Its context is small and every tool
+ * schema costs prompt tokens (all of OWLA's tools came to about 4,200 tokens),
+ * so it receives the core note tools only. Private Cloud Compute gets all.
+ */
+export const ON_DEVICE_TOOLS=new Set(['read_note','search_vault','list_vault_paths','read_attachment','read_pdf','read_reference','propose_edit','propose_note','propose_properties']);
+/** OWLA's tools in Chat Completions form, shaped for `fm serve`. */
+export function chatTools(specs:ToolSpec[],model='pcc'){
+ return specs.filter(spec=>model!=='system'||ON_DEVICE_TOOLS.has(spec.name))
+  .map(spec=>({type:'function',function:{name:spec.name,description:spec.description,parameters:fmSchema(spec.inputSchema)}}));
 }
 
 type ToolCall={id:string;name:string;arguments:string};
@@ -150,6 +191,7 @@ export function siriSocketPath(directory=tmpdir(),id=randomUUID().slice(0,8)):st
 
 function friendlySiriError(error:unknown):string{
  const text=redactErrorDetail(error instanceof Error?error.message:String(error)).slice(0,600);
+ if(SIRI_CONTEXT_ERROR.test(text)&&/exceed/i.test(text))return 'Siri AI: this request no longer fits the model’s context window. Start a new chat, attach less, or use another provider for long notes.';
  return text.startsWith('Siri AI')?text:'Siri AI: '+text;
 }
 
@@ -263,9 +305,10 @@ export class SiriBridge implements ProviderBridge{
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
   const model=this.resolveModel(options.model);
   if(!model)throw Error('Siri AI: no Apple Foundation Model is available.');
-  const messages:unknown[]=[{role:'system',content:options.instructions},{role:'user',content:options.text}];
+  const messages:{role:string;content?:unknown;[key:string]:unknown}[]=[{role:'system',content:options.instructions},{role:'user',content:options.text}];
   if(options.images.length)options.onActivity('Siri AI does not read images; the attached images were not sent.');
-  const tools=options.tools.length?chatTools(options.tools):undefined;
+  const offered=chatTools(options.tools,model.id);
+  const tools=offered.length?offered:undefined;
   let answer='';
   try{
    for(let round=0;round<=MAX_TOOL_ROUNDS;round++){
@@ -279,9 +322,18 @@ export class SiriBridge implements ProviderBridge{
     for(const [index,call] of calls.entries()){
      let args:unknown={};
      try{args=call.arguments?JSON.parse(call.arguments):{};}catch{args={};}
-     const output=await options.tool(call.name,args);
-     messages.push({role:'tool',tool_call_id:call.id||'call_'+round+'_'+index,content:typeof output==='string'?output:output.text});
+     // A refused call (bad arguments, a repeat, a missing heading) goes back to
+     // the model as the tool's answer so it can correct itself, as with the
+     // other providers; only a stop ends the reply.
+     let content:string;
+     try{const output=await options.tool(call.name,args);content=typeof output==='string'?output:output.text;}
+     catch(error){
+      if(options.signal.aborted||(error instanceof Error&&error.message==='Stopped.'))throw error;
+      content='Error: '+(error instanceof Error?error.message:String(error));
+     }
+     messages.push({role:'tool',tool_call_id:call.id||'call_'+round+'_'+index,content});
     }
+    compactTranscript(messages,model.id);
    }
   }catch(error){
    const limit=siriExhaustion(error);
