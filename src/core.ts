@@ -17,10 +17,17 @@ export interface ButlerSettings {
  opencodeConnected:boolean;
  claudeConnected:boolean;
  hermesConnected:boolean;
+ siriConnected:boolean;
+ /** The per-provider switch at the top of each provider tab. A switched-off provider is never started, warmed up, offered to Automatic selection or used as a fallback. */
+ enabledProviders:Record<ProviderId,boolean>;
  codexExecutable:string;
  hermesExecutable:string;
- /** Provider that serves messages while the selected one is out of usage. */
+ /** Provider that serves messages while the selected one is out of usage (the first of `fallbacks`). */
  fallback:FallbackChoice;
+ /** Second, third, … providers, tried in order while the ones before them are out of usage. */
+ fallbacks:ProviderId[];
+ /** Siri AI serves messages when every other enabled provider is out of usage (macOS 27 only). */
+ siriFallback:boolean;
  opencodeExecutable:string;
  claudeExecutable:string;
  models:Record<ProviderId,ProviderPrefs>;
@@ -46,12 +53,16 @@ export const DEFAULTS:ButlerSettings={
  opencodeConnected:false,
  claudeConnected:false,
  hermesConnected:false,
+ siriConnected:false,
+ enabledProviders:{codex:true,opencode:true,claude:true,hermes:true,siri:false},
  codexExecutable:'',
  fallback:'none',
+ fallbacks:[],
+ siriFallback:false,
  opencodeExecutable:'',
  claudeExecutable:'',
  hermesExecutable:'',
- models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''},hermes:{model:'',reasoning:''}},
+ models:{codex:{model:'',reasoning:''},opencode:{model:'',reasoning:''},claude:{model:'',reasoning:''},hermes:{model:'',reasoning:''},siri:{model:'',reasoning:''}},
  modelUnavailability:[],
  automaticRouting:false,
  routingMode:'balance',
@@ -76,12 +87,19 @@ export function migrateSettings(value:unknown):ButlerSettings{
  // settings (no schema version) named models OWLA no longer serves, so they stay
  // out of the Codex record (tests/codex.test.ts migration contract).
  const legacyModel=modern?string('model'):'',legacyReasoning=modern?string('reasoning'):'';
- const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude),hermes=record(models.hermes);
- const providers:ProviderId[]=['codex','opencode','claude','hermes'];
+ const models=record(data.models),codex=record(models.codex),opencode=record(models.opencode),claude=record(models.claude),hermes=record(models.hermes),siri=record(models.siri);
+ const providers:ProviderId[]=['codex','opencode','claude','hermes','siri'];
  const provider:ProviderId=providers.find(id=>id===data.provider)??'codex';
  // The fallback replaces the earlier Codex-only "switch to OpenCode" toggle.
  const storedFallback=['none',...providers].find(id=>id===data.fallback) as FallbackChoice|undefined;
  const fallback:FallbackChoice=storedFallback??(data.codexAutoFallback===true&&provider==='codex'?'opencode':'none');
+ // The ordered fallback list replaces the single fallback; an older file seeds it from `fallback`.
+ const storedList=Array.isArray(data.fallbacks)?data.fallbacks.filter((id):id is ProviderId=>providers.includes(id as ProviderId)):fallback!=='none'?[fallback]:[];
+ const fallbacks=storedList.filter((id,index)=>id!==provider&&storedList.indexOf(id)===index);
+ const enabled=record(data.enabledProviders);
+ const enabledProviders=Object.fromEntries(providers.map(id=>[id,typeof enabled[id]==='boolean'?enabled[id]:DEFAULTS.enabledProviders[id]])) as Record<ProviderId,boolean>;
+ // "Automatic model and reasoning effort" and the Automatic provider are one switch now.
+ const automatic=data.automaticProvider===true||data.automaticRouting===true;
  const routingMode:RoutingMode=['cost','balance','intelligence'].includes(String(data.routingMode))?data.routingMode as RoutingMode:'balance';
  return {...DEFAULTS,
   diffView:['highlights','none','split'].includes(String(data.diffView))?data.diffView as DiffView:data.editingViewDiff===true?'highlights':'none',
@@ -98,33 +116,44 @@ export function migrateSettings(value:unknown):ButlerSettings{
    codex:{model:typeof codex.model==='string'?codex.model:legacyModel,reasoning:typeof codex.reasoning==='string'?codex.reasoning:legacyReasoning},
    opencode:{model:typeof opencode.model==='string'?opencode.model:'',reasoning:typeof opencode.reasoning==='string'?opencode.reasoning:''},
    claude:{model:typeof claude.model==='string'?claude.model:'',reasoning:typeof claude.reasoning==='string'?claude.reasoning:''},
-   hermes:{model:typeof hermes.model==='string'?hermes.model:'',reasoning:typeof hermes.reasoning==='string'?hermes.reasoning:''}
+   hermes:{model:typeof hermes.model==='string'?hermes.model:'',reasoning:typeof hermes.reasoning==='string'?hermes.reasoning:''},
+   siri:{model:typeof siri.model==='string'?siri.model:'',reasoning:typeof siri.reasoning==='string'?siri.reasoning:''}
   },
   ...(modern?{
    codexConnected:data.codexConnected===true,
    opencodeConnected:data.opencodeConnected===true,
    claudeConnected:data.claudeConnected===true,
    hermesConnected:data.hermesConnected===true,
+   siriConnected:data.siriConnected===true,
+   enabledProviders,
+   fallbacks,
+   siriFallback:data.siriFallback===true,
    codexExecutable:string('codexExecutable'),
-   fallback:fallback===provider?'none':fallback,
+   fallback:fallbacks[0]??'none',
    opencodeExecutable:string('opencodeExecutable'),
    claudeExecutable:string('claudeExecutable'),
    hermesExecutable:string('hermesExecutable'),
-   automaticProvider:data.automaticProvider===true,
-   automaticRouting:data.automaticRouting===true,
+   automaticProvider:automatic,
+   automaticRouting:automatic,
    webSearch:data.webSearch!==false,
    pluginInterconnectivity:data.pluginInterconnectivity===true
   }:{})};
 }
 export function disableAutomaticSelectionOutsideMac(settings:ButlerSettings,platform=process.platform):ButlerSettings{
-  return platform==='darwin'?settings:{...settings,automaticProvider:false,automaticRouting:false};
+  if(platform==='darwin')return settings;
+  // Siri AI exists only on macOS 27; another platform never selects, enables or falls back to it.
+  const fallbacks=settings.fallbacks.filter(id=>id!=='siri');
+  return {...settings,automaticProvider:false,automaticRouting:false,siriFallback:false,
+   provider:settings.provider==='siri'?'codex':settings.provider,
+   enabledProviders:{...settings.enabledProviders,siri:false},
+   fallbacks,fallback:fallbacks[0]??'none'};
 }
 /**
  * AI settings are kept per operating system, so a vault synced between a Mac
  * and a Windows PC keeps each machine's provider, models and modes apart. The
  * remaining settings (vault folders, review view) stay shared.
  */
-export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','hermesConnected','codexExecutable','fallback','opencodeExecutable','claudeExecutable','hermesExecutable','models','modelUnavailability','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
+export const PLATFORM_SETTINGS=['provider','automaticProvider','codexConnected','opencodeConnected','claudeConnected','hermesConnected','siriConnected','enabledProviders','codexExecutable','fallback','fallbacks','siriFallback','opencodeExecutable','claudeExecutable','hermesExecutable','models','modelUnavailability','automaticRouting','routingMode','routingPrivacyMode','routingThorough','showRoutingDetails','webSearch'] as const satisfies readonly (keyof ButlerSettings)[];
 export const platformKey=():string=>process.platform==='darwin'?'mac':process.platform==='win32'?'windows':process.platform;
 /** Settings for this platform: its own AI settings, seeded from the shared top level until it has saved once. */
 export function readSettings(value:unknown,platform=platformKey()):ButlerSettings{

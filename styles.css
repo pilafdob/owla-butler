@@ -327,12 +327,17 @@ button.owla-source-link:hover,
  .owla-composer-wrap{margin:0 6px 5px;padding:7px}.owla-composer{min-height:54px}
 }
 
-/* With the Automatic provider every provider's settings are shown; a line separates each provider. */
-.setting-item.owla-provider-divider {
-  border-top: 1px solid var(--background-modifier-border);
-  margin-top: var(--size-4-4);
-  padding-top: var(--size-4-4);
-}
+/* Settings tabs: General, one tab per provider, Automatic. */
+.setting-item.owla-settings-tabs { border-top: 0; padding-top: 0; }
+.setting-item.owla-settings-tabs .setting-item-control { justify-content: flex-start; flex-wrap: wrap; width: 100%; }
+.owla-settings-tablist { display: flex; flex-wrap: wrap; gap: var(--size-4-1); width: 100%; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: var(--size-4-2); }
+.owla-settings-tab { background: transparent; box-shadow: none; border: 1px solid transparent; border-radius: var(--radius-s); color: var(--text-muted); padding: var(--size-4-1) var(--size-4-3); cursor: pointer; }
+.owla-settings-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.owla-settings-tab.is-active { color: var(--text-normal); border-color: var(--background-modifier-border); background: var(--background-secondary); font-weight: var(--font-semibold); }
+.owla-settings-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }
+/* The "Use <provider>" switch heads each provider tab. */
+.setting-item.owla-provider-switch .setting-item-name { font-weight: var(--font-semibold); }
+.owla-setting-note { margin-top: var(--size-4-1); color: var(--text-warning); }
 
 .owla-diff-hunk { position: relative; border: 1px solid var(--background-modifier-border); border-radius: 6px; margin: 6px 0; padding: 4px 4px 4px 0; }
 .owla-diff-hunk.owla-hunk-accepted { opacity: .85; }
