@@ -132,3 +132,69 @@ test('provider order keeps only switched-on providers and never repeats one',asy
  assert.equal(butler.isProviderEnabled('hermes'),false);
  assert.ok(!butler.availableProviders().includes('siri')||siriSupported());
 });
+
+test('fm schemas: a map with typed values becomes a free-form object, nothing else changes',async()=>{
+ const {fmSchema}=await import('../src/siri');
+ const schema={type:'object',properties:{set:{type:'object',additionalProperties:true},rename:{type:'object',additionalProperties:{type:'string'}},list:{type:'array',items:{type:'object',properties:{a:{type:'string'}},additionalProperties:false}}},additionalProperties:false};
+ assert.deepEqual(fmSchema(schema),{type:'object',properties:{set:{type:'object',additionalProperties:true},rename:{type:'object',additionalProperties:true},list:{type:'array',items:{type:'object',properties:{a:{type:'string'}},additionalProperties:false}}},additionalProperties:false});
+});
+
+test('the on-device model gets the core note tools only; Private Cloud Compute gets all',async()=>{
+ const {ON_DEVICE_TOOLS}=await import('../src/siri');
+ const specs=['read_note','propose_edit','read_canvas','propose_organization','query_vault_graph'].map(name=>({type:'function' as const,name,description:'',inputSchema:{type:'object'}}));
+ assert.deepEqual(chatTools(specs,'system').map(t=>t.function.name),['read_note','propose_edit']);
+ assert.equal(chatTools(specs,'pcc').length,5);
+ assert.ok(ON_DEVICE_TOOLS.has('search_vault'));
+});
+
+/** Feeds the bridge canned streamed replies instead of a running fm server. */
+function scriptedBridge(replies:string[]){
+ const bridge=new SiriBridge();
+ bridge.models=SIRI_MODELS;
+ bridge.health={pcc:{available:false,reason:'x'},system:{available:true,reason:''}};
+ const sent:unknown[]=[];
+ (bridge as any).http=async(_m:string,_p:string,body:unknown,_t:number,onData:(chunk:string)=>void)=>{sent.push(structuredClone(body));onData(replies.shift()??'data: [DONE]\n');return '';};
+ return {bridge,sent};
+}
+const call=(name:string,args:string)=>'data: '+JSON.stringify({choices:[{delta:{tool_calls:[{index:0,id:'c1',function:{name,arguments:args}}]},finish_reason:'tool_calls'}]})+'\n';
+const text=(value:string)=>'data: '+JSON.stringify({choices:[{delta:{content:value},finish_reason:'stop'}]})+'\n';
+const runOptions=(tool:(name:string,args:unknown)=>Promise<string>,signal=new AbortController().signal)=>({executable:'',cwd:'',model:'system',effort:'default',instructions:'I',text:'T',images:[],tools:[{type:'function' as const,name:'read_note',description:'',inputSchema:{type:'object'}}],web:false,signal,onText:()=>{},onActivity:()=>{},tool});
+
+test('a refused tool call goes back to the model instead of ending the reply',async()=>{
+ const {bridge,sent}=scriptedBridge([call('read_note','{"block":""}'),text('Done.')]);
+ const result=await bridge.run(runOptions(async()=>{throw Error('Provide a block ID such as ^abc123.');}));
+ assert.equal(result.text,'Done.');
+ const second=sent[1] as {messages:{role:string;content:string}[]};
+ assert.deepEqual(second.messages.at(-1),{role:'tool',tool_call_id:'c1',content:'Error: Provide a block ID such as ^abc123.'});
+});
+
+test('a stop still ends the reply',async()=>{
+ const {bridge}=scriptedBridge([call('read_note','{}'),text('never')]);
+ await assert.rejects(bridge.run(runOptions(async()=>{throw Error('Stopped.');})),/Stopped/);
+});
+
+test('the one-message override lists Siri AI when it is on and connected; Automatic does not pick it',async()=>{
+ const butler=await fakeButler({enabledProviders:{codex:true,opencode:true,claude:true,hermes:true,siri:true}},[]);
+ const supported=butler.availableProviders().includes('siri');
+ assert.equal(butler.automaticCandidates().includes('siri'),false);
+ assert.equal(butler.automaticCandidates(true).includes('siri'),supported);
+});
+
+test('a context-size error is not a usage limit',()=>{
+ assert.equal(siriExhaustion(Error("Siri AI: The session's transcript exceeded the model's context size.")),null);
+ assert.equal(siriExhaustion(Error('Siri AI: quota exceeded'))?.exhausted,true);
+ assert.equal(siriExhaustion(Error('Siri AI: rate limit reached'))?.exhausted,true);
+});
+
+test('the on-device transcript stays bounded: long results shortened, earlier rounds collapsed',async()=>{
+ const {compactTranscript,ON_DEVICE_TOOL_RESULT}=await import('../src/siri');
+ const long='x'.repeat(5000);
+ const messages=[{role:'system',content:'I'},{role:'user',content:'T'},{role:'assistant',content:null},{role:'tool',content:long},{role:'assistant',content:null},{role:'tool',content:long}];
+ compactTranscript(messages,'system');
+ assert.match(String(messages[3].content),/Earlier tool result omitted/);
+ assert.ok(String(messages[5].content).length<ON_DEVICE_TOOL_RESULT+200);
+ assert.match(String(messages[5].content),/Result shortened/);
+ const pcc=[{role:'assistant',content:null},{role:'tool',content:long}];
+ compactTranscript(pcc,'pcc');
+ assert.equal(pcc[1].content,long);
+});
