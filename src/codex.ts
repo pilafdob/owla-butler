@@ -25,7 +25,7 @@ export function friendlyError(e:unknown):string{
  if(e instanceof CodexIsolationError)return e.message;
  const text=e instanceof Error?e.message:String(e);
  // OpenCode, Claude Code and Hermes errors are already worded by their bridges; only raw errors are mapped to Codex wording.
- if(/\b(?:OpenCode|Claude|Hermes)\b/.test(text))return redactDetail(text).slice(0,800);
+ if(/\b(?:OpenCode|Claude|Hermes|Siri AI)\b/.test(text))return redactDetail(text).slice(0,800);
  if(/429|quota|usage.limit|rate.limit/i.test(text))return 'Codex usage limit reached. Wait for your subscription allowance to reset.';if(/401|unauthorized|authentication|expired.*token/i.test(text))return 'Codex needs you to sign in again with ChatGPT.';return redactDetail(text).slice(0,800);}
 const command=(file:string,args:string[],env:NodeJS.ProcessEnv,signal?:AbortSignal)=>runCli(file,args,{env,signal,timeout:10000,maxBuffer:100000});
 const defaultBinDirectories=()=>defaultCliDirectories();

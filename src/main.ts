@@ -7,7 +7,8 @@ import {CodexBridge,ToolOutput,ChatMessage,CodexModel,DEFAULT_STORAGE,replayHist
 import {OpencodeBridge,findOpencodeExecutable} from './opencode';
 import {HermesBridge,findHermesExecutable} from './hermes';
 import {ClaudeBridge,findClaudeExecutable} from './claude';
-import {FallbackChoice,ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,prefixToolNames,ProviderRunResult,ProviderModel} from './provider';
+import {FM_EXECUTABLE,SiriBridge,siriSupported} from './siri';
+import {ProviderBridge,ProviderId,PROVIDER_IDS,PROVIDER_NAMES,PROVIDER_TAB_ORDER,prefixToolNames,ProviderRunResult,ProviderModel} from './provider';
 import {codexExhaustion,describeProviders,exhaustionLabel,ProviderExhaustion} from './exhaustion';
 import {autoEntries,autoFallbackRoute,sameModelRoute,clearRoutingCache,getRoutingDecisions,heuristicPerProviderRoute,heuristicTaskClass,offeredEntries,pickEscalationRoute,pickRoute,quickPerProviderRoute,reloadRoutingCalibration,renderRoutingDetails,routeAcrossProviders,shouldEscalateQuality,type AutoRoute,type ProviderOffer,type TaskClass} from './auto-route';
 import {currentModels,type TaskKind} from './model-profiles';
@@ -65,7 +66,7 @@ type TextAttachment={name:string;source:string;text:string};
 type DocumentAttachment=PdfAttachment|TextAttachment;
 type Draft={text:string;images:Attachment[];pdfs:DocumentAttachment[];selections:SelectionItem[];notes:string[];folders:string[]};
 export default class Butler extends Plugin {
- private ownedModals=new Set<Modal>();private saveQueue:Promise<void>=Promise.resolve();prefs:ButlerSettings={...DEFAULTS};private readonly codexBridge=new CodexBridge();private readonly opencodeBridge=new OpencodeBridge();private readonly claudeBridge=new ClaudeBridge();private readonly hermesBridge=new HermesBridge();private fallbackProvider:ProviderId|null=null;view:ButlerView|null=null;settingsTab:ButlerSettingsTab|null=null;last:MarkdownView|null=null;
+ private ownedModals=new Set<Modal>();private saveQueue:Promise<void>=Promise.resolve();prefs:ButlerSettings={...DEFAULTS};private readonly codexBridge=new CodexBridge();private readonly opencodeBridge=new OpencodeBridge();private readonly claudeBridge=new ClaudeBridge();private readonly hermesBridge=new HermesBridge();private readonly siriBridge=new SiriBridge();private fallbackProvider:ProviderId|null=null;view:ButlerView|null=null;settingsTab:ButlerSettingsTab|null=null;last:MarkdownView|null=null;
  organization!:Organization;
  private splitSync:Promise<void>=Promise.resolve();
  private pending:EditBatch[] = [];
@@ -89,7 +90,14 @@ export default class Butler extends Plugin {
  /** The provider the user selected in settings. */
  get selectedProvider():ProviderId{return this.prefs.provider;}
  get bridge():ProviderBridge{return this.bridgeFor(this.activeProvider);}
- bridgeFor(provider:ProviderId):ProviderBridge{return provider==='opencode'?this.opencodeBridge:provider==='claude'?this.claudeBridge:provider==='hermes'?this.hermesBridge:this.codexBridge;}
+ bridgeFor(provider:ProviderId):ProviderBridge{return provider==='opencode'?this.opencodeBridge:provider==='claude'?this.claudeBridge:provider==='hermes'?this.hermesBridge:provider==='siri'?this.siriBridge:this.codexBridge;}
+ get siriBridgeRef():SiriBridge{return this.siriBridge;}
+ /** Providers this machine can run: Siri AI only on macOS 27 with Apple's fm tool. */
+ availableProviders():ProviderId[]{return PROVIDER_TAB_ORDER.filter(id=>id!=='siri'||siriSupported());}
+ /** The switch at the top of a provider's settings tab. */
+ isProviderEnabled(provider:ProviderId):boolean{return this.prefs.enabledProviders[provider]!==false&&(provider!=='siri'||siriSupported());}
+ /** Primary, secondary, third… providers: enabled, connected, in the order set in General. */
+ providerOrder():ProviderId[]{const order=[this.prefs.provider,...this.prefs.fallbacks];return order.filter((id,index)=>order.indexOf(id)===index&&this.isProviderEnabled(id));}
  get codexBridgeRef():CodexBridge{return this.codexBridge;}
  get opencodeBridgeRef():OpencodeBridge{return this.opencodeBridge;}
  get claudeBridgeRef():ClaudeBridge{return this.claudeBridge;}
@@ -99,7 +107,7 @@ export default class Butler extends Plugin {
  /** Model and reasoning effort of the provider the user selected. */
  get selectedModelPrefs():ProviderPrefs{return this.prefs.models[this.prefs.provider];}
  providerName(provider:ProviderId=this.activeProvider):string{return PROVIDER_NAMES[provider];}
- providerExecutable(provider:ProviderId=this.prefs.provider):string{return provider==='opencode'?this.prefs.opencodeExecutable:provider==='claude'?this.prefs.claudeExecutable:provider==='hermes'?this.prefs.hermesExecutable:this.prefs.codexExecutable;}
+ providerExecutable(provider:ProviderId=this.prefs.provider):string{return provider==='siri'?FM_EXECUTABLE:provider==='opencode'?this.prefs.opencodeExecutable:provider==='claude'?this.prefs.claudeExecutable:provider==='hermes'?this.prefs.hermesExecutable:this.prefs.codexExecutable;}
  providerSessionDirectory(provider:ProviderId=this.activeProvider):string{return join(this.vaultStorage(),provider+'-session');}
 
  get pendingEdits():readonly EditBatch[] { return this.pending; }
@@ -107,7 +115,7 @@ export default class Butler extends Plugin {
 
  async onload(){
   addIcon('owla-bird',BIRD_ICON);
-  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);this.sessionAvailability?.load(this.prefs.modelUnavailability);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();this.hermesBridge.onStatus=()=>this.refreshConnection();
+  const previous:unknown=await this.loadData(),migrated=readSettings(previous);this.prefs=disableAutomaticSelectionOutsideMac(migrated);this.sessionAvailability?.load(this.prefs.modelUnavailability);if(record(previous).schemaVersion!==3||!record(record(previous).platforms)[platformKey()]||migrated.automaticProvider!==this.prefs.automaticProvider||migrated.automaticRouting!==this.prefs.automaticRouting)await this.save();this.codexBridge.onStatus=()=>this.refreshConnection();this.opencodeBridge.onStatus=()=>this.refreshConnection();this.claudeBridge.onStatus=()=>this.refreshConnection();this.hermesBridge.onStatus=()=>this.refreshConnection();this.siriBridge.onStatus=()=>this.refreshConnection();
   try {
    this.pending = loadPendingEdits(this.vaultStorage(), this.prefs.excludedFolders);
   } catch (e) {
@@ -289,7 +297,8 @@ export default class Butler extends Plugin {
   codex:{provider:'codex',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
   opencode:{provider:'opencode',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
   hermes:{provider:'hermes',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
-  claude:{provider:'claude',exhausted:false,resetsAt:null,reason:'',scope:'provider'}
+  claude:{provider:'claude',exhausted:false,resetsAt:null,reason:'',scope:'provider'},
+  siri:{provider:'siri',exhausted:false,resetsAt:null,reason:'',scope:'provider'}
  };
  get fallbackActive(){return this.fallbackProvider!==null;}
   exhaustionOf(provider:ProviderId):ProviderExhaustion{return this.exhaustion[provider];}
@@ -321,7 +330,7 @@ export default class Butler extends Plugin {
    // A limit error records exhaustion on the bridge even when the meters read
    // below 100%; prefer that record while it is live (providers audit U1).
    ?(this.codexBridge.exhaustion?.exhausted?this.codexBridge.exhaustion:codexExhaustion(this.codexBridge.usage))
-   :(provider==='opencode'?this.opencodeBridge.exhaustion:provider==='hermes'?this.hermesBridge.exhaustion:this.claudeBridge.exhaustion)??fresh;
+   :(provider==='opencode'?this.opencodeBridge.exhaustion:provider==='hermes'?this.hermesBridge.exhaustion:provider==='siri'?this.siriBridge.exhaustion:this.claudeBridge.exhaustion)??fresh;
   // A reported reset time lets any provider be tried again once it passes;
   // Codex's error-based record carries a bounded retry reset, and its meter
   // windows are already reset-filtered (providers audit P1/U1).
@@ -330,31 +339,29 @@ export default class Butler extends Plugin {
   return state;
  }
  /** Whether a provider can serve as the fallback without a setup step. */
- private fallbackUsable(provider:ProviderId){return this.isProviderConnected(provider);}
- /** Decides whether the next turn moves to OpenCode or back to Codex. */
+ private fallbackUsable(provider:ProviderId){return this.isProviderEnabled(provider)&&this.isProviderConnected(provider);}
+ /** Siri AI as the last resort once every other provider is out of usage (General → Siri AI fallback). */
+ siriFallbackUsable():boolean{return this.prefs.siriFallback&&this.fallbackUsable('siri');}
+ /**
+  * Decides which provider serves the next turn: the primary, else the first
+  * secondary, third… provider that still has usage, else Siri AI when it is
+  * the global fallback. Returns the provider switched to, or null.
+  */
  applyFallback():ProviderId|null{
   // Automatic selection never offers an exhausted provider, so no fallback is needed.
   if(this.prefs.automaticProvider){this.fallbackProvider=null;return null;}
-  const primary=this.prefs.provider,fallback=this.prefs.fallback;
-  // Refresh both records first: a fallback whose reset passed must not stay
+  const primary=this.prefs.provider;
+  const chain=this.prefs.fallbacks.filter(id=>id!==primary&&this.fallbackUsable(id));
+  if(this.siriFallbackUsable()&&primary!=='siri'&&!chain.includes('siri'))chain.push('siri');
+  // Refresh every record first: a fallback whose reset passed must not stay
   // "exhausted" from a stale stored state (providers audit U10).
   this.recordExhaustion(primary);
-  if(fallback!=='none')this.recordExhaustion(fallback);
-  if(fallback==='none'||fallback===primary||!this.fallbackUsable(fallback)){
-   const returned=this.fallbackProvider!==null;
-   this.fallbackProvider=null;
-   return returned?primary:null;
-  }
-  if(this.exhaustion[primary].exhausted&&!this.exhaustion[fallback].exhausted){
-   if(this.fallbackProvider===fallback)return null;
-   this.fallbackProvider=fallback;
-   return fallback;
-  }
-  if(this.fallbackProvider!==null&&!this.exhaustion[primary].exhausted){
-   this.fallbackProvider=null;
-   return primary;
-  }
-  return null;
+  for(const id of chain)this.recordExhaustion(id);
+  const target=this.exhaustion[primary].exhausted?chain.find(id=>!this.exhaustion[id].exhausted)??null:null;
+  if(target===this.fallbackProvider)return null;
+  const previous=this.fallbackProvider;
+  this.fallbackProvider=target;
+  return target??(previous!==null?primary:null);
  }
  /** Checks whether the selected provider's usage has reset, so OWLA can return to it. */
  async probePrimaryQuota():Promise<void>{
@@ -375,14 +382,18 @@ export default class Butler extends Plugin {
  }
  /** Providers that can be offered to Automatic selection this turn. */
  automaticCandidates():ProviderId[]{
-  return PROVIDER_IDS.filter(provider=>{
-   if(!this.isProviderConnected(provider))return false;
+  const candidates=PROVIDER_IDS.filter(provider=>{
+   // Switched-off providers are never started, weighed or offered.
+   if(provider==='siri'||!this.isProviderEnabled(provider)||!this.isProviderConnected(provider))return false;
    if(provider==='opencode'&&!(this.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'')))return false;
    if(provider==='hermes'&&!(this.prefs.hermesExecutable||findHermesExecutable(process.env.PATH??'')))return false;
    if(provider==='claude'&&!(this.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'')))return false;
    // OpenCode counts as exhausted only once every one of its models is blocked.
    return !this.recordExhaustion(provider).exhausted;
   });
+  // Siri AI joins only as the last resort, when nothing else has usage left.
+  if(!candidates.length&&this.siriFallbackUsable()&&!this.recordExhaustion('siri').exhausted)return ['siri'];
+  return candidates;
  }
  /** Connects every candidate in parallel and collects what each can offer. */
  async automaticOffers(tools:ToolSpec[]):Promise<{offers:ProviderOffer[];failed:{provider:ProviderId;message:string}[]}>{
@@ -409,6 +420,73 @@ export default class Butler extends Plugin {
   }));
   return {offers:results.flatMap(item=>item.offer?[item.offer]:[]),failed:[...exhausted,...results.flatMap(item=>item.failed?[item.failed]:[])]};
  }
+ /**
+  * The switch at the top of a provider tab. Turning a provider off stops its
+  * process, drops it from the provider order, Automatic selection and the
+  * warm-up, and moves Primary to the next enabled provider.
+  */
+ async setProviderEnabled(provider:ProviderId,enabled:boolean):Promise<void>{
+  if(enabled===this.isProviderEnabled(provider))return;
+  if(enabled&&provider==='siri'&&!siriSupported())throw Error('Siri AI needs macOS 27 or newer.');
+  if(!enabled){
+   if(this.view?.isBusy())throw Error('Stop the current reply first.');
+   if(!this.availableProviders().some(id=>id!==provider&&this.isProviderEnabled(id)))throw Error('Keep at least one provider switched on.');
+  }
+  this.prefs.enabledProviders={...this.prefs.enabledProviders,[provider]:enabled};
+  if(!enabled){
+   this.view?.clearWarmup();
+   this.bridgeFor(provider).disconnect('Switched off in settings');
+   if(provider==='siri')this.prefs.siriFallback=false;
+   if(this.prefs.provider===provider)this.prefs.provider=this.availableProviders().find(id=>this.isProviderEnabled(id)&&this.isProviderConnected(id))??this.availableProviders().find(id=>this.isProviderEnabled(id))!;
+   if(this.autoProvider===provider)this.autoProvider=null;
+  }
+  this.setFallbacks(this.prefs.fallbacks);
+  clearRoutingCache();
+  this.applyFallback();
+  this.view?.refreshModel();
+  this.refreshConnection();
+  await this.save();
+ }
+ private setFallbacks(list:ProviderId[]){
+  const fallbacks=list.filter((id,index)=>id!==this.prefs.provider&&list.indexOf(id)===index&&this.isProviderEnabled(id));
+  this.prefs.fallbacks=fallbacks;
+  this.prefs.fallback=fallbacks[0]??'none';
+ }
+ /** Primary first, then secondary, third… (General → provider order). */
+ async setProviderOrder(order:ProviderId[]):Promise<void>{
+  const [primary,...rest]=order.filter(id=>this.isProviderEnabled(id));
+  if(!primary)return;
+  const changed=primary!==this.prefs.provider;
+  this.prefs.provider=primary;
+  this.setFallbacks(rest);
+  if(changed){this.autoProvider=null;this.fallbackProvider=null;this.view?.clearWarmup();}
+  this.applyFallback();
+  this.view?.refreshModel();
+  this.refreshConnection();
+  await this.save();
+ }
+ /** General → Siri AI as global fallback. Switches Siri AI on and connects it when needed. */
+ async setSiriFallback(enabled:boolean):Promise<void>{
+  if(!enabled){this.prefs.siriFallback=false;this.applyFallback();await this.save();return;}
+  if(!siriSupported())throw Error('Siri AI needs macOS 27 or newer.');
+  if(!this.isProviderEnabled('siri'))await this.setProviderEnabled('siri',true);
+  if(!this.isProviderConnected('siri'))await this.connect({explicit:true,automatic:true,provider:'siri'});
+  this.prefs.siriFallback=true;
+  this.applyFallback();
+  await this.save();
+ }
+ /** Automatic tab → "Automatic model and reasoning effort": one switch for provider, model and effort. */
+ async setAutomatic(enabled:boolean):Promise<void>{
+  if(enabled&&!supportsAutomaticSelection())return;
+  if(enabled===this.prefs.automaticProvider&&enabled===this.prefs.automaticRouting)return;
+  this.prefs.automaticProvider=enabled;
+  this.prefs.automaticRouting=enabled;
+  this.autoProvider=null;
+  this.applyFallback();
+  this.view?.clearWarmup();
+  this.view?.refreshModel();
+  await this.save();
+ }
  async useProvider(provider:ProviderId):Promise<void>{
   this.prefs.provider=provider;
   this.fallbackProvider=null;
@@ -431,6 +509,7 @@ export default class Butler extends Plugin {
  }
  async connect({keepAlive=false,automatic=this.automaticModels,explicit=false,provider=this.activeProvider,tools}:{keepAlive?:boolean;automatic?:boolean;explicit?:boolean;provider?:ProviderId;tools?:ToolSpec[]}={}){
   const bridge=this.bridgeFor(provider);
+  if(!this.isProviderEnabled(provider))throw Error('Turn on '+PROVIDER_NAMES[provider]+' at the top of its tab in OWLA Butler settings first.');
   if(!this.isProviderConnected(provider)&&!explicit)throw Error(CONNECT_FIRST);
   const release=keepAlive?undefined:bridge.hold();
   try{
@@ -489,7 +568,7 @@ export default class Butler extends Plugin {
   this.bridgeFor(provider).accountType=undefined;
   this.bridgeFor(provider).disconnect();
   if(this.activeProvider===provider){
-   const next=PROVIDER_IDS.find(id=>id!==provider&&this.prefs[`${id}Connected`]);
+   const next=PROVIDER_IDS.find(id=>id!==provider&&this.isProviderEnabled(id)&&this.prefs[`${id}Connected`]);
    if(next)this.prefs.provider=next;
    this.fallbackProvider=null;
   }
@@ -1251,7 +1330,7 @@ export class ButlerView extends ItemView {
  private scheduleWarmup(){
   // Typing is the cue to load Apple's model, so the routing call on Send runs warm.
   if((this.butler.automaticModels||this.butler.prefs.automaticProvider)&&this.composer.value.trim()&&!this.isBusy())void prewarmFoundationModels();
-  if(!this.butler.isProviderConnected(this.butler.activeProvider)||this.isBusy()||this.awaitingReview||!this.composer.value.trim()){
+  if(!this.butler.isProviderEnabled(this.butler.activeProvider)||!this.butler.isProviderConnected(this.butler.activeProvider)||this.isBusy()||this.awaitingReview||!this.composer.value.trim()){
    this.clearWarmup();
    return;
   }
@@ -3259,9 +3338,10 @@ export class ButlerView extends ItemView {
   }
   // The provider is out of usage: only the user's chosen fallback may take
   // over, exactly as applyFallback() would. 'none' means never switch.
-  const nextProvider=this.butler.prefs.fallback;
-  if(nextProvider==='none'||nextProvider===provider||this.butler.exhaustionOf(nextProvider).exhausted)return null;
-  if(!this.butler.isProviderConnected(nextProvider))return null;
+  // The next provider in the order set in General, then Siri AI when it is the global fallback.
+  const chain=[...this.butler.prefs.fallbacks,...(this.butler.siriFallbackUsable()?['siri' as const]:[])];
+  const nextProvider=chain.find(id=>id!==provider&&this.butler.isProviderEnabled(id)&&this.butler.isProviderConnected(id)&&!this.butler.exhaustionOf(id).exhausted);
+  if(!nextProvider)return null;
   const bridge=this.butler.bridgeFor(nextProvider);
   // The fallback may not have been connected yet this session.
   if(!bridge.selectableModels.length){
@@ -3286,7 +3366,7 @@ export class ButlerView extends ItemView {
   if(all)box.createEl('p',{text:describeProviders(states)});
   else for(const state of states)box.createEl('p',{text:exhaustionLabel(state)});
   const current=states[0].provider,preferred=this.butler.prefs.fallback;
-  const usable=(id:ProviderId)=>id!==current&&!this.butler.exhaustionOf(id).exhausted&&(this.butler.isProviderConnected(id));
+  const usable=(id:ProviderId)=>id!==current&&!this.butler.exhaustionOf(id).exhausted&&this.butler.isProviderEnabled(id)&&this.butler.isProviderConnected(id);
   const alternative:ProviderId|null=preferred!=='none'&&usable(preferred)?preferred:PROVIDER_IDS.find(usable)??null;
   if(this.butler.prefs.automaticProvider){
    box.createEl('p',{text:alternative?'Automatic selection uses another connected provider for the next message.':'No other connected provider is available.'});
@@ -3390,22 +3470,50 @@ function imageForCodex(canvas:HTMLCanvasElement,preferPng:boolean):string{
 async function resizedImage(file:File):Promise<string>{
  if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Use a PNG, JPEG or WebP screenshot.');
  const url=URL.createObjectURL(file);try{const im=new Image();im.src=url;await im.decode();const scale=Math.min(1,2048/Math.max(im.width,im.height));const canvas=createEl('canvas');canvas.width=Math.max(1,Math.round(im.width*scale));canvas.height=Math.max(1,Math.round(im.height*scale));const ctx=canvas.getContext('2d');if(!ctx)throw Error('Could not read this image.');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(im,0,0,canvas.width,canvas.height);return imageForCodex(canvas,true);}finally{URL.revokeObjectURL(url);}}
+type SettingsTabId='general'|ProviderId|'automatic';
+const TAB_LABELS:Record<SettingsTabId,string>={general:'General',codex:'Codex',claude:'Claude',opencode:'OpenCode',hermes:'Hermes',siri:'Siri AI',automatic:'Automatic'};
+const ORDER_LABELS=['Primary provider','Secondary provider','Third provider','Fourth provider','Fifth provider'];
 class ButlerSettingsTab extends PluginSettingTab {
  private usageEls=new Map<ProviderId,HTMLElement>();
  private connectionUpdaters=new Set<()=>void>();
  private usageUpdaters=new Set<()=>void>();
+ private usageRefreshers=new Map<ProviderId,()=>void>();
+ private tabButtons=new Map<SettingsTabId,HTMLButtonElement>();
+ /** The open tab. Kept across re-renders so a change does not jump back to General. */
+ private tab:SettingsTabId='general';
  renderConnectionStatus(){for(const update of this.connectionUpdaters)update();for(const update of this.usageUpdaters)update();for(const id of PROVIDER_IDS)this.renderUsage(id);}
  constructor(app:App,private butler:Butler){super(app,butler);}
  private bridgeOf(provider:ProviderId):ProviderBridge{return this.butler.bridgeFor(provider);}
- private updateFallback?:()=>void;
- private visibleFor(provider:ProviderId){return ()=>this.butler.prefs.automaticProvider||this.butler.prefs.provider===provider;}
- private privacyText(){return this.butler.prefs.automaticProvider
-  ?'Each message goes to one of your connected providers: OpenAI through Codex, the providers you connected in OpenCode, or Anthropic through Claude Code. Apple’s on-device model chooses which, on this Mac. Suggested edits are applied provisionally for you to accept or decline.'
-  :this.butler.prefs.provider==='claude'
+ /** General, one tab per provider this machine can run, then Automatic (macOS only). */
+ private tabs():SettingsTabId[]{return ['general',...this.butler.availableProviders(),...(supportsAutomaticSelection()?['automatic' as const]:[])];}
+ private on(tab:SettingsTabId,also:()=>boolean=()=>true){return ()=>this.tab===tab&&also();}
+ /** Provider rows past the top switch are shown only while that provider is switched on. */
+ private onProvider(provider:ProviderId){return this.on(provider,()=>this.butler.isProviderEnabled(provider));}
+ private showTab(tab:SettingsTabId){
+  this.tab=tab;
+  for(const [id,button] of this.tabButtons){
+   const active=id===tab;
+   button.toggleClass('is-active',active);
+   button.setAttr('aria-selected',String(active));
+   button.tabIndex=active?0:-1;
+  }
+  this.refreshDomState();
+  // Usage is read only when its tab is opened, so settings never start every provider at once.
+  if(tab!=='general'&&tab!=='automatic')this.usageRefreshers.get(tab)?.();
+ }
+ private privacyText(){
+  if(this.butler.prefs.automaticProvider)return 'Each message goes to one of your enabled providers: OpenAI through Codex, the providers you connected in OpenCode or Hermes, or Anthropic through Claude Code. Apple’s on-device model chooses which, on this Mac. Suggested edits are applied provisionally for you to accept or decline.';
+  const provider=this.butler.prefs.provider;
+  return provider==='claude'
   ?'Use your existing Claude Code login. Selected note context and attachments are processed by Anthropic under your Claude plan. Suggested edits are applied provisionally for you to accept or decline.'
-  :this.butler.prefs.provider==='opencode'
+  :provider==='opencode'
   ?'Selected note context and attachments are processed by the providers you connected in OpenCode. Suggested edits are applied provisionally for you to accept or decline.'
-  :'Use your existing Codex ChatGPT login. Selected note context and attachments are processed by OpenAI. Suggested edits are applied provisionally for you to accept or decline.';}
+  :provider==='hermes'
+  ?'Selected note context and attachments are processed by the providers you connected in Hermes Agent. Suggested edits are applied provisionally for you to accept or decline.'
+  :provider==='siri'
+  ?'Selected note context is processed by Apple Foundation Models: on Apple’s Private Cloud Compute, or on this Mac with the on-device model. Suggested edits are applied provisionally for you to accept or decline.'
+  :'Use your existing Codex ChatGPT login. Selected note context and attachments are processed by OpenAI. Suggested edits are applied provisionally for you to accept or decline.';
+ }
  private renderUsage(provider:ProviderId){
   const el=this.usageEls.get(provider);
   if(!el?.isConnected)return;
@@ -3426,7 +3534,7 @@ class ButlerSettingsTab extends PluginSettingTab {
  }
  private async refreshUsage(provider:ProviderId){
   const bridge=this.bridgeOf(provider);
-  if((!this.butler.isProviderConnected(provider)||bridge.signInPending))return;
+  if(!this.butler.isProviderEnabled(provider)||!this.butler.isProviderConnected(provider)||bridge.signInPending)return;
   const release=bridge.hold();
   try{
    await this.butler.connect({keepAlive:true,automatic:true,provider});
@@ -3435,11 +3543,12 @@ class ButlerSettingsTab extends PluginSettingTab {
   finally{await release();this.renderUsage(provider);}
  }
  private usageSection(provider:ProviderId,label:string,description:string):SettingDefinitionItem{
-  return {name:label,desc:description,visible:this.visibleFor(provider),render:setting=>{
+  return {name:label,desc:description,visible:this.onProvider(provider),render:setting=>{
    let refresh!:ButtonComponent;
    let refreshing=false;
-   const update=()=>{refresh.setDisabled(refreshing||(!this.butler.isProviderConnected(provider)||provider==='codex'&&this.butler.codexBridgeRef.signInPending));};
+   const update=()=>{refresh.setDisabled(refreshing||!this.butler.isProviderEnabled(provider)||!this.butler.isProviderConnected(provider)||provider==='codex'&&this.butler.codexBridgeRef.signInPending);};
    const refreshUsage=async()=>{
+    if(refreshing)return;
     refreshing=true;
     update();
     try{await this.refreshUsage(provider);}
@@ -3447,14 +3556,16 @@ class ButlerSettingsTab extends PluginSettingTab {
    };
    setting.addButton(b=>{refresh=b.setButtonText('Refresh usage').onClick(()=>void refreshUsage());});
    this.usageUpdaters.add(update);
+   const refresher=()=>void refreshUsage();
+   this.usageRefreshers.set(provider,refresher);
    const usage=setting.descEl.createDiv('owla-usage');this.usageEls.set(provider,usage);
    this.renderUsage(provider);
-   void refreshUsage();
-   return ()=>{this.usageUpdaters.delete(update);if(this.usageEls.get(provider)===usage)this.usageEls.delete(provider);};
+   if(this.tab===provider)refresher();
+   return ()=>{this.usageUpdaters.delete(update);if(this.usageRefreshers.get(provider)===refresher)this.usageRefreshers.delete(provider);if(this.usageEls.get(provider)===usage)this.usageEls.delete(provider);};
   }};
  }
  private executableSection(provider:ProviderId,label:string):SettingDefinitionItem{
-  return {name:label,desc:this.butler.providerExecutable(provider)||'Automatically detected on this device.',visible:this.visibleFor(provider),render:setting=>{
+  return {name:label,desc:this.butler.providerExecutable(provider)||'Automatically detected on this device.',visible:this.onProvider(provider),render:setting=>{
    setting.addButton(b=>b.setButtonText('Choose executable…').onClick(()=>{
     const input=setting.settingEl.createEl('input',{type:'file',cls:'owla-hidden'});
     input.onchange=async()=>{
@@ -3475,69 +3586,147 @@ class ButlerSettingsTab extends PluginSettingTab {
    }));
   }};
  }
- getSettingDefinitions():SettingDefinitionItem[]{
-  return [
-  {name:'Assistant provider',desc:'Choose which assistant answers your messages. Codex uses your ChatGPT login. OpenCode uses the providers you connected in OpenCode, including its free models. Claude Code uses your Claude subscription login. Hermes Agent uses the providers you connected in Hermes.',render:setting=>{
-   setting.addDropdown(dropdown=>{
-    if(supportsAutomaticSelection())dropdown.addOption('auto','Automatic');
-    dropdown.addOption('codex','Codex').addOption('opencode','OpenCode').addOption('claude','Claude Code').addOption('hermes','Hermes Agent');
-    const automaticProvider=supportsAutomaticSelection()&&this.butler.prefs.automaticProvider;
-    const automaticOption=Array.from(dropdown.selectEl.options).find(option=>option.value==='auto');
-    if(automaticOption)automaticOption.disabled=!hasFoundationModelsCLI()&&!automaticProvider;
-    dropdown.setValue(automaticProvider?'auto':this.butler.prefs.provider);
-    dropdown.onChange(async value=>{
-    if(value==='auto'){
-     if(!supportsAutomaticSelection())return;
-     if(this.butler.prefs.automaticProvider)return;
-     this.butler.prefs.automaticProvider=true;
-     this.butler.autoProvider=null;
-     this.butler.applyFallback();
-     this.butler.view?.clearWarmup();
-     this.butler.view?.refreshModel();
-     await this.butler.save();
-     this.update();
-     return;
-    }
-    const next=value as ProviderId;
-    if(next===this.butler.prefs.provider&&!this.butler.prefs.automaticProvider)return;
-    this.butler.prefs.automaticProvider=false;
-    this.butler.autoProvider=null;
-    this.butler.view?.refreshModel();
-    this.butler.prefs.provider=next;
-    if(this.butler.prefs.fallback===next)this.butler.prefs.fallback='none';
-    this.butler.applyFallback();
-    this.updateFallback?.();
-    this.butler.view?.clearWarmup();
-    await this.butler.save();
+ /** The switch at the very top of a provider tab. */
+ private enableSection(provider:ProviderId):SettingDefinitionItem{
+  const name=PROVIDER_NAMES[provider];
+  return {name:'Use '+name,desc:'When off, OWLA never starts, warms up or measures '+name+', and leaves it out of Automatic selection and the provider order. Your connection is kept for when you turn it back on.',visible:this.on(provider),render:setting=>{
+   setting.settingEl.addClass('owla-provider-switch');
+   setting.addToggle(toggle=>toggle.setValue(this.butler.isProviderEnabled(provider)).onChange(async value=>{
+    try{await this.butler.setProviderEnabled(provider,value);}
+    catch(e){new Notice(friendlyError(e));toggle.setValue(this.butler.isProviderEnabled(provider));return;}
     this.update();
-   });
-   });
-  }},
-  {name:'Fallback provider',desc:'When the selected provider reports that its usage limit is reached, OWLA serves the next messages with this provider and switches back as soon as the limit resets. Choose None to be told instead of switched.',visible:()=>!this.butler.prefs.automaticProvider,render:setting=>{
-   setting.addDropdown(dropdown=>{
-    dropdown.addOption('none','None');
-    for(const id of PROVIDER_IDS)dropdown.addOption(id,PROVIDER_NAMES[id]);
-    const update=()=>{
-     for(const option of Array.from(dropdown.selectEl.options))option.disabled=option.value===this.butler.prefs.provider;
-     dropdown.setValue(this.butler.prefs.fallback);
-    };
-    dropdown.onChange(async value=>{
-     const next=value as FallbackChoice;
-     if(next===this.butler.prefs.provider){update();return;}
-     this.butler.prefs.fallback=next;
-     this.butler.applyFallback();
-     await this.butler.save();
-    });
-    this.updateFallback=update;
+   }));
+  }};
+ }
+ private connectionSection(provider:Exclude<ProviderId,'codex'>,name:string,desc:string,detected:()=>string,connectLabel:string,extra?:(setting:Setting)=>void):SettingDefinitionItem{
+  return {name,desc,visible:this.onProvider(provider),render:setting=>{
+   const status=setting.descEl.createEl('p',{attr:{role:'status'}});
+   const path=detected();
+   setting.descEl.createEl('p',{text:path?'Detected at '+path+'.':PROVIDER_NAMES[provider]+' was not found. Install it, or choose its executable.'});
+   extra?.(setting);
+   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
+   let pending=false;
+   const update=()=>{
+    const connected=this.butler.isProviderConnected(provider);
+    status.setText(this.butler.providerStatus(provider));
+    connect.buttonEl.toggle(!connected);
+    verify.buttonEl.toggle(connected);
+    disconnect.buttonEl.toggle(connected);
+    connect.setDisabled(pending);
+    verify.setDisabled(pending);
+    disconnect.setDisabled(pending);
+   };
+   const run=async(action:()=>Promise<void>)=>{
+    pending=true;
     update();
+    try{await action();}
+    catch(e){new Notice(friendlyError(e));}
+    finally{pending=false;update();}
+   };
+   setting.addButton(b=>{connect=b.setButtonText(connectLabel).setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider})));})
+   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider(provider)));})
+   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider(provider)));});
+   this.connectionUpdaters.add(update);
+   update();
+   return ()=>{this.connectionUpdaters.delete(update);};}};
+ }
+ /** One slot of the provider order: Primary, Secondary, Third… */
+ private orderSlot(index:number):SettingDefinitionItem{
+  const desc=index===0
+   ?'Answers your messages. Choose the model and reasoning effort in the sidebar.'
+   :'Serves the next messages while every provider above it has reached its usage limit. OWLA switches back as soon as a limit resets. Choose None to be told instead of switched.';
+  const order=()=>this.butler.providerOrder();
+  return {name:ORDER_LABELS[index],desc,visible:this.on('general',()=>{
+   const enabled=this.butler.availableProviders().filter(id=>this.butler.isProviderEnabled(id)).length;
+   return index===0||index<enabled&&index<=order().length;
+  }),render:setting=>{
+   const automatic=supportsAutomaticSelection()&&this.butler.prefs.automaticProvider;
+   if(automatic&&index===0)setting.descEl.createDiv({text:'Automatic model and reasoning effort is on: OWLA chooses among your enabled providers for every message, so this order is not used.',cls:'owla-setting-note'});
+   setting.addDropdown(dropdown=>{
+    const current=order(),earlier=current.slice(0,index);
+    if(index>0)dropdown.addOption('none','None');
+    for(const id of this.butler.availableProviders())if(this.butler.isProviderEnabled(id)&&!earlier.includes(id))dropdown.addOption(id,PROVIDER_NAMES[id]);
+    dropdown.setValue(current[index]??(index===0?this.butler.prefs.provider:'none'));
+    dropdown.setDisabled(automatic);
+    dropdown.onChange(async value=>{
+     const next=current.slice(0,index);
+     if(value!=='none')next.push(value as ProviderId,...current.slice(index+1).filter(id=>id!==value));
+     await this.butler.setProviderOrder(next);
+     this.update();
+    });
    });
-   return ()=>{this.updateFallback=undefined;};
+  }};
+ }
+ getSettingDefinitions():SettingDefinitionItem[]{
+  this.tabButtons.clear();
+  if(!this.tabs().includes(this.tab))this.tab='general';
+  const general=(also?:()=>boolean)=>this.on('general',also);
+  return [
+  {name:'Settings sections',searchable:false,render:setting=>{
+   setting.settingEl.addClass('owla-settings-tabs');
+   setting.infoEl.remove();
+   const list=setting.controlEl.createDiv({cls:'owla-settings-tablist',attr:{role:'tablist','aria-label':'OWLA Butler settings'}});
+   const ids=this.tabs();
+   for(const id of ids){
+    const button=list.createEl('button',{text:TAB_LABELS[id],cls:'owla-settings-tab',attr:{type:'button',role:'tab'}});
+    button.onclick=()=>this.showTab(id);
+    button.onkeydown=event=>{
+     if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;
+     event.preventDefault();
+     const next=ids[(ids.indexOf(id)+(event.key==='ArrowRight'?1:ids.length-1))%ids.length];
+     this.showTab(next);
+     this.tabButtons.get(next)?.focus();
+    };
+    this.tabButtons.set(id,button);
+   }
+   this.showTab(this.tab);
   }},
-  {name:'Account and privacy',render:setting=>{
+  // General
+  ...ORDER_LABELS.map((_,index)=>this.orderSlot(index)),
+  {name:'Siri AI as global fallback',desc:'When every other enabled provider has reached its usage limit, OWLA answers with Siri AI (Apple Foundation Models on Private Cloud Compute) until a limit resets. Siri AI has its own Apple Account usage limits and a smaller context window. Requires macOS 27.',visible:general(()=>this.butler.availableProviders().includes('siri')),render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.siriFallback).onChange(async value=>{
+    try{await this.butler.setSiriFallback(value);}
+    catch(e){new Notice(friendlyError(e));}
+    toggle.setValue(this.butler.prefs.siriFallback);
+    this.update();
+   }));
+  }},
+  {name:'Account and privacy',visible:general(),render:setting=>{
    setting.descEl.createEl('p',{text:this.privacyText()});
   }},
-  {name:'Codex connection',desc:'Codex 0.162.1 or newer must be installed and signed in with ChatGPT. OWLA starts it on demand with its shell, file and MCP access turned off. No API key is needed.',visible:this.visibleFor('codex'),render:setting=>{
-   setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
+  {name:'Allow web search',desc:'The assistant can search the web when needed. Search queries may be based on the context you provide. Siri AI does not search the web.',visible:general(),render:setting=>{setting.addToggle(t=>t.setValue(this.butler.prefs.webSearch).onChange(async value=>{this.butler.view?.clearWarmup();this.butler.prefs.webSearch=value;await this.butler.save();}));}},
+  {name:'Plugin Interconnectivity',desc:'Let OWLA work with other plugins enabled in this vault. With Canvas, Bases and Excalidraw it can read, see and propose changes to canvases, bases and drawings, and create new ones. With the Pilafdob plugins it can look up and propose changes to Nicons icons, Pinup pins, and Folder and Graphs Plus graph options. You review each change before it is applied.',visible:general(),render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.pluginInterconnectivity).onChange(async enabled=>{
+    try{await this.butler.setPluginInterconnectivity(enabled);}
+    catch(e){new Notice(friendlyError(e));}
+   }));
+  }},
+  {name:'Background screenshots',desc:'With Plugin Interconnectivity on, OWLA can look at a canvas as Obsidian draws it. The canvas is shown over the window for under a second while the picture is taken, and Sources & activity notes each picture. Turn off to work from canvas text only. Excalidraw drawings are rendered by Excalidraw itself and are not affected.',visible:general(),render:setting=>{
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.visualScreenshots).onChange(async value=>{this.butler.prefs.visualScreenshots=value;await this.butler.save();}));
+  }},
+  {name:'Diff view',desc:'Choose how pending Markdown edits are displayed. Accept or decline changes in chat.',visible:general(),render:setting=>{setting.addDropdown(dropdown=>dropdown.addOption('highlights','Highlights in editor').addOption('none','None').addOption('split','Split diff view').setValue(this.butler.prefs.diffView).onChange(async value=>{this.butler.prefs.diffView=value as DiffView;refreshEditorDiff();this.butler.syncSplitDiff();await this.butler.save();}));}},
+  {name:'Excluded folders',desc:'Vault-relative paths, one per line. Hidden/configuration files are always excluded.',visible:general(),render:setting=>{setting.addTextArea(t=>t.setValue(this.butler.prefs.excludedFolders).onChange(async v=>{this.butler.prefs.excludedFolders=v;await this.butler.save();}));}},
+  {name:'Model unavailability memory',desc:'OWLA remembers models your plan refused, models blocked by your workspace’s privacy regions, and models that reject reasoning settings, and does not try them again. The memory survives restarts. Rate and usage limits are not stored here: they expire on their own.',visible:general(),render:setting=>{
+   const remembered=this.butler.sessionAvailability.size;
+   if(remembered)setting.descEl.createDiv({text:remembered+' model'+(remembered===1?' is':'s are')+' currently remembered.'});
+   let resetBtn!:ButtonComponent;
+   setting.addButton(b=>{
+    resetBtn=b.setButtonText('Reset OWLA model unavailability memory').onClick(async()=>{
+     resetBtn.setDisabled(true);
+     try{
+      const count=this.butler.resetModelUnavailability();
+      await this.butler.save();
+      new Notice(count?'OWLA forgot '+count+' remembered model'+(count===1?'':'s')+'. They can be tried again.':'OWLA had no remembered model refusals.');
+      this.update();
+     }catch(e){new Notice(friendlyError(e));}
+     finally{resetBtn.setDisabled(false);}
+    });
+   });
+  }},
+  {name:'Models and account limits',desc:'Choose the model and reasoning effort in the sidebar. Each provider’s tab shows its connection and the usage limits it reports. OWLA does not change global settings or sign out your other clients.',visible:general()},
+  // Codex
+  this.enableSection('codex'),
+  {name:'Codex connection',desc:'Codex 0.162.1 or newer must be installed and signed in with ChatGPT. OWLA starts it on demand with its shell, file and MCP access turned off. No API key is needed.',visible:this.onProvider('codex'),render:setting=>{
    const status=setting.descEl.createEl('p',{attr:{role:'status'}});
    const detected=this.butler.providerExecutable('codex')||findCodexExecutable(process.env.PATH??'');
    setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Codex was not found. Install it, or choose its executable.'});
@@ -3571,101 +3760,32 @@ class ButlerSettingsTab extends PluginSettingTab {
    return ()=>{this.connectionUpdaters.delete(update);};}},
   this.executableSection('codex','Codex executable'),
   this.usageSection('codex','Codex usage limits','Actual account limits reported by Codex, not an estimated message counter.'),
-  {name:'OpenCode connection',desc:'OpenCode 2.2 or newer must be installed. OWLA starts it on demand and uses the providers you connected in OpenCode.',visible:this.visibleFor('opencode'),render:setting=>{
-   setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
-   const status=setting.descEl.createEl('p',{attr:{role:'status'}});
-   const detected=this.butler.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'OpenCode was not found. Install it, or choose its executable.'});
-   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
-   let pending=false;
-   const update=()=>{
-    status.setText(this.butler.providerStatus('opencode'));
-    connect.buttonEl.toggle(!this.butler.isProviderConnected('opencode'));
-    verify.buttonEl.toggle(this.butler.isProviderConnected('opencode'));
-    disconnect.buttonEl.toggle(this.butler.isProviderConnected('opencode'));
-    connect.setDisabled(pending);
-    verify.setDisabled(pending);
-    disconnect.setDisabled(pending);
-   };
-   const run=async(action:()=>Promise<void>)=>{
-    pending=true;
-    update();
-    try{await action();}
-    catch(e){new Notice(friendlyError(e));}
-    finally{pending=false;update();}
-   };
-   setting.addButton(b=>{connect=b.setButtonText('Connect OpenCode').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'opencode'})));})
-   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('opencode')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('opencode')));});
-   this.connectionUpdaters.add(update);
-   update();
-   return ()=>{this.connectionUpdaters.delete(update);};}},
-  this.executableSection('opencode','OpenCode executable'),
-  this.usageSection('opencode','OpenCode usage limits','Limits reported by OpenCode for the plan or budgets you connected.'),
-  {name:'Hermes Agent connection',desc:'Hermes Agent must be installed and connected to at least one provider (run hermes setup or hermes model in your terminal). OWLA starts it on demand with your vault tools only.',visible:this.visibleFor('hermes'),render:setting=>{
-   setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
-   const status=setting.descEl.createEl('p',{attr:{role:'status'}});
-   const detected=this.butler.prefs.hermesExecutable||findHermesExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Hermes was not found. Install it, or choose its executable.'});
-   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
-   let pending=false;
-   const update=()=>{
-    status.setText(this.butler.providerStatus('hermes'));
-    connect.buttonEl.toggle(!this.butler.isProviderConnected('hermes'));
-    verify.buttonEl.toggle(this.butler.isProviderConnected('hermes'));
-    disconnect.buttonEl.toggle(this.butler.isProviderConnected('hermes'));
-    connect.setDisabled(pending);
-    verify.setDisabled(pending);
-    disconnect.setDisabled(pending);
-   };
-   const run=async(action:()=>Promise<void>)=>{
-    pending=true;
-    update();
-    try{await action();}
-    catch(e){new Notice(friendlyError(e));}
-    finally{pending=false;update();}
-   };
-   setting.addButton(b=>{connect=b.setButtonText('Connect Hermes').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'hermes'})));})
-   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('hermes')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('hermes')));});
-   this.connectionUpdaters.add(update);
-   update();
-   return ()=>{this.connectionUpdaters.delete(update);};}},
-  this.executableSection('hermes','Hermes executable'),
-  this.usageSection('hermes','Hermes usage limits','Hermes does not report its connected providers\' limits over its control interface, so no percentages are shown here.'),
-  {name:'Claude Code connection',desc:'Claude Code 2.1.322 or newer must be installed and signed in with your Claude account. OWLA starts it on demand with your CLAUDE.md, skills, plugins and built-in tools turned off. No API key is needed.',visible:this.visibleFor('claude'),render:setting=>{
-   setting.settingEl.toggleClass('owla-provider-divider',this.butler.prefs.automaticProvider);
-   const status=setting.descEl.createEl('p',{attr:{role:'status'}});
-   const detected=this.butler.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??'');
-   setting.descEl.createEl('p',{text:detected?'Detected at '+detected+'.':'Claude Code was not found. Install it, or choose its executable.'});
-   let connect!:ButtonComponent,verify!:ButtonComponent,disconnect!:ButtonComponent;
-   let pending=false;
-   const update=()=>{
-    status.setText(this.butler.providerStatus('claude'));
-    connect.buttonEl.toggle(!this.butler.isProviderConnected('claude'));
-    verify.buttonEl.toggle(this.butler.isProviderConnected('claude'));
-    disconnect.buttonEl.toggle(this.butler.isProviderConnected('claude'));
-    connect.setDisabled(pending);
-    verify.setDisabled(pending);
-    disconnect.setDisabled(pending);
-   };
-   const run=async(action:()=>Promise<void>)=>{
-    pending=true;
-    update();
-    try{await action();}
-    catch(e){new Notice(friendlyError(e));}
-    finally{pending=false;update();}
-   };
-   setting.addButton(b=>{connect=b.setButtonText('Connect Claude Code').setCta().onClick(()=>run(()=>this.butler.connect({explicit:true,provider:'claude'})));})
-   .addButton(b=>{verify=b.setButtonText('Verify connection').setCta().onClick(()=>run(()=>this.butler.verifyProvider('claude')));})
-   .addButton(b=>{disconnect=b.setButtonText('Disconnect').onClick(()=>run(()=>this.butler.disconnectProvider('claude')));});
-   this.connectionUpdaters.add(update);
-   update();
-   return ()=>{this.connectionUpdaters.delete(update);};}},
+  // Claude Code
+  this.enableSection('claude'),
+  this.connectionSection('claude','Claude Code connection','Claude Code 2.1.322 or newer must be installed and signed in with your Claude account. OWLA starts it on demand with your CLAUDE.md, skills, plugins and built-in tools turned off. No API key is needed.',()=>this.butler.prefs.claudeExecutable||findClaudeExecutable(process.env.PATH??''),'Connect Claude Code'),
   this.executableSection('claude','Claude Code executable'),
   this.usageSection('claude','Claude usage limits','Plan limits reported by Claude Code. They are read without sending a message and update after each reply.'),
-  {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to select a compatible model and reasoning effort from your prompt and attachment names.',visible:()=>supportsAutomaticSelection(),render:setting=>{
-   if(this.butler.prefs.automaticProvider)setting.descEl.createDiv({text:'The Automatic provider already chooses the model and reasoning effort for every message.'});
+  // OpenCode
+  this.enableSection('opencode'),
+  this.connectionSection('opencode','OpenCode connection','OpenCode 2.2 or newer must be installed. OWLA starts it on demand and uses the providers you connected in OpenCode.',()=>this.butler.prefs.opencodeExecutable||findOpencodeExecutable(process.env.PATH??''),'Connect OpenCode'),
+  this.executableSection('opencode','OpenCode executable'),
+  this.usageSection('opencode','OpenCode usage limits','Limits reported by OpenCode for the plan or budgets you connected.'),
+  // Hermes Agent
+  this.enableSection('hermes'),
+  this.connectionSection('hermes','Hermes Agent connection','Hermes Agent must be installed and connected to at least one provider (run hermes setup or hermes model in your terminal). OWLA starts it on demand with your vault tools only.',()=>this.butler.prefs.hermesExecutable||findHermesExecutable(process.env.PATH??''),'Connect Hermes'),
+  this.executableSection('hermes','Hermes executable'),
+  this.usageSection('hermes','Hermes usage limits','Hermes does not report its connected providers\' limits over its control interface, so no percentages are shown here.'),
+  // Siri AI
+  this.enableSection('siri'),
+  this.connectionSection('siri','Siri AI connection','Apple Foundation Models through the fm tool in macOS 27, with Apple Intelligence turned on. OWLA starts a private fm server on demand that can reach your vault only through OWLA’s tools. Siri AI reads text only: images are not sent, and it does not search the web.',()=>siriSupported()?FM_EXECUTABLE:'','Connect Siri AI',setting=>{
+   const setup=setting.descEl.createDiv();
+   setup.appendText('Before connecting, open Terminal, run ');
+   setup.createEl('code',{text:FOUNDATION_MODELS_LICENSE_COMMAND});
+   setup.appendText(' and accept Apple’s terms. If Private Cloud Compute is unavailable to Obsidian, OWLA uses the on-device model and says why.');
+  }),
+  this.usageSection('siri','Siri AI usage limits','Private Cloud Compute quota reported by fm quota-usage for your Apple Account. The on-device model has no usage limit.'),
+  // Automatic
+  {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to choose the provider, model and reasoning effort for every message from your prompt and attachment names. Only providers switched on in their tabs are considered. While this is on, the provider order in General is not used.',visible:this.on('automatic'),render:setting=>{
    const available=hasFoundationModelsCLI();
    if(!available)setting.descEl.createDiv({text:'The Foundation Models CLI is unavailable on this Mac.'});
    else{
@@ -3688,34 +3808,14 @@ class ButlerSettingsTab extends PluginSettingTab {
      }
     });
    });
-   setting.addToggle(toggle=>toggle.setValue(this.butler.automaticModels)
-    .setDisabled(this.butler.prefs.automaticProvider||!available&&!this.butler.prefs.automaticRouting)
+   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.automaticProvider)
+    .setDisabled(!available&&!this.butler.prefs.automaticProvider)
     .onChange(async value=>{
-     if(this.butler.prefs.automaticProvider)return;
-     this.butler.prefs.automaticRouting=value;
-     this.butler.view?.refreshModel();
-     await this.butler.save();
+     await this.butler.setAutomatic(value);
      this.update();
     }));
   }},
-  {name:'Model unavailability memory',desc:'OWLA remembers models your plan refused, models blocked by your workspace’s privacy regions, and models that reject reasoning settings, and does not try them again. The memory survives restarts. Rate and usage limits are not stored here: they expire on their own.',render:setting=>{
-   const remembered=this.butler.sessionAvailability.size;
-   if(remembered)setting.descEl.createDiv({text:remembered+' model'+(remembered===1?' is':'s are')+' currently remembered.'});
-   let resetBtn!:ButtonComponent;
-   setting.addButton(b=>{
-    resetBtn=b.setButtonText('Reset OWLA model unavailability memory').onClick(async()=>{
-     resetBtn.setDisabled(true);
-     try{
-      const count=this.butler.resetModelUnavailability();
-      await this.butler.save();
-      new Notice(count?'OWLA forgot '+count+' remembered model'+(count===1?'':'s')+'. They can be tried again.':'OWLA had no remembered model refusals.');
-      this.update();
-     }catch(e){new Notice(friendlyError(e));}
-     finally{resetBtn.setDisabled(false);}
-    });
-   });
-  }},
-  {name:'Automatic selection priority',desc:'Balance cost and capability, favour lower plan usage and free models, or favour higher-tier models and quality escalation.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:'Automatic selection priority',desc:'Balance cost and capability, favour lower plan usage and free models, or favour higher-tier models and quality escalation.',visible:this.on('automatic',()=>this.butler.prefs.automaticProvider),render:setting=>{
    setting.addDropdown(dropdown=>dropdown
     .addOption('cost','Cost')
     .addOption('balance','Balanced')
@@ -3727,39 +3827,26 @@ class ButlerSettingsTab extends PluginSettingTab {
      await this.butler.save();
     }));
   }},
-  {name:'Thorough automatic selection',desc:'Always run the on-device classifier with chain-of-thought reasoning, attachment names and raw note previews instead of fast local heuristics.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:'Thorough automatic selection',desc:'Always run the on-device classifier with chain-of-thought reasoning, attachment names and raw note previews instead of fast local heuristics.',visible:this.on('automatic',()=>this.butler.prefs.automaticProvider),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.routingThorough).onChange(async value=>{
     this.butler.prefs.routingThorough=value;
     clearRoutingCache();
     await this.butler.save();
    }));
   }},
-  {name:'Automatic selection privacy mode',desc:'Keep note excerpts, heading outlines, chat topics and filenames out of the on-device classifier. It still reads your request, on this Mac, so it can judge the task. The chosen assistant receives everything as usual.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:'Automatic selection privacy mode',desc:'Keep note excerpts, heading outlines, chat topics and filenames out of the on-device classifier. It still reads your request, on this Mac, so it can judge the task. The chosen assistant receives everything as usual.',visible:this.on('automatic',()=>this.butler.prefs.automaticProvider),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.routingPrivacyMode).onChange(async value=>{
     this.butler.prefs.routingPrivacyMode=value;
     clearRoutingCache();
     await this.butler.save();
    }));
   }},
-  {name:'Show automatic selection details',desc:'Include a collapsible section under each reply with the top candidate models and their scores.',visible:()=>supportsAutomaticSelection()&&(this.butler.prefs.automaticProvider||this.butler.prefs.automaticRouting),render:setting=>{
+  {name:'Show automatic selection details',desc:'Include a collapsible section under each reply with the top candidate models and their scores.',visible:this.on('automatic',()=>this.butler.prefs.automaticProvider),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.showRoutingDetails).onChange(async value=>{
     this.butler.prefs.showRoutingDetails=value;
     await this.butler.save();
    }));
-  }},
-  {name:'Allow web search',desc:'The assistant can search the web when needed. Search queries may be based on the context you provide.',render:setting=>{setting.addToggle(t=>t.setValue(this.butler.prefs.webSearch).onChange(async value=>{this.butler.view?.clearWarmup();this.butler.prefs.webSearch=value;await this.butler.save();}));}},
-  {name:'Plugin Interconnectivity',desc:'Let OWLA work with other plugins enabled in this vault. With Canvas, Bases and Excalidraw it can read, see and propose changes to canvases, bases and drawings, and create new ones. With the Pilafdob plugins it can look up and propose changes to Nicons icons, Pinup pins, and Folder and Graphs Plus graph options. You review each change before it is applied.',render:setting=>{
-   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.pluginInterconnectivity).onChange(async enabled=>{
-    try{await this.butler.setPluginInterconnectivity(enabled);}
-    catch(e){new Notice(friendlyError(e));}
-   }));
-  }},
-  {name:'Background screenshots',desc:'With Plugin Interconnectivity on, OWLA can look at a canvas as Obsidian draws it. The canvas is shown over the window for under a second while the picture is taken, and Sources & activity notes each picture. Turn off to work from canvas text only. Excalidraw drawings are rendered by Excalidraw itself and are not affected.',render:setting=>{
-   setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.visualScreenshots).onChange(async value=>{this.butler.prefs.visualScreenshots=value;await this.butler.save();}));
-  }},
-  {name:'Diff view',desc:'Choose how pending Markdown edits are displayed. Accept or decline changes in chat.',render:setting=>{setting.addDropdown(dropdown=>dropdown.addOption('highlights','Highlights in editor').addOption('none','None').addOption('split','Split diff view').setValue(this.butler.prefs.diffView).onChange(async value=>{this.butler.prefs.diffView=value as DiffView;refreshEditorDiff();this.butler.syncSplitDiff();await this.butler.save();}));}},
-  {name:'Excluded folders',desc:'Vault-relative paths, one per line. Hidden/configuration files are always excluded.',render:setting=>{setting.addTextArea(t=>t.setValue(this.butler.prefs.excludedFolders).onChange(async v=>{this.butler.prefs.excludedFolders=v;await this.butler.save();}));}},
-  {name:'Models and account limits',desc:'Choose the model and reasoning effort in the sidebar. Usage follows the limits of the selected provider. OWLA does not change global settings or sign out your other clients.'}
+  }}
   ];
  }
 }
