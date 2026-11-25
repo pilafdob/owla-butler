@@ -121,7 +121,7 @@ Suggested topics: `obsidian-plugin`, `obsidian`, `ai`, `ai-assistant`, `ai-chat`
 
 Current manifest description (3.7.x discoverability pass):
 
-> AI assistant chat in your sidebar, powered by Codex, OpenCode, Claude Code or Hermes Agent: chat with your open note, attach images and PDFs, search your vault and the web, and review every edit.
+> Chat with an AI assistant in your sidebar using Codex, OpenCode, Claude Code or Hermes Agent: ask about your open note, attach images and PDFs, search your vault and the web, and review every edit.
 
 ## Preparation checks
 
