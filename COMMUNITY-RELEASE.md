@@ -111,13 +111,15 @@ macOS-only. Security and data-integrity scope is in [`AUDIT.md`](AUDIT.md) and
 
 Description (matches manifest):
 
-> Bring Codex, OpenCode or Claude Code into Obsidian: chat with your open note, attach images and PDFs, search your vault and the web, and review every edit before it lands.
+> Chat with an AI assistant in your sidebar using Codex, OpenCode, Claude Code or Hermes Agent: ask about your open note, attach images and PDFs, search your vault and the web, and review every edit.
 
 Suggested repository description:
 
-> Obsidian sidebar assistant for Codex, OpenCode and Claude Code: current note context, attachments, vault search and reviewed edits.
+> AI assistant sidebar for Obsidian, powered by Codex, OpenCode, Claude Code or Hermes Agent: current note context, attachments, vault search and reviewed edits.
 
-Suggested topics: `obsidian-plugin`, `obsidian`, `codex`, `opencode`, `claude-code`, `markdown`, `ai-assistant`.
+Suggested topics: `obsidian-plugin`, `obsidian`, `ai`, `ai-assistant`, `ai-chat`, `chatbot`, `sidebar`, `copilot`, `llm`, `agent`, `codex`, `opencode`, `claude-code`, `hermes-agent`, `markdown`.
+
+Listing screenshots (1200×800, light theme, disposable demo vault): `assets/screenshots/01-chat.png` to `05-providers.png`; README demo: `assets/demo.gif`.
 
 ## Preparation checks
 

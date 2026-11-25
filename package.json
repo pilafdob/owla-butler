@@ -2,6 +2,7 @@
   "name": "owla-butler",
   "version": "3.8.0",
   "private": true,
+  "keywords": ["obsidian-plugin","obsidian","ai","ai-assistant","ai-chat","chatbot","sidebar","copilot","llm","agent","codex","opencode","claude-code","hermes-agent","writing-assistant"],
   "description": "Obsidian sidebar assistant for Codex, OpenCode, Claude Code and Hermes Agent: current note context, attachments, vault search and reviewed edits",
   "scripts": {
     "build": "node esbuild.config.mjs",

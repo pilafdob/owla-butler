@@ -48,6 +48,7 @@
 ### Fixes
 
 - Adding properties to a large note without frontmatter no longer fails at the proposal size limit: only the changed lines are staged.
+- Codex with web search on works again on GPT-6.2 Sol and GPT-6.2 Astra. Every message failed with `Function 'web.run' is reserved for use by this model`: OWLA's direct-tool copy of the Codex model catalog cleared `tool_mode` but kept the models' experimental tools, and outside Code Mode Codex 0.171 sends `literature_search_query` as a `web.run` function that clashes with the model's own web tool. The copy now also clears `experimental_supported_tools` (none of them are OWLA tools). Reproduced and verified with `codex-cli 0.171.0` on Windows 11; regression test in `tests/codex.test.ts`.
 - Shortening attached selections to fit a model's context window also works when a PDF selection is attached.
 - A moved outline section keeps a blank line before the next heading, and the note keeps a single line break at its end.
 - The system prompt no longer tells the model to stage page breaks in the note before an export. It contradicted the `export_pdf` and `propose_page_breaks` descriptions and could lead a model to propose edits to the note for an export, which fixes layout in a temporary copy. Found in the release review; regression test in `tests/pdf-export-wiring.test.ts`.
