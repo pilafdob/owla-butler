@@ -1,6 +1,8 @@
 # Developer-Prerelease release pipeline. This file lives only on the dev
 # branch and is never merged into main. Every release it creates is a
 # prerelease and is never marked "latest" (--prerelease --latest=false).
+# Once published, dev-prerelease-cleanup.yml clears the Pre-release flag on
+# all older dev releases, so only the newest dev build keeps it.
 # Tags must be <version>-dev (or <version>-dev.<n> for a further build). The branch only
 # receives main only (plus dev flags and version-only bumps). scripts/dev-release.mjs
 # checks the version, the branch history (no features committed here) and writes the notes.
