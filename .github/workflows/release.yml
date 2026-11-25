@@ -2,7 +2,7 @@
 # branch and is never merged into main. Every release it creates is a
 # prerelease and is never marked "latest" (--prerelease --latest=false).
 # Tags must be <version>-dev (or <version>-dev.<n> for a further build). The branch only
-# receives OWLA-RC and main; versions are bumped on OWLA-RC, never here. scripts/dev-release.mjs
+# receives main only (plus dev flags and version-only bumps). scripts/dev-release.mjs
 # checks the version, the branch history (no features committed here) and writes the notes.
 # Stable releases are tagged on main, which keeps its own copy of this file.
 name: Release Obsidian plugin
@@ -47,7 +47,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          git fetch origin +refs/heads/main:refs/remotes/origin/main +refs/heads/OWLA-RC:refs/remotes/origin/OWLA-RC
+          git fetch origin +refs/heads/main:refs/remotes/origin/main
           node scripts/dev-release.mjs
       - name: Attest release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
