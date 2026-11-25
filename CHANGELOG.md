@@ -4,6 +4,14 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.0-dev.4
+
+Fourth prerelease of 3.8.0, the first from `main` after `OWLA-RC` was retired. Changes since `3.8.0-dev.3`:
+
+- **PDF export prints a temporary copy:** the note itself is never changed for an export. In the copy, images are sized to fit the page, the file-name title is printed once, a too-tall first image under the title is shrunk, and page breaks go before stranded headings and split tables or code blocks. After printing, OWLA reads the PDF back, fixes what it finds in the copy and prints again (at most twice), then deletes the copy. Without Obsidian's internal exporter, the Export to PDF dialog exports the note itself, without the fixes.
+- **Siri AI uses Private Cloud Compute only**, in Automatic mode and by hand. Where Apple refuses Private Cloud Compute to Obsidian, Siri AI does not connect and settings show Apple's reason; this has not been re-tested in Obsidian.
+- **One-message override is a search field:** type any part of a provider, model or reasoning effort and matching choices are suggested. An override on another provider no longer contacts the previously active provider first.
+
 ### 3.8.0-dev.3
 
 Third prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev.2`, from testing Siri AI in a running Obsidian and from Developer mode recordings:
