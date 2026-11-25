@@ -9,10 +9,13 @@
 
 import type { UsageSnapshot } from './usage';
 
-export type ProviderId = 'codex' | 'opencode' | 'claude' | 'hermes';
+export type ProviderId = 'codex' | 'opencode' | 'claude' | 'hermes' | 'siri';
 
-/** Every provider, in the order the settings list them. */
-export const PROVIDER_IDS: readonly ProviderId[] = ['codex', 'opencode', 'claude', 'hermes'];
+/** Every provider. Siri AI is listed last: it exists only on macOS 27. */
+export const PROVIDER_IDS: readonly ProviderId[] = ['codex', 'opencode', 'claude', 'hermes', 'siri'];
+
+/** The order of the provider tabs in settings. */
+export const PROVIDER_TAB_ORDER: readonly ProviderId[] = ['codex', 'claude', 'opencode', 'hermes', 'siri'];
 
 /** The provider to use when the selected one runs out of usage. */
 export type FallbackChoice = ProviderId | 'none';
@@ -103,6 +106,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   opencode: 'OpenCode',
   claude: 'Claude Code',
   hermes: 'Hermes Agent',
+  siri: 'Siri AI',
 };
 
 /** The name a tool carries inside the assistant's instruction text. */
@@ -116,7 +120,8 @@ export function toolName(provider: ProviderId, base: string): string {
 const OWLA_TOOL_NAMES = [
   'read_reference', 'read_pdf', 'propose_pdf_annotation', 'read_note', 'search_vault',
   'propose_edit', 'propose_note', 'propose_deletion', 'read_attachment',
-  'list_vault_paths', 'propose_organization', 'query_vault_graph', 'propose_properties',
+  'list_vault_paths', 'propose_organization', 'query_vault_graph', 'propose_properties', 'propose_outline',
+  'export_pdf', 'propose_page_breaks',
   'read_canvas', 'propose_canvas', 'read_base', 'propose_base', 'read_excalidraw', 'propose_excalidraw',
 ];
 
@@ -125,7 +130,8 @@ const OWLA_TOOL_NAMES = [
  * names the active provider actually exposes.
  */
 export function prefixToolNames(text: string, provider: ProviderId): string {
-  if (provider === 'codex') return text;
+  // Codex and Siri AI receive OWLA's tools under their own names.
+  if (provider === 'codex' || provider === 'siri') return text;
   let result = text;
   for (const name of OWLA_TOOL_NAMES) {
     result = result.replace(new RegExp('(?<![A-Za-z0-9_])' + name + '(?![A-Za-z0-9_])', 'g'), toolName(provider, name));

@@ -19,6 +19,17 @@ export class ToolGuard {
   if(this.calls>this.soft)return Error('This reply has used '+this.soft+' tool calls. Do not call more tools. Answer now with what you have and say what is still missing.');
   return 'ok';
  }
+ /**
+  * Checked before a call runs: an identical call that already returned the
+  * same result twice is refused without doing the work again (a refused visual
+  * read used to render the picture first and only then be rejected).
+  */
+ repeated(name:string,args:unknown):Error|null{
+  const seen=this.results.get(name+'\u0000'+JSON.stringify(args??null));
+  return seen&&seen.count>=1?Error('This exact call already returned the same result. Use that result, read a different heading or offset, or answer now.'):null;
+ }
+ /** A proposal changed what reads return (they show the staged preview), so earlier results no longer count as repeats. */
+ changed(){this.results.clear();}
  /** Records a result; the third identical result of an identical call becomes an error. */
  after(name:string,args:unknown,result:string):Error|null{
   const key=name+'\u0000'+JSON.stringify(args??null);

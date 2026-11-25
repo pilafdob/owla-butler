@@ -167,9 +167,12 @@ test('AI settings are kept separately per platform while vault settings stay sha
  const afterWindows=writeSettings(windows,afterMac,'windows');
  assert.equal(readSettings(afterWindows,'mac').automaticProvider,true);
  assert.equal(readSettings(afterWindows,'mac').codexExecutable,'/usr/local/bin/codex');
- assert.equal(readSettings(afterWindows,'mac').automaticRouting,false);
+ // Automatic model selection and the Automatic provider are one switch since 3.8.0:
+ // either stored flag turns both on, per platform.
+ assert.equal(readSettings(afterWindows,'mac').automaticRouting,true);
  assert.equal(readSettings(afterWindows,'windows').codexExecutable,'C:\\codex.exe');
- assert.equal(readSettings(afterWindows,'windows').automaticProvider,false);
+ assert.equal(readSettings(afterWindows,'windows').automaticProvider,true);
+ assert.equal(readSettings(afterMac,'windows').automaticRouting,false);
  // A platform's later save keeps the other platform's entry, even if it synced in after load.
  assert.equal(readSettings(writeSettings(readSettings(afterWindows,'mac'),afterWindows,'mac'),'windows').automaticRouting,true);
 });

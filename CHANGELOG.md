@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.8.0
+
+### New features
+
+- **Export notes to PDF:** ask OWLA for a PDF of a note and it uses Obsidian's own Export to PDF (desktop only). OWLA first estimates the print layout: a heading stranded at the bottom of a page, a title alone on page 1, a table or code block split across pages. It then offers an export card in chat, and nothing is written until you confirm it there. The PDF is saved next to the note (or at another allowed vault path) and never replaces an existing file. After the export OWLA reads the PDF back and tells the assistant, with your next message, about any heading that really ended up stranded. If Obsidian's internal exporter is unavailable, OWLA opens Obsidian's Export to PDF dialog instead.
+- **Page-break fixes for print:** the new `propose_page_breaks` tool stages page breaks before the headings that should start a new page, through the normal accept/decline review. It only adds or removes `<div class="owla-page-break">` markers and never changes text. At most two fix rounds per note.
+- **Add highlighted PDF text to OWLA:** select text in Obsidian's PDF viewer and choose **Add selection to OWLA** (right-click, or the command **Add PDF selection to OWLA**). The chip shows the file, page and first words. With the text, OWLA attaches the page as an image in the background for models that can read images, so the model can check text the PDF text layer misread. A selection across pages attaches at most two page images. Text-only models get the text with a note. A page that cannot be rendered (for example an encrypted PDF) is skipped with a notice and never blocks the message.
+- **Richer note context:** every message now carries the active note's properties, full outline, outgoing links (unresolved ones flagged) and backlinks, about 2,500 characters at most. Excluded folders never appear.
+- **Edit the outline through review:** the new `propose_outline` tool renames a heading, promotes or demotes it with its subsections, moves a whole section (up, down, before, after or under another heading) or inserts a heading. It reports heading links a rename would break. Every change goes through the accept/decline review and reverts exactly, CRLF included.
+- **Safer property edits:** `propose_properties` can now rename properties. Untouched properties, comments, key order and values such as dates stay byte for byte. An existing checkbox, number or list keeps its type. Invalid YAML is refused.
+- **Obsidian formatting guide:** a new bundled guide (`owla-obsidian-guide`) gives the model tested advice when you ask to improve how a note looks or lays out: image sizes, images side by side, captions, callouts, tables and a more professional document structure. It loads automatically for requests such as "make this look professional", "images next to each other" or "Bilder nebeneinander".
+
+### Settings and providers
+
+- **Tabbed settings:** the settings page is split into General, Codex, Claude, OpenCode, Hermes, Siri AI (only on macOS 27 with Apple's `fm` tool) and Automatic (macOS only). General holds the provider order, the Siri AI fallback, privacy, web search, plugin interconnectivity, screenshots, diff view, excluded folders and the model unavailability memory. Each provider tab holds that provider's connection, executable and usage limits. Usage is read only when its tab is opened.
+- **Provider switches:** a **Use <provider>** switch heads every provider tab. A switched-off provider is never started, warmed up, measured or offered to Automatic selection, and is left out of the provider order; its process is stopped at once and its connection is kept for later. Turning off the primary moves Primary to the next enabled provider. At least one provider stays on. Existing providers start on, Siri AI starts off.
+- **Ordered fallbacks:** the single fallback provider becomes an ordered list: Primary, Secondary, Third, Fourth, Fifth. When the providers above have reached their usage limits, OWLA serves the next messages with the first one that has usage left and returns as soon as a limit resets. An existing fallback becomes the Secondary provider (`fallbacks` in `data.json`, per platform; `fallback` stays as the first entry).
+- **One Automatic switch:** the **Automatic** entry of the provider dropdown and the **Automatic model and reasoning effort** toggle are merged into that toggle on the new Automatic tab, together with the selection priority, thorough selection, privacy mode and details options. When it is on, OWLA chooses the provider, model and effort among the enabled providers, and the provider order in General is greyed out. A saved setting with either the Automatic provider or automatic model selection on turns the merged switch on.
+
+### Siri AI (macOS 27)
+
+- **New provider:** Siri AI uses Apple Foundation Models through the `fm` tool in macOS 27. OWLA starts a private `fm serve` on a Unix socket only you can write to, and talks to it with the Chat Completions protocol and OWLA's own vault tools. `fm` gets no file, shell, MCP or built-in tools of its own, and OWLA never uses a custom model provider from `~/.fm/config.json`. The server rests after 90 seconds without a reply.
+- **Models:** `Siri AI · Private Cloud Compute` (Apple Account usage limits) and the `Apple on-device model` (no usage limits, small context window). If Private Cloud Compute refuses the request, OWLA uses the on-device model and shows Apple's reason in settings.
+- **Global fallback:** **Siri AI as global fallback** (General) lets Siri AI answer once every other enabled provider has reached its usage limit, both with a fixed provider order and with Automatic selection. Automatic selection otherwise leaves Siri AI out.
+- **Usage limits:** the Siri AI tab shows the Private Cloud Compute quota reported by `fm quota-usage`. A quota error marks Siri AI as exhausted and retries after 15 minutes.
+- **Limits:** text only (attached images are not sent, with a notice), no web search, and one reasoning setting chosen by Apple.
+- **Tested in a running Obsidian on macOS 27.3:** Apple refuses Private Cloud Compute to Obsidian ("not available in this context. Please use the Terminal app"), so OWLA uses the on-device model there. It answers questions in about 10 seconds and stages edits through review, but it places edits less reliably than the other providers: check each diff.
+- **Robust tool use:** a schema `fm` cannot express (a map with typed values, as in `propose_properties`) is sent as a free-form object instead of failing every request; a refused tool call (bad arguments, a missing heading) goes back to the model so it can correct itself instead of ending the reply; the on-device model gets the core note tools only, and its transcript stays bounded (long tool results shortened, earlier rounds collapsed). A context-size error is reported as such, not as a usage limit.
+- **One-message override:** Siri AI is listed with the other providers when it is switched on and connected; Automatic selection still picks it only as the last resort.
+
+### Performance
+
+- **Pictures are reused within a reply:** a repeated visual read of an unchanged canvas or drawing reuses the picture and its handwriting OCR instead of rendering again. Developer-mode recordings showed the same drawing rendered two and three times in one reply, each render holding up the calls queued behind it.
+- **Repeats are refused before the work:** the third identical tool call is refused before it runs (it used to render the picture first and only then be refused). Staging a proposal resets the repeat check, because reads then show the staged preview.
+- **No pointless visual checks:** after a new canvas is staged, or with Background screenshots off, the tool result no longer asks the model to check the layout with `visual=true`, which returned text only and cost the model a round.
+
+### Excalidraw
+
+- **Handwriting is summarised, not dumped:** `read_excalidraw` lists freehand ink as clusters with their position and size. Each covers at most about 240×120 px, so the model knows where each piece of handwriting is, instead of getting one line per stroke. On a real 289-element drawing the read went from about 16,000 to about 3,100 characters.
+- **Bulk clean-up:** `propose_excalidraw` gains `delete_many {ids}` and `delete_cluster {cluster}`; `delete_cluster {cluster:"all"}` removes all freehand ink in one operation. Unknown ids or cluster names are reported instead of skipped. Limit errors name these alternatives, and drawings with more than 1,500 elements are not rendered visually.
+- **No drawing data in note reads:** `read_note` and `search_vault` never return an Excalidraw drawing's compressed scene data, at any offset, heading or block. They point to `read_excalidraw` instead. Ordinary notes that only mention `excalidraw-plugin:` stay readable.
+
+### Fixes
+
+- Adding properties to a large note without frontmatter no longer fails at the proposal size limit: only the changed lines are staged.
+- Shortening attached selections to fit a model's context window also works when a PDF selection is attached.
+- A moved outline section keeps a blank line before the next heading, and the note keeps a single line break at its end.
+
 ## 3.7.2
 
 ### Fixes

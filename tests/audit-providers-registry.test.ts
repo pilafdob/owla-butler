@@ -5,18 +5,19 @@ import {CodexBridge} from '../src/codex';
 import {OpencodeBridge} from '../src/opencode';
 import {ClaudeBridge} from '../src/claude';
 import {HermesBridge} from '../src/hermes';
+import {SiriBridge} from '../src/siri';
 import {codexExhaustion,claudeExhaustion,opencodeExhaustion} from '../src/exhaustion';
 
-const bridges:Record<ProviderId,ProviderBridge>={codex:new CodexBridge(),opencode:new OpencodeBridge(),claude:new ClaudeBridge(),hermes:new HermesBridge()};
+const bridges:Record<ProviderId,ProviderBridge>={codex:new CodexBridge(),opencode:new OpencodeBridge(),claude:new ClaudeBridge(),hermes:new HermesBridge(),siri:new SiriBridge()};
 
 test('every provider id has a name, a bridge and the shared tool-name shape',()=>{
- assert.deepEqual([...PROVIDER_IDS],['codex','opencode','claude','hermes']);
+ assert.deepEqual([...PROVIDER_IDS],['codex','opencode','claude','hermes','siri']);
  for(const id of PROVIDER_IDS){
   assert.ok(PROVIDER_NAMES[id],id);
   const bridge=bridges[id];
   assert.equal(bridge.id,id);
   for(const method of ['connect','resolveModel','run','signIn','readUsage','hold','disconnect'] as const)assert.equal(typeof bridge[method],'function',id+'.'+method);
-  assert.equal(toolName(id,'read_note'),id==='opencode'?'owla_read_note':id==='codex'?'read_note':'mcp__owla__read_note');
+  assert.equal(toolName(id,'read_note'),id==='opencode'?'owla_read_note':id==='codex'||id==='siri'?'read_note':'mcp__owla__read_note');
  }
 });
 
@@ -55,12 +56,12 @@ test('exhaustion starts unknown-not-exhausted for every provider',()=>{
 });
 
 test('instruction tool names are rewritten once per provider and never double-prefixed',()=>{
- const tools=['read_reference','read_pdf','propose_pdf_annotation','read_note','search_vault','propose_edit','propose_note','propose_deletion','read_attachment','list_vault_paths','propose_organization','query_vault_graph','propose_properties','read_canvas','propose_canvas','read_base','propose_base','read_excalidraw','propose_excalidraw'];
+ const tools=['read_reference','read_pdf','propose_pdf_annotation','read_note','search_vault','propose_edit','propose_note','propose_deletion','read_attachment','list_vault_paths','propose_organization','query_vault_graph','propose_properties','propose_outline','export_pdf','propose_page_breaks','read_canvas','propose_canvas','read_base','propose_base','read_excalidraw','propose_excalidraw'];
  const text='Use '+tools.join(', ')+'.';
  for(const id of PROVIDER_IDS){
   const once=prefixToolNames(text,id);
   assert.equal(prefixToolNames(once,id),once,'double prefix for '+id);
-  if(id==='codex'){assert.equal(once,text);continue;}
+  if(id==='codex'||id==='siri'){assert.equal(once,text);continue;}
   for(const name of tools){
    const shaped=toolName(id,name);
    assert.ok(once.includes(shaped),id+' missing '+shaped);
