@@ -17,7 +17,7 @@
 import {existsSync,rmSync} from 'node:fs';
 import {request} from 'node:http';
 import {release,tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {posix} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {setTimeout as nodeTimeout,clearTimeout as clearNodeTimeout} from 'node:timers';
 import type {ChildProcessWithoutNullStreams} from 'node:child_process';
@@ -164,8 +164,8 @@ export class ChatStreamReader{
 
 /** A short socket path: Unix sockets are limited to about 104 bytes on macOS. */
 export function siriSocketPath(directory=tmpdir(),id=randomUUID().slice(0,8)):string{
- const preferred=join(directory,'owla-fm-'+id+'.sock');
- return Buffer.byteLength(preferred)<100?preferred:join('/tmp','owla-fm-'+id+'.sock');
+ const preferred=posix.join(directory,'owla-fm-'+id+'.sock');
+ return Buffer.byteLength(preferred)<100?preferred:posix.join('/tmp','owla-fm-'+id+'.sock');
 }
 
 function friendlySiriError(error:unknown):string{

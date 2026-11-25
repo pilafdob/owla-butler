@@ -140,8 +140,9 @@ test('project instructions above the session folder are found, the home folder a
  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const {inheritedInstructions}=await import('../src/codex');
  const {realpathSync}=await import('node:fs');
- // The walk reports canonical paths (on macOS the temp folder is /private/var/…).
- const home=realpathSync(mkdtempSync(join(tmpdir(),'owla-home-')));
+ // The walk reports canonical paths (on macOS the temp folder is /private/var/…;
+ // on Windows an 8.3 short TEMP such as RUNNER~1 expands to the long name, which only the native realpath does).
+ const home=realpathSync.native(mkdtempSync(join(tmpdir(),'owla-home-')));
  try{
   const session=join(home,'shared','owla','session');mkdirSync(session,{recursive:true});
   writeFileSync(join(home,'AGENTS.md'),'global');

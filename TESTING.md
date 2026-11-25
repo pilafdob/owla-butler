@@ -1,5 +1,19 @@
 # OWLA Butler verification
 
+## 3.8.0 — Windows audit and live check (2026-11-25, Windows 11, disposable Test vault)
+
+- **Setup:** Obsidian 1.15.1 (the app's own signed updater) in an isolated profile that registers only `Documents/Coding/Test`, so no iCloud vault was opened. The built `main.js`, `manifest.json` and `styles.css` were installed together and reloaded. The checks ran against the executed plugin copy, driven over the DevTools protocol. No provider connection, model turn or account was used.
+- **PDF export (internal route):** a 5-page CRLF note exported in 0.85 s. The copy got 1 page break, the read-back found no stranded heading, the copy was deleted, the note was unchanged and the export-copy record was cleared.
+- **Taken output:** exporting to an existing `Export Test.pdf`, or to its case variant `export test.PDF`, is refused and the file stays byte-identical. The next free name is `Export Test 1.pdf`. `NUL` and `con.pdf` are refused as output names.
+- **Crash leftovers:** an unchanged recorded copy is deleted after a real plugin reload. A recorded copy the user edited is kept. The record is cleared.
+- **Organization journal:** a 40-move batch (about 80 journal rewrites under real Defender) finished in 2.5 s. No temp files were left and links were updated.
+- **Popout window:** text selected in a PDF in a popout. Before the fix, "Add PDF selection to OWLA" was unavailable there. After it, the command is offered, the selection is added with its page, and the OWLA context menu appears (Add page, Copy link, Add selection, Copy selected text). The main window still works (page 2).
+- **CRLF reviewed edits:** `read_note` → `propose_edit` → apply on a closed CRLF note keeps CRLF. Decline restores the exact bytes. A note changed after the proposal is refused and not written. With the note open, the edit goes through the editor. Obsidian then saves that note as LF, as it does for any editor edit.
+- **Guards:** a case-alias `read_note` works on NTFS. An excluded folder and its case variant are refused, `NUL.md` is refused, and search does not return excluded text. Settings show no Automatic option and no Siri AI tab on Windows.
+- **Packaging:** `node scripts/package.mjs` builds the ZIP on Windows (44 files). The build is reproducible (same SHA-256 twice), Windows' ZIP reader opens it, and `main.js` inside matches.
+- **Gates:** `check`, `lint` (0 errors, 4 sentence-case warnings that predate this work), `guard:test`, `build` and `check:release` pass. `npm test` gives 925 tests, 924 pass, 0 fail, 1 designed skip, and 10 consecutive full runs were green. Details: [audits/3.8.0/07-windows-audit.md](audits/3.8.0/07-windows-audit.md).
+- **Still required before a stable release:** real provider connect, tool turn, cancellation and reconnect on Windows, plus the macOS run.
+
 ## 3.8.0 — release candidate (2026-11-23, macOS, Agentbrain)
 
 Prepared, not committed, tagged or pushed. Review: `audits/3.8.0/REVIEW-3.8.0.md` (B1 and S1–S3 resolved, see its addendum).
