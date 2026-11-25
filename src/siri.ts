@@ -3,9 +3,12 @@
  * that ships with macOS 27.
  *
  * OWLA starts a private `fm serve` on a Unix socket only it can write to and
- * talks to it with the Chat Completions protocol. The `pcc` model runs on
- * Apple's Private Cloud Compute (account-level usage limits, larger context);
- * the `system` model runs on this Mac. The assistant reaches the vault only
+ * talks to it with the Chat Completions protocol. Chat always uses the `pcc`
+ * model on Apple's Private Cloud Compute (account-level usage limits, larger
+ * context), in Automatic mode and when chosen by hand: the on-device `system`
+ * model's context window is too small for day-to-day vault work, so it is
+ * never offered for chat. (Automatic selection's classifier still runs the
+ * on-device model itself, through `fm respond` in routing.ts.) The assistant reaches the vault only
  * through OWLA's own tools: `fm serve` has no file, shell or MCP access of its
  * own, and OWLA never passes `--tool`, `--model-provider` or a custom model, so
  * a model provider configured in `~/.fm/config.json` is never used.
@@ -32,12 +35,11 @@ const MAX_TOOL_ROUNDS=50;
 const REST_MS=90_000;
 /** Context windows. Apple does not publish them; the PCC figure is an estimate that has not been measured. */
 const PCC_CONTEXT=32_768;
-const SYSTEM_CONTEXT=4_096;
 const EFFORTS=[{reasoningEffort:'default',description:'Apple chooses'}];
 
+/** The only chat model. The on-device `system` model is deliberately absent (see the header). */
 export const SIRI_MODELS:ProviderModel[]=[
  {id:'pcc',model:'pcc',displayName:'Siri AI · Private Cloud Compute',description:'Apple Foundation Model on Private Cloud Compute. Uses your Apple Account’s usage limits.',isDefault:true,defaultReasoningEffort:'default',supportedReasoningEfforts:EFFORTS,inputModalities:['text'],context:PCC_CONTEXT},
- {id:'system',model:'system',displayName:'Apple on-device model',description:'Apple Foundation Model on this Mac. No usage limits, small context window.',isDefault:false,defaultReasoningEffort:'default',supportedReasoningEfforts:EFFORTS,inputModalities:['text'],context:SYSTEM_CONTEXT},
 ];
 
 /** Siri AI needs macOS 27 (Darwin 27) and Apple's `fm` tool. Never offered on Windows or Linux. */
@@ -92,22 +94,6 @@ export function parseSiriQuota(text:string,now=Date.now()):UsageSnapshot|null{
 }
 
 export const SIRI_CONTEXT_ERROR=/context (?:size|window|length)/i;
-/** Longest tool result the on-device model receives in one piece. */
-export const ON_DEVICE_TOOL_RESULT=1_500;
-/**
- * Keeps the on-device transcript inside its small context: each tool result is
- * shortened, and results from earlier rounds are replaced by a one-line note
- * once the model has moved on. Private Cloud Compute keeps full results.
- */
-export function compactTranscript(messages:{role:string;content?:unknown}[],model:string):void{
- if(model!=='system')return;
- const lastAssistant=messages.map(message=>message.role).lastIndexOf('assistant');
- messages.forEach((message,index)=>{
-  if(message.role!=='tool'||typeof message.content!=='string')return;
-  if(index<lastAssistant)message.content='[Earlier tool result omitted to fit the on-device model. Call the tool again if you still need it.]';
-  else if(message.content.length>ON_DEVICE_TOOL_RESULT)message.content=message.content.slice(0,ON_DEVICE_TOOL_RESULT)+'\n[Result shortened for the on-device model. Read a specific heading or offset for more.]';
- });
-}
 /** A quota or rate-limit error from Private Cloud Compute. */
 export function siriExhaustion(error:unknown,now=Date.now()/1000):ProviderExhaustion|null{
  const text=error instanceof Error?error.message:String(error);
@@ -133,16 +119,9 @@ export function fmSchema(schema:unknown):unknown{
   result[key]=key==='additionalProperties'&&value&&typeof value==='object'?true:fmSchema(value);
  return result;
 }
-/**
- * The tools the on-device model gets. Its context is small and every tool
- * schema costs prompt tokens (all of OWLA's tools came to about 4,200 tokens),
- * so it receives the core note tools only. Private Cloud Compute gets all.
- */
-export const ON_DEVICE_TOOLS=new Set(['read_note','search_vault','list_vault_paths','read_attachment','read_pdf','read_reference','propose_edit','propose_note','propose_properties']);
 /** OWLA's tools in Chat Completions form, shaped for `fm serve`. */
-export function chatTools(specs:ToolSpec[],model='pcc'){
- return specs.filter(spec=>model!=='system'||ON_DEVICE_TOOLS.has(spec.name))
-  .map(spec=>({type:'function',function:{name:spec.name,description:spec.description,parameters:fmSchema(spec.inputSchema)}}));
+export function chatTools(specs:ToolSpec[]){
+ return specs.map(spec=>({type:'function',function:{name:spec.name,description:spec.description,parameters:fmSchema(spec.inputSchema)}}));
 }
 
 type ToolCall={id:string;name:string;arguments:string};
@@ -219,7 +198,8 @@ export class SiriBridge implements ProviderBridge{
  get running(){return !!this.child;}
  get needsSignIn(){return false;}
  get signInPending(){return false;}
- get selectableModels(){return this.models.filter(model=>this.health[model.id as 'pcc'|'system']?.available);}
+ /** Private Cloud Compute only: chat never falls back to the on-device model. */
+ get selectableModels(){return this.health.pcc.available?this.models.filter(model=>model.id==='pcc'):[];}
  private setStatus(status:string){this.status=status;this.onStatus(status);}
  hold():()=>Promise<void>{
   const owner=Symbol();
@@ -267,10 +247,9 @@ export class SiriBridge implements ProviderBridge{
    }
    this.health=parseSiriHealth(health);
    this.models=SIRI_MODELS;
-   if(!this.health.pcc.available&&!this.health.system.available)throw Error(this.health.pcc.reason||this.health.system.reason||'Apple Foundation Models are unavailable.');
-   this.setStatus(this.health.pcc.available
-    ?'Connected to Siri AI · Private Cloud Compute'
-    :'Connected to Siri AI · on-device model only. Private Cloud Compute: '+this.health.pcc.reason);
+   // The on-device model's context is too small for chat, so without Private Cloud Compute there is nothing to connect to.
+   if(!this.health.pcc.available)throw Error('Private Cloud Compute is unavailable'+(this.health.pcc.reason?': '+this.health.pcc.reason:'.'));
+   this.setStatus('Connected to Siri AI · Private Cloud Compute');
   }catch(error){
    this.disconnect(friendlySiriError(error));
    throw Error(friendlySiriError(error));
@@ -304,10 +283,10 @@ export class SiriBridge implements ProviderBridge{
  }
  async run(options:ProviderRunOptions):Promise<ProviderRunResult>{
   const model=this.resolveModel(options.model);
-  if(!model)throw Error('Siri AI: no Apple Foundation Model is available.');
+  if(!model)throw Error('Siri AI: Private Cloud Compute is unavailable'+(this.health.pcc.reason?': '+this.health.pcc.reason:'.'));
   const messages:{role:string;content?:unknown;[key:string]:unknown}[]=[{role:'system',content:options.instructions},{role:'user',content:options.text}];
   if(options.images.length)options.onActivity('Siri AI does not read images; the attached images were not sent.');
-  const offered=chatTools(options.tools,model.id);
+  const offered=chatTools(options.tools);
   const tools=offered.length?offered:undefined;
   let answer='';
   try{
@@ -333,7 +312,6 @@ export class SiriBridge implements ProviderBridge{
      }
      messages.push({role:'tool',tool_call_id:call.id||'call_'+round+'_'+index,content});
     }
-    compactTranscript(messages,model.id);
    }
   }catch(error){
    const limit=siriExhaustion(error);
@@ -341,7 +319,7 @@ export class SiriBridge implements ProviderBridge{
    throw Error(friendlySiriError(error));
   }
   this.exhaustion=null;
-  if(model.id==='pcc')void this.readUsage(5000).catch(()=>undefined);
+  void this.readUsage(5000).catch(()=>undefined);
   return {text:answer,sources:[]};
  }
  async signIn():Promise<void>{/* Siri AI uses the Mac's Apple Account. */}

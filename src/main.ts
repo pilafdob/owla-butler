@@ -18,7 +18,7 @@ import {SessionModelAvailability} from './opencode-availability';
 import {usageWindows} from './usage';
 import {searchScore} from './search';
 import {ChatStore,SavedChat} from './chats';
-import {join,relative} from 'node:path';
+import {join,posix,relative} from 'node:path';
 import {existsSync,lstatSync,readdirSync,realpathSync,statSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {shell,webUtils} from 'electron';
@@ -27,7 +27,9 @@ import {readReference,taskReference} from './knowledge';
 import {pdfPageText,pdfPageNumber,pdfSource,pdfPageReference,PdfJs,PdfDocument,PdfPage,PdfDocumentCache,PdfDocumentKey,readPdfTextRange,searchPdfText} from './pdf';
 import {PDF_SELECTION_MAX_PAGES,PDF_SELECTION_IMAGE_CACHE_MAX,PDF_SELECTION_IMAGE_NOTE,PDF_SELECTION_TEXT_ONLY_NOTE,pdfSelectionCacheKey,pdfSelectionChipLabel,pdfSelectionRenderPages,pdfSelectionTextOnlyContext,pdfSelectionAttempt,selectionContextBlock,type PdfSelectionPage,type SelectionItem} from './pdf-selection';
 import {record} from './validation';
-import {OWLA_PAGE_BREAK,PDF_FIX_ROUNDS,detectLayoutIssues,insertPageBreaks,issuesFromPdf,layoutAdvice,layoutReport,markdownBlocks,obsidianPrintOptions,pageBreakLines,pdfExportOptions,pdfLayoutIssues,pdfOutputPath,removePageBreaks,type LayoutIssue,type PdfExportInput,type PdfExportOptions} from './pdf-export';
+import {OWLA_PAGE_BREAK,PDF_FIX_ROUNDS,insertPageBreaks,issuesFromPdf,layoutReport,markdownBlocks,obsidianPrintOptions,pageBreakLines,pdfExportOptions,pdfLayoutIssues,pdfOutputPath,removePageBreaks,type LayoutIssue,type PdfExportInput,type PdfExportOptions} from './pdf-export';
+import {imageDimensions,imageEmbeds,prepareExportCopy,type ExportCopy,type ImageSize} from './pdf-export-copy';
+import {routeChoices,type RouteChoice,type RouteItem} from './route-picker';
 import {EXPORT_PDF_COMMAND,isDialogExport,runPdfExport,type PdfExportResult} from './pdf-export-run';
 import {PluginChange,PluginTurn} from './plugin-api';
 import {BIRD_ICON} from './icon';
@@ -737,7 +739,10 @@ export default class Butler extends Plugin {
  }
  async open(){let leaf=this.app.workspace.getLeavesOfType(VIEW)[0];if(!leaf){leaf=this.app.workspace.getRightLeaf(false)!;if(!leaf)throw Error('Could not open the sidebar.');await leaf.setViewState({type:VIEW,active:true});}await this.app.workspace.revealLeaf(leaf);return leaf.view as ButlerView;}
  save(){const snapshot=structuredClone(this.prefs);this.saveQueue=this.saveQueue.catch(()=>{}).then(async()=>this.saveData(writeSettings(snapshot,await this.loadData())));return this.saveQueue;}
- onunload(){for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
+ /** Temporary export_pdf copies that exist right now; deleted after each export, and here on unload if an export was cut short. */
+ readonly exportCopies=new Set<string>();
+ onunload(){// eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- OWLA's own temporary export copy (see exportPdf)
+  for(const path of this.exportCopies){const copy=this.app.vault.getAbstractFileByPath(path);if(copy instanceof TFile)void this.app.vault.delete(copy).catch(()=>{});}this.exportCopies.clear();for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
  /** A file OWLA can propose edits to: Markdown (including Excalidraw drawing notes), `.excalidraw`, Canvas or Bases. */
@@ -1051,10 +1056,10 @@ export default class Butler extends Plugin {
 const STYLE_SCHEMA={type:'object',properties:{strokeColor:{type:'string'},backgroundColor:{type:'string'},fillStyle:{type:'string'},strokeWidth:{type:'number'},strokeStyle:{type:'string'},roughness:{type:'number'},opacity:{type:'number'},fontSize:{type:'number'},fontFamily:{type:'number'},textAlign:{type:'string'}}};
 /** Canvas, Bases and Excalidraw tools, for the features enabled under Plugin interconnectivity. */
 /** export_pdf checks the layout and stages an export the user confirms; propose_page_breaks stages print fixes through the diff review. */
-const PDF_LAYOUT_SCHEMA={pageSize:{type:'string',enum:['A3','A4','A5','Legal','Letter','Tabloid']},landscape:{type:'boolean'},margin:{type:'string',enum:['default','minimal','none']},downscalePercent:{type:'integer'},includeName:{type:'boolean'}};
+const PDF_LAYOUT_SCHEMA={pageSize:{type:'string',enum:['A3','A4','A5','Legal','Letter','Tabloid']},landscape:{type:'boolean'},margin:{type:'string',enum:['default','minimal','none']},downscalePercent:{type:'integer'},includeName:{type:'boolean'},breaksBefore:{type:'array',items:{type:'string'}}};
 const PDF_EXPORT_TOOL_SPECS:ToolSpec[]=[
- {type:'function',name:'export_pdf',description:'Offer the user a PDF export of a Markdown note with Obsidian\'s own Export to PDF. Returns the estimated print layout problems at once (a heading stranded at the bottom of a page, a title alone on page 1, a table or code block split across pages). Nothing is written now: the user confirms the export from a card in chat after this reply. The PDF is saved next to the note (or at output, an allowed vault path), never over an existing file. Fix estimated problems first with propose_page_breaks. After the export OWLA reads the PDF back and reports stranded headings with the next message. Options default to the user\'s last Export to PDF settings.',inputSchema:{type:'object',properties:{path:{type:'string'},output:{type:'string'},...PDF_LAYOUT_SCHEMA,reason:{type:'string'}},required:['path','reason'],additionalProperties:false}},
- {type:'function',name:'propose_page_breaks',description:'Stage print page breaks in a Markdown note for review, to fix PDF layout problems that export_pdf reported. before lists heading titles: a page break goes before each heading (and the headings directly above it), so the heading starts a new page with its content. lines lists 1-based note lines for problems without a heading. remove=true first removes the page breaks OWLA added earlier. Text is never changed; only <div class="owla-page-break"> markers are added or removed. Read the note first.',inputSchema:{type:'object',properties:{path:{type:'string'},before:{type:'array',items:{type:'string'}},lines:{type:'array',items:{type:'integer'}},remove:{type:'boolean'},reason:{type:'string'}},required:['path','reason'],additionalProperties:false}},
+ {type:'function',name:'export_pdf',description:'Offer the user a PDF export of a Markdown note with Obsidian\'s own Export to PDF. OWLA prints a temporary copy of the note, never the note itself, and fixes the print layout in that copy: images are sized to fit inside the page, the title is printed once, and page breaks go before stranded headings and split tables or code blocks (plus any heading in breaksBefore). The copy is deleted after the export and the note is not changed. Returns the planned fixes and what the estimate cannot fix. Nothing is written now: the user confirms the export from a card in chat after this reply. The PDF is saved next to the note (or at output, an allowed vault path), never over an existing file. After printing, OWLA reads the PDF back, adds page breaks to the copy for headings that really ended up stranded and prints again (at most twice), then reports the result with the next message. Options default to the user\'s last Export to PDF settings. Do not use propose_page_breaks to prepare an export.',inputSchema:{type:'object',properties:{path:{type:'string'},output:{type:'string'},...PDF_LAYOUT_SCHEMA,reason:{type:'string'}},required:['path','reason'],additionalProperties:false}},
+ {type:'function',name:'propose_page_breaks',description:'Only when the user asks for page breaks saved in the note itself: stage print page breaks in a Markdown note for review. export_pdf already fixes layout in a temporary copy, so this is never needed for an export. before lists heading titles: a page break goes before each heading (and the headings directly above it), so the heading starts a new page with its content. lines lists 1-based note lines for problems without a heading. remove=true first removes the page breaks OWLA added earlier. Text is never changed; only <div class="owla-page-break"> markers are added or removed. Read the note first.',inputSchema:{type:'object',properties:{path:{type:'string'},before:{type:'array',items:{type:'string'}},lines:{type:'array',items:{type:'integer'}},remove:{type:'boolean'},reason:{type:'string'}},required:['path','reason'],additionalProperties:false}},
 ];
 function visualToolSpecs(features:{canvas:boolean;bases:boolean;excalidraw:boolean}):ToolSpec[]{
  const specs:ToolSpec[]=[];
@@ -1117,47 +1122,27 @@ function noteText(text:string){return text.replace(/\r\n?/g,'\n');}
 class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
 private items:TFile[]|null=null;getItems(){return this.items??=this.butler.withPathCheckCache(()=>this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path)));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
 class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
-class TurnRouteModal extends Modal {
- constructor(app:App,butler:Butler,private items:{provider:ProviderId;model:CodexModel}[],private initial:CodexRoute,private choose:(route?:CodexRoute)=>void,private skipped:{provider:ProviderId;message:string}[]=[]){
+/**
+ * The one-message override (Automatic mode): a fuzzy search over every
+ * compatible model and reasoning effort, filtered as the user types. Choosing
+ * "Automatic selection" clears an override; Escape keeps the current state.
+ */
+class TurnRouteModal extends FuzzySuggestModal<RouteChoice>{
+ private choices:RouteChoice[];
+ constructor(app:App,butler:Butler,items:RouteItem[],initial:CodexRoute,private choose:(route?:CodexRoute)=>void,skipped:{provider:ProviderId;message:string}[]=[]){
   super(app);butler.ownModal(this);
- }
- onOpen(){
-  this.setTitle('Override the next message');
+  this.choices=routeChoices(items,initial);
+  this.setPlaceholder('Override the next message: type a model, provider or effort…');
+  this.emptyStateText='No compatible model matches. Clear the search to see every model.';
   // A provider missing from the list is explained: out of usage with its
   // reset time, or not reachable. Otherwise a connected but depleted Codex
   // would simply vanish from the choices.
-  for(const item of this.skipped)this.contentEl.createDiv({text:PROVIDER_NAMES[item.provider]+' is not listed · '+item.message,cls:'owla-activity'});
-  const distinctProviders=new Set(this.items.map(item=>item.provider));
-  const showProvider=distinctProviders.size>1;
-  const key=(item:{provider:ProviderId;model:CodexModel})=>modelKey(item.provider,item.model);
-  let current=this.items.find(item=>item.provider===this.initial.provider&&key(item)===this.initial.model)??this.items[0];
-  const modelSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Model'}});
-  const effortSelect=this.contentEl.createEl('select',{attr:{'aria-label':'Reasoning effort'}});
-  for(const item of this.items){
-   const label=showProvider
-    ?PROVIDER_NAMES[item.provider]+' · '+( (item.provider==='opencode'||item.provider==='hermes') &&item.model.providerID&&item.model.providerID!==item.provider?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName)
-    :( (item.provider==='opencode'||item.provider==='hermes') &&item.model.providerID&&item.model.providerID!==item.provider?item.model.displayName+' ('+item.model.providerID+')':item.model.displayName);
-   modelSelect.createEl('option',{text:label,value:key(item)});
-  }
-  modelSelect.value=key(current);
-  const refresh=(effort:string)=>{
-   effortSelect.empty();
-   for(const option of current.model.supportedReasoningEfforts)effortSelect.createEl('option',{text:option.reasoningEffort,value:option.reasoningEffort});
-   effortSelect.value=effort;
-  };
-  refresh(this.initial.effort);
-  modelSelect.onchange=()=>{
-   current=this.items.find(item=>key(item)===modelSelect.value)??current;
-   refresh(current.model.defaultReasoningEffort);
-  };
-  const actions=this.contentEl.createDiv('owla-review-actions');
-  actions.createEl('button',{text:'Use automatic'}).onclick=()=>{this.choose();this.close();};
-  actions.createEl('button',{text:'Use once',cls:'mod-cta'}).onclick=()=>{
-   this.choose({provider:current.provider,model:key(current),effort:effortSelect.value});
-   this.close();
-  };
+  this.setInstructions([{command:'↑↓',purpose:'to navigate'},{command:'↵',purpose:'to use once'},{command:'esc',purpose:'to keep the current choice'},
+   ...skipped.map(item=>({command:PROVIDER_NAMES[item.provider],purpose:'not listed · '+item.message}))]);
  }
- onClose(){this.contentEl.empty();}
+ getItems(){return this.choices;}
+ getItemText(choice:RouteChoice){return choice.label;}
+ onChooseItem(choice:RouteChoice){this.choose(choice.kind==='route'?choice.route:undefined);}
 }
 /** The text shown in a diff: an Excalidraw drawing as one line per element instead of its JSON block. */
 function reviewText(path:string,text:string){const body=isExcalidrawPath(path)||isExcalidrawText(text)?readableExcalidraw(text,excalidrawDecoder()):text;return noteText(body);}
@@ -1282,8 +1267,8 @@ export class ButlerView extends ItemView {
  private get awaitingReview(){return this.butler.reviewBlocked||this.annotationDrafts.size>0||this.removalDrafts.size>0||this.pluginDrafts.size>0;}
 
  private conversionAbort=new AbortController();private pdfCache=new PdfDocumentCache(2);private pdfAttachments=new Map<string,File|TFile>();private textAttachments=new Map<string,TextAttachment>();private annotationDrafts=new Map<string,{comments:PdfComment[];card:HTMLElement}>();private converting=0;private conversionQueue:Promise<void>=Promise.resolve();private pdfSelectionImageCache=new Map<string,string>();
- /** Export cards waiting for the user, the PDF read-back findings for the next message, and fix rounds used per note. */
- private pdfExportDrafts=new Map<string,HTMLElement>();private pdfExportFindings=new Map<string,string>();private pdfExportRounds=new Map<string,number>();
+ /** Export cards waiting for the user, and the PDF read-back findings for the next message. */
+ private pdfExportDrafts=new Map<string,HTMLElement>();private pdfExportFindings=new Map<string,string>();
  pdfs:DocumentAttachment[]=[];selections:SelectionItem[]=[];private notes=new Set<string>();private folders=new Set<string>();private images:Attachment[]=[];private history:ChatMessage[]=[];private historyShortened=false;private controller:AbortController|null=null;private closing=false;private imageInput!:HTMLInputElement;private snapshots=new Map<string,string>();private turnSources=new Set<string>();private attachmentEpoch=0;private effortSelect!:HTMLSelectElement;private connectButton!:HTMLButtonElement;private latestUndo:(()=>Promise<void>)|null=null;
  constructor(leaf:WorkspaceLeaf,public butler:Butler){super(leaf);}
  getViewType(){return VIEW;}getDisplayText(){return 'OWLA';}getIcon(){return 'owla-bird';}
@@ -1512,7 +1497,7 @@ export class ButlerView extends ItemView {
   this.butler.devJournal.event('chat-cleared','Started a new chat.');this.butler.devJournal.newChat();
   // Persist the rotated chat id so a reload does not merge the new chat into the old one.
   if(this.butler.developerMode){try{this.butler.devJournal.save(this.butler.vaultStorage());}catch{/* Recording is best-effort. */}}
-  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText('Automatic selection');this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfCache.destroyAll();this.pdfSelectionImageCache.clear();for(const card of this.pdfExportDrafts.values())card.remove();this.pdfExportDrafts.clear();this.pdfExportFindings.clear();this.pdfExportRounds.clear();this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.pictureCache.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.discardReplyObservers();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
+  this.nextRoute=undefined;this.lastAutomaticRoute=undefined;this.lastAutomaticTaskKind=undefined;this.automaticLabel.setText('Automatic selection');this.organizationSummary=undefined;this.relatedReview=undefined;this.historyShortened=false;this.pdfCache.destroyAll();this.pdfSelectionImageCache.clear();for(const card of this.pdfExportDrafts.values())card.remove();this.pdfExportDrafts.clear();this.pdfExportFindings.clear();this.pdfAttachments.clear();this.textAttachments.clear();this.annotationDrafts.clear();this.snapshots.clear();this.turnSources.clear();this.sourceLinks.clear();this.pictureCache.clear();this.latestUndo=null;this.attachmentEpoch++;this.conversionAbort.abort();this.conversionAbort=new AbortController();this.stop();this.history=[];this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();this.discardReplyObservers();this.feed.empty();this.composer.value='';this.status.setText(this.controller?'Stopping previous turn…':'New chat');
   return true;
  }
  /** A cleared feed discards its replies: disconnect their sanitize observers so
@@ -2342,20 +2327,24 @@ export class ButlerView extends ItemView {
   }
   if(name==='export_pdf'){
    if(!Platform.isDesktopApp)throw Error('PDF export is available only in Obsidian for desktop.');
-   const {path,reason,output}=args;
+   const {path,reason,output,breaksBefore=[]}=args;
    if(typeof path!=='string'||typeof reason!=='string'||!reason.trim()||(output!==undefined&&typeof output!=='string'))throw Error('Provide the note path, a reason and optionally an output path.');
+   if(!Array.isArray(breaksBefore)||breaksBefore.some(item=>typeof item!=='string'))throw Error('breaksBefore lists heading titles.');
    const file=this.pdfExportSource(path);
    const text=batches?.get(file.path)?.edit.after??await this.butler.currentText(file.path);
    if(isExcalidrawNote(text))throw Error('Export Markdown notes only. Drawings are exported from Excalidraw itself.');
    const options=pdfExportOptions(args as PdfExportInput,this.savedPdfExportSettings());
    const target=this.pdfExportTarget(file.path,output);
-   const issues=detectLayoutIssues(text,{...options,title:options.includeName?file.basename:undefined});
-   const rounds=this.pdfExportRounds.get(file.path)??0;
-   this.stagePdfExport(log,file,options,output,issues);
+   // The same copy is built again at export time from the note as it is then.
+   const copy=prepareExportCopy({text,basename:file.basename,options,breaksBefore:breaksBefore as string[],sizeOf:await this.exportImageSizes(file,text)});
+   if(copy.unknownHeadings.length)throw Error('No heading '+copy.unknownHeadings.map(title=>JSON.stringify(title)).join(', ')+' in this note. Use the exact heading titles in breaksBefore.');
+   this.stagePdfExport(log,file,options,output,copy,breaksBefore as string[]);
    log.createDiv({text:'Prepared a PDF export of '+file.path,cls:'owla-activity'});
    const staged=batches?.has(file.path)?' The note has changes staged in this reply: the user accepts or declines them before exporting, so the PDF shows the kept version.':'';
-   const fixes=rounds>=PDF_FIX_ROUNDS?' Two layout fix rounds were already used for this note: report remaining problems instead of adding more page breaks.':issues.some(issue=>issue.fixLine!==undefined)?' To fix them before the export, call propose_page_breaks with the headings named above.':'';
-   return 'PDF export of '+file.path+' is ready for the user to confirm in chat after this reply; nothing is written before that. Output: '+target+' ('+options.pageSize+(options.landscape?' landscape':'')+', margin '+options.margin+', '+options.downscalePercent+'%'+(options.includeName?', file name as title':'')+').'+staged+'\nEstimated layout (from the Markdown structure; the real pages are checked after the export):\n'+layoutAdvice(issues)+fixes;
+   return 'PDF export of '+file.path+' is ready for the user to confirm in chat after this reply; nothing is written before that. Output: '+target+' ('+options.pageSize+(options.landscape?' landscape':'')+', margin '+options.margin+', '+options.downscalePercent+'%'+(options.includeName?', file name as title':'')+').'+staged
+    +'\nOWLA prints a temporary copy; the note itself is not changed. Planned fixes in the copy: '+(copy.changes.length?copy.changes.join('; ')+'.':'none needed.')
+    +'\nEstimated layout after these fixes (from the Markdown structure; the real pages are checked after the export):\n'+layoutReport(copy.remaining)
+    +(copy.remaining.length?' These have no automatic fix: tell the user, and suggest other options (page size, margin, scale, includeName) if they help.':'');
   }
   if(name==='propose_page_breaks'){
    if(!batches)throw Error('No active request permits edit proposals.');
@@ -2439,13 +2428,13 @@ export class ButlerView extends ItemView {
   try{const vault=this.app.vault as unknown as {getConfig?:(key:string)=>unknown};const value=vault.getConfig?.('pdfExportSettings');return value&&typeof value==='object'?value as Record<string,unknown>:undefined;}catch{return undefined;}
  }
  /** A chat card offering the export. Nothing is written until the user confirms it. */
- private stagePdfExport(log:HTMLElement,file:TFile,options:PdfExportOptions,requested:string|undefined,issues:LayoutIssue[]){
+ private stagePdfExport(log:HTMLElement,file:TFile,options:PdfExportOptions,requested:string|undefined,copy:ExportCopy,breaksBefore:string[]){
   this.pdfExportDrafts.get(file.path)?.remove();
   const reply=log.closest('.owla-assistant');
   const card=(reply?.querySelector<HTMLElement>('.owla-tool-cards')??log).createDiv('owla-edit-card');
   this.pdfExportDrafts.set(file.path,card);
   card.createEl('p',{text:'Export to PDF · '+file.path});
-  card.createEl('p',{text:options.pageSize+(options.landscape?' landscape':'')+' · margin '+options.margin+' · '+options.downscalePercent+'%'+(issues.length?' · estimated layout: '+issues.length+' possible problem'+(issues.length===1?'':'s'):'')});
+  card.createEl('p',{text:options.pageSize+(options.landscape?' landscape':'')+' · margin '+options.margin+' · '+options.downscalePercent+'%'+(copy.changes.length?' · layout fixed in a temporary copy, the note is not changed':'')+(copy.remaining.length?' · estimated layout: '+copy.remaining.length+' possible problem'+(copy.remaining.length===1?'':'s'):'')});
   const status=card.createDiv({cls:'owla-activity'});
   const exportButton=card.createEl('button',{text:'Export PDF…'});
   const decline=card.createEl('button',{text:'Decline'});
@@ -2455,10 +2444,10 @@ export class ButlerView extends ItemView {
     if(this.controller)throw Error('Wait for the reply to finish before exporting.');
     if(this.butler.pendingEdits.some(batch=>batch.edit.path===file.path))throw Error('Accept or decline the proposed changes to this note first, so the PDF shows the version you keep.');
     const source=this.pdfExportSource(file.path),output=this.pdfExportTarget(source.path,requested);
-    new PdfExportReview(this.app,this.butler,source.path,output,options,issues,async()=>{
+    new PdfExportReview(this.app,this.butler,source.path,output,options,copy.changes,copy.remaining,async()=>{
      exportButton.disabled=true;decline.disabled=true;status.setText('Exporting…');
      try{
-      const result=await this.exportPdf(source,output,options);
+      const result=await this.exportPdf(source,output,options,breaksBefore);
       status.setText(result);
       if(this.pdfExportDrafts.get(file.path)===card)this.pdfExportDrafts.delete(file.path);
       decline.remove();exportButton.remove();
@@ -2467,10 +2456,79 @@ export class ButlerView extends ItemView {
    }catch(error){new Notice(friendlyError(error));}
   };
  }
- /** Runs Obsidian's exporter for a confirmed export, then reads the PDF back. Returns the status for the card. */
- async exportPdf(file:TFile,output:string,options:PdfExportOptions):Promise<string>{
+ /** The pixel size of each vault image the note embeds, read from the file header, for sizing images in the export copy. Excluded, missing and unreadable images stay unknown. */
+ private async exportImageSizes(file:TFile,text:string):Promise<(target:string)=>ImageSize|null>{
+  const sizes=new Map<string,ImageSize|null>(),targets=new Set<string>();
+  for(const line of text.split(/\r?\n/))for(const embed of imageEmbeds(line))targets.add(embed.target);
+  const folder=file.path.includes('/')?file.path.slice(0,file.path.lastIndexOf('/')):'';
+  for(const target of [...targets].slice(0,200)){
+   // Wikilinks resolve like Obsidian's own links; "./" and "../" paths are relative to the note.
+   const local=/^\.\.?\//.test(target)?posix.normalize(posix.join(folder,target)):null;
+   const resolved=(local&&!local.startsWith('..')?this.app.vault.getAbstractFileByPath(local):null)??this.app.metadataCache.getFirstLinkpathDest(target,file.path)??this.app.vault.getAbstractFileByPath(target);
+   if(!(resolved instanceof TFile)||!this.butler.allowedVaultFile(resolved.path)||resolved.stat.size>64*1024*1024){sizes.set(target,null);continue;}
+   try{sizes.set(target,imageDimensions(new Uint8Array(await this.app.vault.readBinary(resolved))));}catch{sizes.set(target,null);}
+  }
+  return target=>sizes.get(target)??null;
+ }
+ /** A free path for the temporary export copy, next to the note so its links and embeds resolve the same way. */
+ private exportCopyPath(file:TFile):string{
+  const base=file.path.replace(/\.md$/i,'')+' (OWLA PDF export)';
+  for(let n=0;n<100;n++){const candidate=base+(n?' '+n:'')+'.md';if(!this.app.vault.getAbstractFileByPath(candidate)&&!existsSync(this.app.vault.adapter instanceof FileSystemAdapter?join(this.app.vault.adapter.getBasePath(),candidate):candidate))return candidate;}
+  throw Error('Too many OWLA export copies exist next to this note. Delete the old "(OWLA PDF export)" notes.');
+ }
+ /**
+  * Runs a confirmed export, then reads the PDF back. Returns the status for the card.
+  * Obsidian prints a temporary copy with the layout fixes (prepareExportCopy);
+  * pages the read-back still finds stranded get page breaks in the copy and
+  * the copy is printed again, at most PDF_FIX_ROUNDS times. The copy is
+  * deleted afterwards and the note is never written. Without Obsidian's
+  * internal exporter the dialog exports the note itself, without the fixes.
+  */
+ async exportPdf(file:TFile,output:string,options:PdfExportOptions,breaksBefore:string[]=[]):Promise<string>{
   const adapter=this.app.vault.adapter;
   if(!(adapter instanceof FileSystemAdapter))throw Error('PDF export needs the desktop vault.');
+  const text=await this.butler.currentText(file.path);
+  const copy=prepareExportCopy({text,basename:file.basename,options,breaksBefore,sizeOf:await this.exportImageSizes(file,text)});
+  const copyPath=this.exportCopyPath(file);
+  let copyFile:TFile|null=null,fallback='';
+  try{
+   copyFile=await this.app.vault.create(copyPath,copy.text);
+   this.butler.exportCopies.add(copyPath);
+   let copyText=copy.text,added=0,rounds=0;
+   for(;;){
+    const result=await this.printNote(copyFile,output,copy.options,false);
+    if(result.route!=='internal'){fallback=result.reason;break;}
+    const check=await this.readBackPdf(copyText,output,copy.title);
+    const fixLines=check.found.flatMap(issue=>issue.fixLine===undefined?[]:[issue.fixLine]);
+    const next=fixLines.length&&rounds<PDF_FIX_ROUNDS?insertPageBreaks(copyText,fixLines):null;
+    if(!next?.inserted.length){
+     const fixes=[...copy.changes,...(added?['after reading the PDF back, added '+added+' more page break'+(added===1?'':'s')+' and printed again ('+rounds+' round'+(rounds===1?'':'s')+')']:[])];
+     const report=layoutReport(check.found);
+     this.pdfExportFindings.set(file.path,'Exported '+output+' ('+check.pages+' page'+(check.pages===1?'':'s')+') from a temporary copy; the note itself was not changed. Fixes in the copy: '+(fixes.length?fixes.join('; '):'none')+'.\nChecked from the PDF text:\n'+report
+      +(check.found.length?'\nThese remain after the automatic fixes: describe them to the user and suggest other export options if they help. Do not add page breaks to the note unless the user asks for that.':''));
+     return 'Saved '+output+'. '+(fixes.length?'Layout fixed in a temporary copy ('+fixes.join('; ')+'); your note was not changed. ':'')
+      +(check.found.length?check.found.length+' layout problem'+(check.found.length===1?'':'s')+' remain; OWLA will tell the assistant with your next message.':'Layout check: no stranded headings found ('+check.pages+' page'+(check.pages===1?'':'s')+').');
+    }
+    copyText=next.text;added+=next.inserted.length;rounds++;
+    await this.app.vault.modify(copyFile,copyText);
+    // The PDF of the previous round is OWLA's own file from a moment ago.
+    await adapter.remove(output);
+   }
+  }finally{
+   // Deleted outright, not moved to the trash: the copy is OWLA's own temporary file, and trashing it would leave one per export.
+   // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- see above
+   if(copyFile){try{await this.app.vault.delete(copyFile);}catch{/* Removed on unload at the latest. */}}
+   if(!copyFile||!this.app.vault.getAbstractFileByPath(copyPath))this.butler.exportCopies.delete(copyPath);
+  }
+  // Route A: Obsidian's dialog exports the note itself; the copy cannot be used there.
+  const result=await this.printNote(file,output,options,true);
+  if(result.route==='internal')return 'Saved '+output+' without OWLA’s layout fixes ('+fallback+'). '+await this.checkExportedPdf(file,output,options,'directly');
+  if(result.route==='dialog'&&result.ok){this.watchDialogExport(file,options);return result.reason+' The automatic layout fixes need Obsidian’s internal exporter ('+fallback+'), so this PDF is the note as it is.';}
+  throw Error(result.reason);
+ }
+ /** Prints one note with Obsidian's exporter (route B), in a temporary tab when the note is not open. allowDialog permits the dialog fallback (route A). */
+ private async printNote(file:TFile,output:string,options:PdfExportOptions,allowDialog:boolean):Promise<PdfExportResult>{
+  const adapter=this.app.vault.adapter as FileSystemAdapter;
   const workspace=this.app.workspace;
   let leaf=workspace.getLeavesOfType('markdown').find(item=>item.view instanceof MarkdownView&&item.view.file?.path===file.path)??null;
   let temporary=false;
@@ -2482,7 +2540,7 @@ export class ButlerView extends ItemView {
    const shown=leaf;
    result=await runPdfExport({
     isDesktop:Platform.isDesktopApp,view,file,modalPrototype:Modal.prototype as unknown as {open?:(...args:unknown[])=>unknown},
-    hasDialogCommand:()=>!!commands?.findCommand?.(EXPORT_PDF_COMMAND),
+    hasDialogCommand:()=>allowDialog&&!!commands?.findCommand?.(EXPORT_PDF_COMMAND),
     openDialog:()=>{workspace.setActiveLeaf(shown,{focus:true});return !!commands?.executeCommandById?.(EXPORT_PDF_COMMAND);},
     outputExists:()=>adapter.exists(output),
    },obsidianPrintOptions(options,adapter.getFullPath(output)));
@@ -2490,9 +2548,7 @@ export class ButlerView extends ItemView {
    // The dialog route needs the note's view to stay open while the user confirms.
    if(temporary&&result?.route!=='dialog')leaf.detach();
   }
-  if(result.route==='internal')return 'Saved '+output+'. '+await this.checkExportedPdf(file,output,options);
-  if(result.route==='dialog'&&result.ok){this.watchDialogExport(file,options);return result.reason;}
-  throw Error(result.reason);
+  return result;
  }
  /** Route A: Obsidian's dialog chooses the path; read the PDF back if the user saves it in the vault. */
  private watchDialogExport(file:TFile,options:PdfExportOptions){
@@ -2507,13 +2563,18 @@ export class ButlerView extends ItemView {
   stop.unref?.();
   this.registerEvent(ref);
  }
- /**
-  * Reads the exported PDF's text page by page and finds headings that really
-  * ended up stranded. The findings go to the model with the next message.
-  */
- async checkExportedPdf(file:TFile,output:string,options:PdfExportOptions):Promise<string>{
+ /** Read-back of a PDF of the note itself, exported without the copy's fixes (through Obsidian's dialog, or directly when the copy could not be printed). */
+ async checkExportedPdf(file:TFile,output:string,options:PdfExportOptions,how='through Obsidian’s dialog'):Promise<string>{
   if(!this.butler.allowedPdf(output))return 'The PDF is outside the allowed folders, so it was not checked.';
-  const text=await this.butler.currentText(file.path);
+  const check=await this.readBackPdf(await this.butler.currentText(file.path),output,options.includeName?file.basename:undefined);
+  this.pdfExportFindings.set(file.path,'Exported '+output+' ('+check.pages+' page'+(check.pages===1?'':'s')+') '+how+', without OWLA’s layout fixes. Checked from the PDF text:\n'+layoutReport(check.found)+(check.found.length?'\nTell the user; OWLA’s fixes apply when Obsidian’s internal exporter is available. Do not add page breaks to the note unless the user asks for that.':''));
+  return check.found.length?check.found.length+' layout problem'+(check.found.length===1?'':'s')+' found in the PDF; OWLA will tell the assistant with your next message.':'Layout check: no stranded headings found ('+check.pages+' page'+(check.pages===1?'':'s')+').';
+ }
+ /**
+  * Reads an exported PDF's text page by page and finds headings that really
+  * ended up stranded, mapped to lines of the Markdown that was printed.
+  */
+ private async readBackPdf(text:string,output:string,title?:string):Promise<{pages:number;found:LayoutIssue[]}>{
   const headings=markdownBlocks(text).filter(block=>block.kind==='heading').map(block=>block.title??'');
   const bytes=await this.app.vault.adapter.readBinary(output);
   const cache=new PdfDocumentCache(1);
@@ -2525,13 +2586,7 @@ export class ButlerView extends ItemView {
     return out;
    });
   }finally{cache.destroyAll();}
-  const found=issuesFromPdf(text,pdfLayoutIssues(pages,headings,options.includeName?file.basename:undefined));
-  const rounds=(this.pdfExportRounds.get(file.path)??0)+(found.length?1:0);
-  if(found.length)this.pdfExportRounds.set(file.path,rounds);
-  const report=layoutReport(found);
-  const next=!found.length?'':rounds>PDF_FIX_ROUNDS?' The fix rounds are used up: describe the remaining problems; do not add more page breaks.':' Fix round '+rounds+' of '+PDF_FIX_ROUNDS+': stage page breaks with propose_page_breaks (headings: '+found.filter(issue=>issue.fixLine!==undefined).map(issue=>JSON.stringify(issue.heading)).join(', ')+'), then offer export_pdf again.';
-  this.pdfExportFindings.set(file.path,'Exported '+output+' ('+pages.length+' page'+(pages.length===1?'':'s')+'). Checked from the PDF text:\n'+report+next);
-  return found.length?found.length+' layout problem'+(found.length===1?'':'s')+' found in the PDF; OWLA will tell the assistant with your next message.':'Layout check: no stranded headings found ('+pages.length+' page'+(pages.length===1?'':'s')+').';
+  return {pages:pages.length,found:issuesFromPdf(text,pdfLayoutIssues(pages,headings,title))};
  }
  /** The read snapshot and the staged preview of a plain Markdown note, refusing drawings, canvases and bases. */
  private markdownSnapshot(path:string,batches:Map<string,EditBatch>,what:string){
@@ -2907,6 +2962,10 @@ export class ButlerView extends ItemView {
  // The Automatic provider connects every candidate itself, unless a one-message override names the model.
  const choosesProvider=autoProvider&&!override;
  this.nextRoute=undefined;
+ // An override on another provider is served by that provider from the start:
+ // connecting the active provider first made the override fail whenever that
+ // one was out of usage, signed out or not running.
+ if(override?.provider&&override.provider!==provider){provider=override.provider;bridge=this.butler.bridgeFor(provider);}
  const batches = new Map<string,EditBatch>();
  const organization:OrganizationDraft={};
  let toolQueue:Promise<unknown>=Promise.resolve();
@@ -3721,7 +3780,7 @@ class ButlerSettingsTab extends PluginSettingTab {
   :provider==='hermes'
   ?'Selected note context and attachments are processed by the providers you connected in Hermes Agent. Suggested edits are applied provisionally for you to accept or decline.'
   :provider==='siri'
-  ?'Selected note context is processed by Apple Foundation Models: on Apple’s Private Cloud Compute, or on this Mac with the on-device model. Suggested edits are applied provisionally for you to accept or decline.'
+  ?'Selected note context is processed by Apple Foundation Models on Apple’s Private Cloud Compute. Suggested edits are applied provisionally for you to accept or decline.'
   :'Use your existing Codex ChatGPT login. Selected note context and attachments are processed by OpenAI. Suggested edits are applied provisionally for you to accept or decline.';
  }
  private renderUsage(provider:ProviderId){
@@ -4029,9 +4088,9 @@ class ButlerSettingsTab extends PluginSettingTab {
    const setup=setting.descEl.createDiv();
    setup.appendText('Before connecting, open Terminal, run ');
    setup.createEl('code',{text:FOUNDATION_MODELS_LICENSE_COMMAND});
-   setup.appendText(' and accept Apple’s terms. If Private Cloud Compute is unavailable to Obsidian, OWLA uses the on-device model and says why.');
+   setup.appendText(' and accept Apple’s terms. Chat always uses Private Cloud Compute, in Automatic mode and when chosen by hand: the on-device model’s context window is too small for day-to-day work. If Private Cloud Compute is unavailable to Obsidian, Siri AI does not connect and OWLA says why.');
   }),
-  this.usageSection('siri','Siri AI usage limits','Private Cloud Compute quota reported by fm quota-usage for your Apple Account. The on-device model has no usage limit.'),
+  this.usageSection('siri','Siri AI usage limits','Private Cloud Compute quota reported by fm quota-usage for your Apple Account.'),
   // Automatic
   {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to choose the provider, model and reasoning effort for every message from your prompt and attachment names. Only providers switched on in their tabs are considered. While this is on, the provider order in General is not used.',visible:this.on('automatic'),render:setting=>{
    const available=hasFoundationModelsCLI();
@@ -4186,12 +4245,13 @@ class RemovalDiff extends Modal {
 
 /** Confirms a PDF export: what is exported, where, with which settings, and the estimated layout. */
 class PdfExportReview extends Modal{
- constructor(app:App,butler:Butler,private source:string,private output:string,private options:PdfExportOptions,private issues:LayoutIssue[],private accept:()=>Promise<void>){super(app);butler.ownModal(this);}
+ constructor(app:App,butler:Butler,private source:string,private output:string,private options:PdfExportOptions,private changes:string[],private issues:LayoutIssue[],private accept:()=>Promise<void>){super(app);butler.ownModal(this);}
  onOpen(){
   this.setTitle('Export to PDF');
   this.contentEl.createEl('p',{text:'Export '+this.source+' with Obsidian’s own PDF exporter and save it as '+this.output+'. No existing file is replaced.'});
   this.contentEl.createEl('p',{text:this.options.pageSize+(this.options.landscape?', landscape':'')+' · margin '+this.options.margin+' · scale '+this.options.downscalePercent+'%'+(this.options.includeName?' · file name as title':'')});
-  if(this.issues.length)this.contentEl.createEl('p',{text:'Estimated layout before export:\n'+layoutReport(this.issues)});
+  this.contentEl.createEl('p',{text:'OWLA prints a temporary copy of the note next to it and deletes the copy afterwards. Your note is not changed.'+(this.changes.length?' Layout fixes in the copy: '+this.changes.join('; ')+'.':'')});
+  if(this.issues.length)this.contentEl.createEl('p',{text:'Estimated layout after the fixes:\n'+layoutReport(this.issues)});
   new Setting(this.contentEl).addButton(b=>b.setButtonText('Cancel').onClick(()=>this.close())).addButton(b=>b.setButtonText('Export PDF').setCta().onClick(()=>{this.close();void this.accept();}));
  }
  onClose(){this.contentEl.empty();}

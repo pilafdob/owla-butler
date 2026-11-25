@@ -109,7 +109,8 @@ const PAPER:Record<PdfPageSize,[number,number]>={A3:[1123,1587],A4:[794,1123],A5
 /** Chromium printToPDF margins in px: default ≈ 0.4 in on every side; minimal/none are 0 in Obsidian's call. */
 const MARGIN_PX:Record<PdfMargin,number>={default:38,minimal:0,none:0};
 /** Assumed body line (16 px font × 1.5) and average glyph width. Images without a size are assumed ~300 px tall. */
-const LINE_PX=24,CHAR_PX=8,IMAGE_PX=300;
+export const LINE_PX=24;
+const CHAR_PX=8,IMAGE_PX=300;
 const HEADING_LINES=[0,2.6,2.2,1.9,1.6,1.4,1.3];
 
 export type PageGeometry={linesPerPage:number;charsPerLine:number};
@@ -118,6 +119,18 @@ export function pageGeometry(options:Pick<PdfExportOptions,'pageSize'|'landscape
  const scale=options.downscalePercent/100,m=MARGIN_PX[options.margin]*2;
  // Obsidian's print view also pads content; ~5 % of the width is lost to it.
  return {linesPerPage:Math.max(5,Math.floor((height-m)/(LINE_PX*scale))),charsPerLine:Math.max(20,Math.floor((width-m)*.95/(CHAR_PX*scale)))};
+}
+
+/**
+ * The printable content area in CSS px at the export's scale (a 50 % downscale
+ * doubles the room). Width keeps the same ~5 % allowance for Obsidian's print
+ * padding as pageGeometry, plus a small safety margin, so an image sized to it
+ * stays inside the page border; height keeps ~8 % for the block's own margins.
+ */
+export function pageContentBox(options:Pick<PdfExportOptions,'pageSize'|'landscape'|'margin'|'downscalePercent'>):{width:number;height:number}{
+ const [w,h]=PAPER[options.pageSize],[width,height]=options.landscape?[h,w]:[w,h];
+ const scale=options.downscalePercent/100,m=MARGIN_PX[options.margin]*2;
+ return {width:Math.floor((width-m)*.92/scale),height:Math.floor((height-m)*.92/scale)};
 }
 
 /** Height of a block in body lines (estimate). Blocks are separated by ~0.6 line of margin. */
@@ -140,7 +153,8 @@ export function blockLines(block:Block,geometry:PageGeometry):number{
 const unbreakable=(kind:BlockKind)=>kind==='image'||kind==='math'||kind==='heading';
 
 export type PlacedBlock=Block&{page:number;top:number;bottom:number};
-export type LayoutOptions=PdfExportOptions&{title?:string;propertiesLines?:number};
+/** imageHeights: known rendered heights (CSS px) of image blocks by 0-based line, from the export copy's image fitting. */
+export type LayoutOptions=PdfExportOptions&{title?:string;propertiesLines?:number;imageHeights?:ReadonlyMap<number,number>};
 
 /** Assign estimated pages. Text, lists, tables and code may split; headings, images and display math move whole to the next page.
  *  top is the block's start offset (lines) on its first page; bottom its end offset on its last page. */
@@ -150,7 +164,8 @@ export function estimateLayout(text:string,options:LayoutOptions):PlacedBlock[]{
  for(const block of markdownBlocks(text)){
   if(block.kind==='frontmatter'){used+=options.propertiesLines??0;continue;}
   if(block.kind==='break'){if(used>0){page++;used=0;}out.push({...block,page,top:0,bottom:0});continue;}
-  const h=blockLines(block,geometry);
+  const known=block.kind==='image'?options.imageHeights?.get(block.line):undefined;
+  const h=known!==undefined?Math.max(2,known/LINE_PX)+.6:blockLines(block,geometry);
   if(used>=per){page++;used=0;}
   if(unbreakable(block.kind)&&used>0&&used+h>per&&h<=per){page++;used=0;}
   const top=used,first=page;used+=h;
@@ -205,7 +220,7 @@ export function detectLayoutIssues(text:string,options:LayoutOptions):LayoutIssu
 function dedupe(issues:LayoutIssue[]){const seen=new Set<string>();return issues.filter(i=>{const key=i.kind+':'+i.line;if(seen.has(key))return false;seen.add(key);return true;});}
 
 /** Lines (0-based) inside fenced code or $$ math; never edited. */
-function opaqueLines(text:string):Set<number>{
+export function opaqueLines(text:string):Set<number>{
  const out=new Set<number>();for(const b of markdownBlocks(text))if(b.kind==='code'||b.kind==='math'||b.kind==='frontmatter')for(let l=b.line;l<=b.endLine;l++)out.add(l);return out;
 }
 
