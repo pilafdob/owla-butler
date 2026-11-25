@@ -355,3 +355,10 @@ button.owla-source-link:hover,
 .owla-line-declined { box-shadow: inset 0 0 0 1px var(--color-red); }
 /* Canvas picture capture: the wrapper is laid over the window at the capture size (src/visual.ts). !important keeps the override that inline styles gave before. */
 .owla-canvas-capture { position: fixed !important; left: 0 !important; top: 0 !important; width: var(--owla-capture-width) !important; height: var(--owla-capture-height) !important; z-index: var(--layer-modal) !important; }
+
+/* PDF export: Obsidian's Export to PDF renders with print media. Images stay inside the page border and headings stay with the text after them.
+   A backstop only: export_pdf already sizes images in its temporary copy (src/pdf-export-copy.ts), which does not depend on these rules reaching the print view. */
+@media print {
+  .markdown-rendered img { max-width: 100%; height: auto; break-inside: avoid; }
+  .markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered h4, .markdown-rendered h5, .markdown-rendered h6 { break-after: avoid; }
+}
