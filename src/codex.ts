@@ -224,6 +224,8 @@ export class CodexBridge implements ProviderBridge{
  private finishSignIn:(()=>void)|undefined;
  /** The failure that ended the current connection, if any; a user disconnect leaves it null. */
  private lastFailure:Error|null=null;
+ /** Read through a method: launch() resets lastFailure first, which narrows the property to null for TypeScript. */
+ private recordedFailure():Error|null{return this.lastFailure;}
  /** Features learned to be on in the user's Codex config; turned off on later starts (web re-keys) without a second probe. */
  private featureOverrides:string[]=[];
  /** OWLA's direct-tool copy of the model catalog, learned on a connect and passed as model_catalog_json until it is an hour old. */
@@ -339,7 +341,7 @@ export class CodexBridge implements ProviderBridge{
  // A fetched catalog that routes tools through Code Mode is replaced by OWLA's direct-tool copy with one restart.
  if(!this.toolCatalog){const path=writeDirectToolCatalog(this.privateHome);if(path){this.toolCatalog={path,at:Date.now()};this.close('Isolating OWLA tools…',true);return 'catalog';}}
  this.initialized=true;this.setStatus(this.plan?'Connected to Codex · '+this.plan:'Connected to Codex');return [];
- }catch(e){if(generation!==this.generation){if(this.lastFailure)throw this.lastFailure;throw Error('Codex connection cancelled.');}this.close(friendlyError(e));throw e;}finally{if(this.startupAbort===startup)this.startupAbort=null;}
+ }catch(e){if(generation!==this.generation){const failure=this.recordedFailure();if(failure)throw failure;throw Error('Codex connection cancelled.');}this.close(friendlyError(e));throw e instanceof Error?e:Error(String(e));}finally{if(this.startupAbort===startup)this.startupAbort=null;}
  }
  private async readAccount(){const response=record(await this.request('account/read',{refreshToken:false})),account=record(response.account);this.accountType=typeof account.type==='string'?account.type:'';this.plan=typeof account.planType==='string'?account.planType:'';if(response.account!=null&&this.accountType!=='chatgpt')throw Error('OWLA requires Codex signed in with ChatGPT. API-key authentication is not supported.');}
  async signIn(open:(url:string)=>void,complete:()=>void){

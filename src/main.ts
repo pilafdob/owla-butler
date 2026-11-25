@@ -28,7 +28,7 @@ import {readReference,taskReference} from './knowledge';
 import {pdfPageText,pdfPageNumber,pdfSource,pdfPageReference,PdfJs,PdfDocument,PdfPage,PdfDocumentCache,PdfDocumentKey,readPdfTextRange,searchPdfText} from './pdf';
 import {PDF_SELECTION_MAX_PAGES,PDF_SELECTION_IMAGE_CACHE_MAX,PDF_SELECTION_IMAGE_NOTE,PDF_SELECTION_TEXT_ONLY_NOTE,pdfSelectionCacheKey,pdfSelectionChipLabel,pdfSelectionRenderPages,pdfSelectionTextOnlyContext,pdfSelectionAttempt,selectionContextBlock,type PdfSelectionPage,type SelectionItem} from './pdf-selection';
 import {record} from './validation';
-import {OWLA_PAGE_BREAK,PDF_FIX_ROUNDS,insertPageBreaks,issuesFromPdf,layoutReport,markdownBlocks,obsidianPrintOptions,pageBreakLines,pdfExportOptions,pdfLayoutIssues,pdfOutputPath,removePageBreaks,type LayoutIssue,type PdfExportInput,type PdfExportOptions} from './pdf-export';
+import {OWLA_PAGE_BREAK,PDF_FIX_ROUNDS,insertPageBreaks,issuesFromPdf,layoutReport,markdownBlocks,obsidianPrintOptions,pageBreakLines,pdfExportOptions,pdfLayoutIssues,pdfOutputPath,removePageBreaks,type LayoutIssue,type PdfExportOptions} from './pdf-export';
 import {imageDimensions,imageEmbeds,prepareExportCopy,type ExportCopy,type ImageSize} from './pdf-export-copy';
 import {routeChoices,type RouteChoice,type RouteItem} from './route-picker';
 import {EXPORT_PDF_COMMAND,isDialogExport,runPdfExport,type PdfExportResult} from './pdf-export-run';
@@ -237,9 +237,8 @@ export default class Butler extends Plugin {
  async sweepExportCopies(){
   try{
    await sweepExportCopies(this.vaultStorage(),async path=>{const file=this.app.vault.getAbstractFileByPath(path);return file instanceof TFile?await this.app.vault.read(file):null;},async path=>{
-    const file=this.app.vault.getAbstractFileByPath(path);
-    // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- OWLA's own unchanged temporary file, as in exportPdf
-    if(file instanceof TFile)await this.app.vault.delete(file);
+    // Removed outright, not trashed: OWLA's own unchanged temporary file, as in exportPdf.
+    if(await this.app.vault.adapter.exists(path))await this.app.vault.adapter.remove(path);
    });
   }catch{/* Retried on the next load. */}
  }
@@ -651,8 +650,8 @@ export default class Butler extends Plugin {
  save(){const snapshot=structuredClone(this.prefs);this.saveQueue=this.saveQueue.catch(()=>{}).then(async()=>this.saveData(writeSettings(snapshot,await this.loadData())));return this.saveQueue;}
  /** Temporary export_pdf copies that exist right now; deleted after each export, and here on unload if an export was cut short. */
  readonly exportCopies=new Set<string>();
- onunload(){// eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- OWLA's own temporary export copy (see exportPdf)
-  for(const path of this.exportCopies){const copy=this.app.vault.getAbstractFileByPath(path);if(copy instanceof TFile)void this.app.vault.delete(copy).then(()=>forgetExportCopy(this.vaultStorage(),path)).catch(()=>{/* The next load sweeps it. */});}this.exportCopies.clear();for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
+ onunload(){// OWLA's own temporary export copies are removed outright (see exportPdf).
+  for(const path of this.exportCopies){const copy=this.app.vault.getAbstractFileByPath(path);if(copy instanceof TFile)void this.app.vault.adapter.remove(copy.path).then(()=>forgetExportCopy(this.vaultStorage(),path)).catch(()=>{/* The next load sweeps it. */});}this.exportCopies.clear();for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
  /** A file OWLA can propose edits to: Markdown (including Excalidraw drawing notes), `.excalidraw`, Canvas or Bases. */
@@ -1536,7 +1535,7 @@ export class ButlerView extends ItemView {
    else{sanitizeIsFrame=false;sanitizeHandle=window.setTimeout(run,16);}
   });
   observer.observe(content,{childList:true,subtree:true,attributes:true,characterData:true});
-  const stopObserving=()=>{observer.disconnect();if(sanitizeHandle!==null){if(sanitizeIsFrame)window.cancelAnimationFrame(sanitizeHandle as number);else window.clearTimeout(sanitizeHandle as number);sanitizeHandle=null;}};
+  const stopObserving=()=>{observer.disconnect();if(sanitizeHandle!==null){if(sanitizeIsFrame)window.cancelAnimationFrame(sanitizeHandle);else window.clearTimeout(sanitizeHandle);sanitizeHandle=null;}};
   this.replyStops.add(stopObserving);
   // One view-level cleanup drains every reply observer on unload. A closure
   // registered per reply would keep each stopObserving — and the observer and
@@ -2237,7 +2236,7 @@ export class ButlerView extends ItemView {
    const file=this.pdfExportSource(path);
    const text=batches?.get(file.path)?.edit.after??await this.butler.currentText(file.path);
    if(isExcalidrawNote(text))throw Error('Export Markdown notes only. Drawings are exported from Excalidraw itself.');
-   const options=pdfExportOptions(args as PdfExportInput,this.savedPdfExportSettings());
+   const options=pdfExportOptions(args,this.savedPdfExportSettings());
    const target=this.pdfExportTarget(file.path,output);
    // The same copy is built again at export time from the note as it is then.
    const copy=prepareExportCopy({text,basename:file.basename,options,breaksBefore:breaksBefore as string[],sizeOf:await this.exportImageSizes(file,text)});
@@ -2427,9 +2426,9 @@ export class ButlerView extends ItemView {
    }
   }finally{
    // Deleted outright, not moved to the trash: the copy is OWLA's own temporary file, and trashing it would leave one per export.
-   // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- see above
-   if(copyFile){try{await this.app.vault.delete(copyFile);}catch{/* Removed on unload at the latest. */}}
-   if(!copyFile||!this.app.vault.getAbstractFileByPath(copyPath)){this.butler.exportCopies.delete(copyPath);try{forgetExportCopy(this.butler.vaultStorage(),copyPath);}catch{/* The next load forgets it. */}}
+   let removed=false;
+   if(copyFile){try{await adapter.remove(copyFile.path);removed=true;}catch{/* Removed on unload at the latest. */}}
+   if(!copyFile||removed){this.butler.exportCopies.delete(copyPath);try{forgetExportCopy(this.butler.vaultStorage(),copyPath);}catch{/* The next load forgets it. */}}
   }
   // Route A: Obsidian's dialog exports the note itself; the copy cannot be used there.
   const result=await this.printNote(file,output,options,true);
@@ -2450,7 +2449,7 @@ export class ButlerView extends ItemView {
    const view=leaf.view instanceof MarkdownView?leaf.view as unknown as {file?:unknown;printToPdf?:()=>unknown}:null;
    const shown=leaf;
    result=await runPdfExport({
-    isDesktop:Platform.isDesktopApp,view,file,modalPrototype:Modal.prototype as unknown as {open?:(...args:unknown[])=>unknown},
+    isDesktop:Platform.isDesktopApp,view,file,modalPrototype:Modal.prototype,
     hasDialogCommand:()=>allowDialog&&!!commands?.findCommand?.(EXPORT_PDF_COMMAND),
     openDialog:()=>{workspace.setActiveLeaf(shown,{focus:true});return !!commands?.executeCommandById?.(EXPORT_PDF_COMMAND);},
     outputExists:()=>adapter.exists(output),

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.8.1
+
+A patch release that fixes the Obsidian Community review of 3.8.0, which failed on its source code check. No user-visible behaviour changes.
+
+- **Review error fixed:** the three `eslint-disable` comments for `obsidianmd/prefer-file-manager-trash-file` are gone. OWLA's own temporary PDF export copy (after an export, on unload, and in the start-up sweep of crash leftovers) is now removed with `vault.adapter.remove` instead of `Vault.delete`. It is still removed outright, not trashed, so exports leave no trashed copies.
+- **Review warnings fixed:** an unbound `path.join` reference (`src/cli.ts`), a possibly non-`Error` rethrow (`src/codex.ts`), unnecessary type assertions (`src/main.ts`, `src/ocr.ts`, `src/vault-graph.ts`) and an aliased `this` (`src/pdf-export-run.ts`). The lint now runs `unbound-method`, `only-throw-error`, `no-unnecessary-type-assertion` and `no-this-alias` as errors.
+- **CSS:** the canvas picture capture rule no longer uses `!important`; a more specific selector places the wrapper instead.
+- **Regression tests:** no source file may disable an `obsidianmd/` rule, `styles.css` may not use `!important`, and the export tests fail if `Vault.delete` is used for an export copy.
+- **Still reported, unchanged:** the CSS lint warns that `break-inside`/`break-after` in the print-only PDF export rules are partially supported by Obsidian; these are backstop rules and stay. The behaviour notices (filesystem, child processes, vault enumeration, clipboard) describe documented features.
+
 ## 3.8.0
 
 3.8.0 collects the work of the 3.8.0 dev builds: PDF export, PDF text selections, richer note context, reviewed outline and property edits, tabbed settings with per-provider switches and an ordered fallback list, the Siri AI provider (macOS 27), Excalidraw handwriting handling, and a Windows data-safety audit. Settings from 3.7.x migrate automatically (see **Upgrade notes**). What was and was not verified is listed under **Verification** and **Known limits**.

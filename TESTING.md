@@ -1,5 +1,16 @@
 # OWLA Butler verification
 
+## 3.8.1 — Community review fixes (2026-11-25, macOS)
+
+- **Why:** the Obsidian Community review of 3.8.0 (commit `512bd4c`) failed its source code check: disabling `obsidianmd/prefer-file-manager-trash-file` is not allowed (`src/main.ts` lines 241, 654 and 2430). It also listed TypeScript warnings and two CSS lint warnings. Attestations, dependencies, obfuscation and build reproduction passed.
+- **Gates** (macOS 27.3, Node 24.15.0, non-root): `npm ci`, `check`, `lint` (0 errors, the 4 old sentence-case warnings), `npm test` (**929 tests / 923 pass / 0 fail / 6 skipped**, Windows-only), `guard:test`, `build`, `RELEASE_TAG=3.8.1 check:release`, `node scripts/package.mjs` (50 files: the 3.8.0 set plus the README demo GIF and screenshots) and `git diff --check`. An ESLint pass with `unbound-method`, `only-throw-error`, `no-unnecessary-type-assertion` and `no-this-alias` reports nothing. These rules are now errors in `eslint.config.mjs`.
+- **Regression tests:** `tests/community-review.test.ts` (no `eslint-disable` of an `obsidianmd/` rule; no `!important` in `styles.css`) fails 0/2 on the 3.8.0 source and passes 2/2 on the fix. The export tests' fake vault now throws on `Vault.delete`.
+- **Live, Obsidian 1.15.1, disposable vault with invented content:**
+  - PDF export of a note: the PDF was saved, the temporary copy was gone from disk and from the vault index, nothing was moved to `.trash`, the export-copy record was cleared and the note was byte-identical.
+  - Canvas picture capture without `!important`: during the capture the wrapper computed to `position: fixed`, left/top 0, 1024×800 (the window), z-index 50 (`--layer-modal`). The picture came back, OCR read both cards, and the class was removed afterwards.
+  - No console errors. The vault was deleted afterwards.
+- **Not changed:** the CSS lint warnings about `break-inside`/`break-after` in the print-only export rules, and the behaviour notices. Not run: Windows for this patch (the changes are platform-independent; CI `platform-tests` runs on the pull request).
+
 ## 3.8.0 — release check on `main` (2026-11-25, macOS and Windows)
 
 The first pass found that Siri AI could not connect on macOS (see "Found"). It was fixed on `fix/siri-on-device-fallback` and re-checked live (see "Siri AI fix"). The owner confirmed the remaining Windows release checks as done and approved the release.

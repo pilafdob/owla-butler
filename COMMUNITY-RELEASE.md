@@ -8,6 +8,16 @@ The 1.0.0 release and initial listing instructions below are historical. The com
 
 The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
 
+## 3.8.1 — release status
+
+3.8.1 fixes the Community review of 3.8.0, which failed on disabled
+`obsidianmd/prefer-file-manager-trash-file` rules. Export copies are now
+removed through the vault adapter, and the review's TypeScript and `!important`
+warnings are fixed. It goes through a pull request into `main`; the merge
+commit gets the plain `3.8.1` tag, then the tag workflow, the asset hash
+comparison and `gh attestation verify`, as for 3.8.0. Details are in
+`TESTING.md` ("3.8.1 — Community review fixes").
+
 ## 3.8.0 — release status
 
 The version bump is on `main`. On 2026-11-25 the macOS gates and live checks
