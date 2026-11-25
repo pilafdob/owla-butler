@@ -4,6 +4,16 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.0-dev.6
+
+The stable OWLA Butler 3.8.0 release build from `main` (tag `3.8.0`), with the Developer-Prerelease dev features (Developer mode and its diagnostics) added on top. Changes since `3.8.0-dev.5`, all from `main`:
+
+- **Siri AI connects in Obsidian again:** Apple's `fm` serves Private Cloud Compute only to programs started from Terminal, so Siri AI now falls back to the on-device model inside Obsidian and says why in its connection status. Where Apple allows Private Cloud Compute, Siri AI still prefers it.
+- **Codex with web search on GPT-6.2:** turns on `gpt-6.2-sol` and `gpt-6.2-astra` with web search on no longer fail with the reserved `web.run` error.
+- **README, listing and website:** a demo GIF and screenshots, a new manifest description and keywords, and a GitHub Pages site. None of these change plugin behaviour.
+
+Plugin code is identical to the 3.8.0 release apart from the dev features. The release checks are recorded in `TESTING.md`.
+
 ### 3.8.0-dev.5
 
 Fifth prerelease of 3.8.0, from `main` after the Windows audit (pull request #17). Changes since `3.8.0-dev.4`:
