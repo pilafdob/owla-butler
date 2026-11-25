@@ -10,12 +10,13 @@ The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices refl
 
 ## 3.8.0 — release status
 
-The version bump is on `main` (final 3.8.0 content up to PR #20, `35875f2`);
-not tagged or published. On 2026-11-25 the macOS gates and live checks passed
-on that tree, except Siri AI, which cannot connect from Obsidian because
-Apple's `fm` serves Private Cloud Compute only to Terminal. Several Windows
-release checks are still missing. Both are listed in `TESTING.md` ("3.8.0 —
-release check on `main`"), and tagging waits on them.
+The version bump is on `main`. On 2026-11-25 the macOS gates and live checks
+passed, Siri AI was fixed to fall back to the on-device model (Apple's `fm`
+serves Private Cloud Compute only to Terminal), and the owner confirmed the
+Windows checks and approved the release. Details are in `TESTING.md` ("3.8.0 —
+release check on `main`"). The merge commit of the fix pull request gets the
+plain `3.8.0` tag, followed by the tag workflow, the asset hash comparison
+against a local build and `gh attestation verify`, as for 3.7.2.
 
 Verified so far (details in `TESTING.md`):
 - macOS live release-candidate check on 2026-11-23 (before the export-copy
