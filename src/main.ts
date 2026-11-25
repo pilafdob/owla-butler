@@ -3630,7 +3630,7 @@ class ButlerSettingsTab extends PluginSettingTab {
   :provider==='hermes'
   ?'Selected note context and attachments are processed by the providers you connected in Hermes Agent. Suggested edits are applied provisionally for you to accept or decline.'
   :provider==='siri'
-  ?'Selected note context is processed by Apple Foundation Models on Apple’s Private Cloud Compute. Suggested edits are applied provisionally for you to accept or decline.'
+  ?'Selected note context is processed by Apple Foundation Models: on Apple’s Private Cloud Compute, or on this Mac with the on-device model. Suggested edits are applied provisionally for you to accept or decline.'
   :'Use your existing Codex ChatGPT login. Selected note context and attachments are processed by OpenAI. Suggested edits are applied provisionally for you to accept or decline.';
  }
  private renderUsage(provider:ProviderId){
@@ -3802,7 +3802,7 @@ class ButlerSettingsTab extends PluginSettingTab {
   }},
   // General
   ...ORDER_LABELS.map((_,index)=>this.orderSlot(index)),
-  {name:'Siri AI as global fallback',desc:'When every other enabled provider has reached its usage limit, OWLA answers with Siri AI (Apple Foundation Models on Private Cloud Compute) until a limit resets. Siri AI has its own Apple Account usage limits and a smaller context window. Requires macOS 27.',visible:general(()=>this.butler.availableProviders().includes('siri')),render:setting=>{
+  {name:'Siri AI as global fallback',desc:'When every other enabled provider has reached its usage limit, OWLA answers with Siri AI (Apple Foundation Models on Private Cloud Compute, or on this Mac) until a limit resets. Siri AI has its own Apple Account usage limits and a smaller context window. Requires macOS 27.',visible:general(()=>this.butler.availableProviders().includes('siri')),render:setting=>{
    setting.addToggle(toggle=>toggle.setValue(this.butler.prefs.siriFallback).onChange(async value=>{
     try{await this.butler.setSiriFallback(value);}
     catch(e){new Notice(friendlyError(e));}
@@ -3900,9 +3900,9 @@ class ButlerSettingsTab extends PluginSettingTab {
    const setup=setting.descEl.createDiv();
    setup.appendText('Before connecting, open Terminal, run ');
    setup.createEl('code',{text:FOUNDATION_MODELS_LICENSE_COMMAND});
-   setup.appendText(' and accept Apple’s terms. Chat always uses Private Cloud Compute, in Automatic mode and when chosen by hand: the on-device model’s context window is too small for day-to-day work. If Private Cloud Compute is unavailable to Obsidian, Siri AI does not connect and OWLA says why.');
+   setup.appendText(' and accept Apple’s terms. If Private Cloud Compute is unavailable to Obsidian, OWLA uses the on-device model and says why.');
   }),
-  this.usageSection('siri','Siri AI usage limits','Private Cloud Compute quota reported by fm quota-usage for your Apple Account.'),
+  this.usageSection('siri','Siri AI usage limits','Private Cloud Compute quota reported by fm quota-usage for your Apple Account. The on-device model has no usage limit.'),
   // Automatic
   {name:'Automatic model and reasoning effort',desc:'Uses Apple’s on-device model on macOS 27 to choose the provider, model and reasoning effort for every message from your prompt and attachment names. Only providers switched on in their tabs are considered. While this is on, the provider order in General is not used.',visible:this.on('automatic'),render:setting=>{
    const available=hasFoundationModelsCLI();

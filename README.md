@@ -44,7 +44,7 @@ OWLA Butler is a native Obsidian AI assistant sidebar (AI chat for your notes) t
 ## Requirements and cost
 
 - **Desktop Obsidian 1.14.5 or newer on macOS or Windows.** Linux and mobile are not yet supported.
-- **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, Claude Code 2.1.322 or newer, or Hermes Agent**, installed separately, and an eligible account. On macOS 27, **Siri AI** can be used instead or as a fallback; it needs Apple's `fm` tool and Private Cloud Compute. An internet connection is required for answers, sign-in, model discovery and quota checks.
+- **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, Claude Code 2.1.322 or newer, or Hermes Agent**, installed separately, and an eligible account. On macOS 27, **Siri AI** can be used instead or as a fallback; it needs Apple's `fm` tool and uses Private Cloud Compute where Apple allows it, otherwise the on-device model. An internet connection is required for answers, sign-in, model discovery and quota checks.
 - OWLA is free and MIT licensed. OpenAI may require a paid plan or credits for your chosen model or usage; access and limits depend on your account. OpenCode may serve free models and may charge for the providers you connect there. Anthropic applies the limits of your Claude plan. There is no OWLA subscription or API-key billing integration. Check [current Codex access and pricing](https://learn.chatgpt.com/docs/pricing).
 
 OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or Anthropic. Install **OWLA Butler** from Community plugins, or use the three files from the [latest GitHub release](https://github.com/pilafdob/owla-butler/releases/latest).

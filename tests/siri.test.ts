@@ -12,27 +12,18 @@ test('Siri AI exists only on macOS 27 with Apple’s fm tool',()=>{
  assert.equal(siriSupported('linux','27.0.0',()=>true),false);
 });
 
-test('fm serve health: PCC refusal is kept with its reason; chat never falls back to the on-device model',()=>{
+test('fm serve health: PCC refusal is kept with its reason, the on-device model stays usable',()=>{
  const health=parseSiriHealth({status:'fm serve is running',models:[{name:'system',available:true},{name:'pcc',available:false,reason:'Private Cloud Compute is not available in this context. Please use the Terminal app.'}]});
  assert.equal(health.system.available,true);
  assert.equal(health.pcc.available,false);
  assert.match(health.pcc.reason,/not available in this context/);
  assert.equal(parseSiriHealth(null).pcc.available,false);
- assert.deepEqual(SIRI_MODELS.map(m=>m.id),['pcc'],'the on-device model is not a chat model');
  const bridge=new SiriBridge();
  bridge.models=SIRI_MODELS;bridge.health=health;
- assert.deepEqual(bridge.selectableModels,[],'no PCC means no chat model, even with the on-device model available');
- assert.equal(bridge.resolveModel('system'),undefined);
+ assert.deepEqual(bridge.selectableModels.map(m=>m.id),['system']);
+ assert.equal(bridge.resolveModel('pcc')?.id,'system');
  bridge.health={...health,pcc:{available:true,reason:''}};
  assert.equal(bridge.resolveModel('')?.id,'pcc');
- assert.equal(bridge.resolveModel('system')?.id,'pcc','a saved on-device choice resolves to PCC');
-});
-
-test('without Private Cloud Compute a reply is refused with Apple’s reason instead of using the on-device model',async()=>{
- const bridge=new SiriBridge();
- bridge.models=SIRI_MODELS;
- bridge.health={pcc:{available:false,reason:'Not available in this context.'},system:{available:true,reason:''}};
- await assert.rejects(bridge.run({model:'system',instructions:'I',text:'T',images:[],tools:[],onText:()=>{},onActivity:()=>{},tool:async()=>'',signal:new AbortController().signal} as never),/Private Cloud Compute is unavailable: Not available in this context/);
 });
 
 test('PCC quota: percentages, counts and remaining shares become one usage window',()=>{
@@ -148,23 +139,26 @@ test('fm schemas: a map with typed values becomes a free-form object, nothing el
  assert.deepEqual(fmSchema(schema),{type:'object',properties:{set:{type:'object',additionalProperties:true},rename:{type:'object',additionalProperties:true},list:{type:'array',items:{type:'object',properties:{a:{type:'string'}},additionalProperties:false}}},additionalProperties:false});
 });
 
-test('Private Cloud Compute gets every tool',()=>{
+test('the on-device model gets the core note tools only; Private Cloud Compute gets all',async()=>{
+ const {ON_DEVICE_TOOLS}=await import('../src/siri');
  const specs=['read_note','propose_edit','read_canvas','propose_organization','query_vault_graph'].map(name=>({type:'function' as const,name,description:'',inputSchema:{type:'object'}}));
- assert.equal(chatTools(specs).length,5);
+ assert.deepEqual(chatTools(specs,'system').map(t=>t.function.name),['read_note','propose_edit']);
+ assert.equal(chatTools(specs,'pcc').length,5);
+ assert.ok(ON_DEVICE_TOOLS.has('search_vault'));
 });
 
 /** Feeds the bridge canned streamed replies instead of a running fm server. */
 function scriptedBridge(replies:string[]){
  const bridge=new SiriBridge();
  bridge.models=SIRI_MODELS;
- bridge.health={pcc:{available:true,reason:''},system:{available:true,reason:''}};
+ bridge.health={pcc:{available:false,reason:'x'},system:{available:true,reason:''}};
  const sent:unknown[]=[];
  (bridge as any).http=async(_m:string,_p:string,body:unknown,_t:number,onData:(chunk:string)=>void)=>{sent.push(structuredClone(body));onData(replies.shift()??'data: [DONE]\n');return '';};
  return {bridge,sent};
 }
 const call=(name:string,args:string)=>'data: '+JSON.stringify({choices:[{delta:{tool_calls:[{index:0,id:'c1',function:{name,arguments:args}}]},finish_reason:'tool_calls'}]})+'\n';
 const text=(value:string)=>'data: '+JSON.stringify({choices:[{delta:{content:value},finish_reason:'stop'}]})+'\n';
-const runOptions=(tool:(name:string,args:unknown)=>Promise<string>,signal=new AbortController().signal)=>({executable:'',cwd:'',model:'pcc',effort:'default',instructions:'I',text:'T',images:[],tools:[{type:'function' as const,name:'read_note',description:'',inputSchema:{type:'object'}}],web:false,signal,onText:()=>{},onActivity:()=>{},tool});
+const runOptions=(tool:(name:string,args:unknown)=>Promise<string>,signal=new AbortController().signal)=>({executable:'',cwd:'',model:'system',effort:'default',instructions:'I',text:'T',images:[],tools:[{type:'function' as const,name:'read_note',description:'',inputSchema:{type:'object'}}],web:false,signal,onText:()=>{},onActivity:()=>{},tool});
 
 test('a refused tool call goes back to the model instead of ending the reply',async()=>{
  const {bridge,sent}=scriptedBridge([call('read_note','{"block":""}'),text('Done.')]);
@@ -192,3 +186,15 @@ test('a context-size error is not a usage limit',()=>{
  assert.equal(siriExhaustion(Error('Siri AI: rate limit reached'))?.exhausted,true);
 });
 
+test('the on-device transcript stays bounded: long results shortened, earlier rounds collapsed',async()=>{
+ const {compactTranscript,ON_DEVICE_TOOL_RESULT}=await import('../src/siri');
+ const long='x'.repeat(5000);
+ const messages=[{role:'system',content:'I'},{role:'user',content:'T'},{role:'assistant',content:null},{role:'tool',content:long},{role:'assistant',content:null},{role:'tool',content:long}];
+ compactTranscript(messages,'system');
+ assert.match(String(messages[3].content),/Earlier tool result omitted/);
+ assert.ok(String(messages[5].content).length<ON_DEVICE_TOOL_RESULT+200);
+ assert.match(String(messages[5].content),/Result shortened/);
+ const pcc=[{role:'assistant',content:null},{role:'tool',content:long}];
+ compactTranscript(pcc,'pcc');
+ assert.equal(pcc[1].content,long);
+});
