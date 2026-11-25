@@ -1,4 +1,4 @@
-<!-- Pull requests go into main only from OWLA-RC. New work is committed to OWLA-RC, and nothing merges out of Developer-Prerelease. See CONTRIBUTING.md. -->
+<!-- Pull requests go into main from a feature branch; delete the branch after merging. Nothing merges out of Developer-Prerelease. See CONTRIBUTING.md. -->
 
 ## Summary
 
@@ -19,6 +19,6 @@ Not verified:
 
 ## Checklist
 
-- [ ] The version is bumped in `manifest.json`, `package.json`, `package-lock.json` and `versions.json`, with `CHANGELOG.md` and `RELEASE-NOTES.md` entries, or this pull request does not need a release.
+- [ ] The version is bumped in `manifest.json`, `package.json`, `package-lock.json` and `versions.json`, with `CHANGELOG.md` and `RELEASE-NOTES.md` entries, or this pull request is not a release commit (do not bump versions outside the release commit).
 - [ ] No personal data, vault content, tokens, `data.json` or `work/` logs are included.
 - [ ] Layout changes fit 240, 280, 360 and 600 px panes.

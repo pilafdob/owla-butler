@@ -32,7 +32,9 @@ test('a missing journal reads as empty on every host',()=>{
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-test('an unreadable journal fails closed instead of reading as empty',()=>{
+// root ignores POSIX permission bits, so chmod 000 cannot make the directory
+// unreadable (e.g. cloud containers running as uid 0). Skip rather than fail.
+test('an unreadable journal fails closed instead of reading as empty',{skip:process.getuid?.()===0?'root bypasses POSIX permission bits':false},()=>{
  // A stat failure other than ENOENT must throw: returning [] would let
  // clearPendingEdits delete a journal it never read (the oversized-record
  // data-loss class, via a Windows EBUSY/EPERM lock). On POSIX an unreadable

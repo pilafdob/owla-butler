@@ -230,7 +230,7 @@ Stop cancels the request. Disconnect is also available in settings. To uninstall
 
 ## Install the dev version
 
-Dev builds are published as GitHub Releases marked **Pre-release**, tagged `<version>-dev` (for example `3.8.0-dev`). A dev build is either the latest stable version or a preview of the next version from `OWLA-RC` before it becomes stable. They are for testing only and are never offered through Obsidian's Community plugins. Try them in a disposable or backed-up vault.
+Dev builds are published as GitHub Releases marked **Pre-release**, tagged `<version>-dev` (for example `3.8.0-dev`). A dev build carries everything on `main`, including changes not yet in a stable release, under either the latest stable version or the next version before it is released. They are for testing only and are never offered through Obsidian's Community plugins. Try them in a disposable or backed-up vault.
 
 1. Open the repository's [Releases page](https://github.com/pilafdob/owla-butler/releases) and pick the newest release labelled **Pre-release**.
 2. Under **Assets**, download `main.js`, `manifest.json` and `styles.css`.
@@ -242,7 +242,7 @@ To go back to the stable version, install the latest non-pre-release from the sa
 
 ## Development
 
-New features and fixes are developed on the [`OWLA-RC`](https://github.com/pilafdob/owla-butler/tree/OWLA-RC) branch and reach `main` with each release (see [Branches](#branches)).
+New features and fixes are developed on `main`, directly or on short-lived branches merged through pull requests (see [Branches](#branches)).
 
 ```sh
 npm ci
@@ -256,13 +256,9 @@ node scripts/package.mjs
 
 The generated ZIP includes an `owla-butler/` root, required plugin files, guides, skills and licences. The three Community installation files also contain the icon, skills/references and required licence notices. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, [CHANGELOG.md](CHANGELOG.md) for changes and [COMMUNITY-RELEASE.md](COMMUNITY-RELEASE.md) for the maintainer submission checklist. Starting with 1.0.1, GitHub release attachments contain only the three files Obsidian installs. The optional ZIP and checksum list are stored separately with the release workflow run; you can also generate them locally with the commands above.
 
-### Branches and prereleases
-
-`main` is the stable line. `Developer-Prerelease` is a separate development branch that is **never merged into `main`**. Prereleases are built from `Developer-Prerelease` with dev flags enabled (such as the Developer mode tooling described above). Updates flow one way only: `main` is merged **into** `Developer-Prerelease` to keep it current, and the development branch only receives updates — it never sends changes back to `main`.
-
 ### Branches
 
-`main` is the stable line. New features and fixes are developed on `OWLA-RC` and reach `main` only through a pull request from `OWLA-RC`; nothing is merged into `OWLA-RC`. See [CONTRIBUTING.md](CONTRIBUTING.md#owla-rc-branch).
+`main` is the development and stable line; releases are tagged on it. Feature branches are merged into `main` through a pull request and then deleted. `Developer-Prerelease` receives merges from `main` and is never merged back: it carries the same features as `main` plus dev flags (such as the Developer mode tooling described above), and dev prereleases are built from it. See [CONTRIBUTING.md](CONTRIBUTING.md#branches).
 
 ## Licence and credits
 

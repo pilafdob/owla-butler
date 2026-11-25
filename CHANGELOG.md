@@ -1,6 +1,6 @@
 # Changelog
 
-Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”). The branch only receives `OWLA-RC` and `main`, so a dev build is either the latest stable version (its changelog starts with “Dev build of the latest stable version. No new features are included in this build.”) or a prerelease of `OWLA-RC`'s next version, whose changelog is that version's section below.
+Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest”). The branch only receives `main` (plus dev flags), so a dev build is either `main` at its current stable version (its changelog starts with “Dev build of `main` at its current stable version. It may include changes made on `main` since that release.”) or a prerelease of the next version, whose changelog is that version's section below. Builds up to `3.8.0-dev.3` were made from the former `OWLA-RC` branch.
 
 ## Dev builds
 
