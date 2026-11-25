@@ -14,7 +14,7 @@ See COMMUNITY-RELEASE.md for release and submission steps. Do not publish an unt
 
 ## Branches
 
-`main` is both the development line and the stable line. New features and fixes may be committed directly to `main`, or made on a short-lived branch, merged into `main` through a pull request and then deleted.
+`main` is both the development line and the stable line. New features and fixes may be committed directly to `main`, or made on a short-lived branch, merged into `main` through a pull request and then deleted. The `Main` branch ruleset requires a pull request for everyone except repository admins, so only admins can commit directly to `main`; everyone else opens a pull request.
 
 - **Feature branches.** Branch from the latest `main`, open a pull request into `main`, and delete the branch once it is merged. CI runs on every pull request with the same gates as `main`.
 - **CI runs on every push to `main`.** A red `main` blocks the next release; fix it before starting other work.
