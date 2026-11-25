@@ -66,7 +66,7 @@ function boundGraph<T extends Record<string,unknown>>(result:T,pageOffset?:numbe
  while(size>RESULT_LIMIT){
   const field=lists.find(name=>Array.isArray(out[name])&&(out[name] as unknown[]).length>0);
   if(field){const list=out[field] as unknown[];out[field]=list.slice(0,Math.floor(list.length/2));}
-  else if(out.properties&&typeof out.properties==='object'&&Object.keys(out.properties as Record<string,unknown>).length)out.properties={};
+  else if(out.properties&&typeof out.properties==='object'&&Object.keys(out.properties).length)out.properties={};
   else break;
   size=JSON.stringify(out).length;
  }

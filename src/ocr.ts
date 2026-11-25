@@ -132,7 +132,7 @@ export async function ocrImageFile(binary:string,imagePath:string,langs='en-US,d
  * the ordering is unit-tested without running the native helper.
  */
 export function formatOcrLines(raw:unknown[]):string|null{
- const lines=raw.map(record).filter(line=>typeof line.text==='string'&&(line.text as string).trim());
+ const lines=raw.map(record).filter(line=>typeof line.text==='string'&&line.text.trim());
  if(!lines.length)return null;
  lines.sort((a,b)=>{
   const ay=typeof a.y==='number'?a.y:0,by=typeof b.y==='number'?b.y:0;

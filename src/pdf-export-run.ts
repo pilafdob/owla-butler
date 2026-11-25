@@ -24,12 +24,13 @@ type OpenHolder={open?:(...args:unknown[])=>unknown};
 export function captureObsidianPrintModal(view:PrintableView|null|undefined,modalPrototype:OpenHolder,file:unknown):PrintModalLike|null{
  if(!view||typeof view.printToPdf!=='function'||view.file!==file||typeof modalPrototype.open!=='function')return null;
  const own=Object.prototype.hasOwnProperty.call(modalPrototype,'open'),original=modalPrototype.open;
- let captured:unknown=null,calls=0;
- modalPrototype.open=function(this:unknown){calls++;captured=this;};
+ const seen:{modal:unknown;calls:number}={modal:null,calls:0};
+ modalPrototype.open=function(this:unknown){seen.calls++;seen.modal=this;};
  try{view.printToPdf();}
  catch{return null;}
  finally{if(own)modalPrototype.open=original;else delete modalPrototype.open;}
- if(calls!==1||!captured||typeof captured!=='object')return null;
+ const captured=seen.modal;
+ if(seen.calls!==1||!captured||typeof captured!=='object')return null;
  const modal=captured as Partial<PrintModalLike>;
  if(typeof modal.printToPdf!=='function'||modal.file!==file)return null;
  return modal as PrintModalLike;

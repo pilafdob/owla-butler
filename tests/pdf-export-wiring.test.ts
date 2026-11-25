@@ -60,7 +60,8 @@ function makeApp(options:{exporter?:boolean}={}){
  const fileMap=new Map<string,any>(files.map(f=>[f.path,f]));
  const adapter=new obsidian.FileSystemAdapter(vault);
  Object.assign(adapter,{
-  exists:async(p:string)=>existsSync(join(vault,p)),remove:async(p:string)=>rmSync(join(vault,p)),getFullPath:(p:string)=>join(vault,p),
+  exists:async(p:string)=>existsSync(join(vault,p)),// Obsidian's file watcher drops a removed file from the vault index; the fake does it at once.
+  remove:async(p:string)=>{rmSync(join(vault,p));const f=fileMap.get(p);if(f){delete raw[p];fileMap.delete(p);files.splice(files.indexOf(f),1);}},getFullPath:(p:string)=>join(vault,p),
   readBinary:async(p:string)=>{const b=readFileSync(join(vault,p));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);},
  });
  const app:any={
@@ -71,7 +72,8 @@ function makeApp(options:{exporter?:boolean}={}){
    // The temporary export copy is written, rewritten between rounds and deleted through these.
    create:async(p:string,text:string)=>{if(fileMap.has(p))throw Error('exists');raw[p]=text;writeFileSync(join(vault,p),text);const f=new obsidian.TFile(p);f.stat={size:text.length,mtime:1};files.push(f);fileMap.set(p,f);app.created.push(p);return f;},
    modify:async(f:any,text:string)=>{raw[f.path]=text;writeFileSync(join(vault,f.path),text);},
-   delete:async(f:any)=>{delete raw[f.path];rmSync(join(vault,f.path),{force:true});fileMap.delete(f.path);files.splice(files.indexOf(f),1);},
+   // Community review refuses Vault.delete for these (prefer-file-manager-trash-file); OWLA removes its own copy through the adapter.
+   delete:async()=>{throw Error('Vault.delete must not be used for OWLA export copies');},
    readBinary:async(f:any)=>{const b=readFileSync(join(vault,f.path));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);},
    process:async(f:any,fn:(text:string)=>string)=>{raw[f.path]=fn(raw[f.path]);return raw[f.path];},
    getConfig:(key:string)=>key==='pdfExportSettings'?{pageSize:'A4',margin:'2',downscalePercent:100,includeName:false}:undefined,
@@ -314,7 +316,7 @@ test('an export records its copy while it exists and forgets it once deleted; a 
  assert.equal(app.vault.getAbstractFileByPath('Notes/Report (OWLA PDF export).md'),null,'the unchanged copy is removed');
  assert.ok(app.vault.getAbstractFileByPath('Notes/Long (OWLA PDF export).md'),'the edited note is kept');
  assert.deepEqual(loadExportCopies(butler.vaultStorage()),[]);
- await app.vault.delete(app.vault.getAbstractFileByPath('Notes/Long (OWLA PDF export).md'));
+ await app.vault.adapter.remove('Notes/Long (OWLA PDF export).md');
 });
 
 test('PDF selection in a popout window: the selection of the PDF leaf\'s own window is read, with a nodeType (not instanceof) page lookup',()=>{
