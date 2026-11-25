@@ -10,10 +10,12 @@ The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices refl
 
 ## 3.8.0 — release status
 
-Prepared on branch `claude/dazzling-allen-4aevos` for a pull request into
-`main`; not merged, tagged or published. The version bump is in that pull
-request, so its merge commit is the release commit and the plain `3.8.0` tag
-goes on it.
+The version bump is on `main` (final 3.8.0 content up to PR #20, `35875f2`);
+not tagged or published. On 2026-11-25 the macOS gates and live checks passed
+on that tree, except Siri AI, which cannot connect from Obsidian because
+Apple's `fm` serves Private Cloud Compute only to Terminal. Several Windows
+release checks are still missing. Both are listed in `TESTING.md` ("3.8.0 —
+release check on `main`"), and tagging waits on them.
 
 Verified so far (details in `TESTING.md`):
 - macOS live release-candidate check on 2026-11-23 (before the export-copy

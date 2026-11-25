@@ -1,5 +1,35 @@
 # OWLA Butler verification
 
+## 3.8.0 — release check on `main` (2026-11-25, macOS and Windows)
+
+Not tagged: the Windows checks listed under "Still required" below are missing, and Siri AI does not connect on macOS (see "Found").
+
+- **Tree:** `main` at `35875f2` (PR #20; contains `a559c3a`, the Codex `web.run` fix). `origin/main` then moved to `42b5d07` (PR #22). That commit changes only `site/`, `.github/pages-preview/`, `.github/workflows/pages.yml` and `scripts/site-assets.mjs`: no plugin source, build input or version file.
+- **macOS gates** (macOS 27.3, Node 24.15.0, normal user, not root): `npm ci`, `npm run check`, `npm run lint` (0 errors, 4 sentence-case warnings, the same as before), `npm test` (**927 tests / 921 pass / 0 fail / 6 skipped**; every skip is Windows- or NTFS-only, and the case-insensitive tests ran, e.g. the case-alias unsaved read and the `read_note` 2 MB cap via a case alias), `npm run guard:test`, `npm run build` (`main.js` 1,105,391 bytes, SHA-256 `3f658a67…7c82f`) and `RELEASE_TAG=3.8.0 npm run check:release` pass.
+- **macOS live setup:** Obsidian 1.15.1. A new disposable vault, `OWLA-Release-Test-3.8.0`, outside iCloud, with invented notes only, was opened through Obsidian's own vault-open call. No owner vault was used. The three built files were installed together. The running plugin reports 3.8.0 and the console showed no errors after all checks. The driver was `obsidian eval` against the real `ButlerView.send`, `decideEdit`, `stop` and `exportPdf`, plus the `undo-latest-edit` command.
+- **Codex 0.169.0, `gpt-6.2-sol` (low), web search ON for every turn:**
+  - Open note: the budget total (€1,950) and the open question were correct (8 s).
+  - Web search: it searched the web (shown in Sources & activity) and cited the Obsidian changelog for 1.15.1. No `web.run` error, so the `a559c3a` fix holds on macOS (15 s).
+  - Attached PNG: the shape and colours were described correctly (8 s).
+  - Vault search: the order code and the ingredient from two other notes, each with a note citation (11 s).
+  - Staged edit, Diff view "None" (the fresh-vault default): one line changed, with an Accept/Decline card. Accept kept only that line changed. **Undo** restored the note byte for byte (same SHA-1).
+  - Staged edit, Diff view "Highlights in editor": the removed and added highlights marked exactly the changed line. **Decline** cleared the highlights and left the note byte-identical.
+  - Stop during a turn: stopped in 0.8 s, "Draft restored · Stopped.", and no OWLA-owned Codex process was left. The next turn reconnected and answered correctly (10 s).
+- **Claude Code** (`opus`, medium): connected, and a `read_note` tool turn answered correctly (5 s).
+- **Settings:** all seven tabs render with their settings and no console errors: General (11 items), Codex, Claude, OpenCode, Hermes (4 each), Siri AI and Automatic (1 each).
+- **PDF export copy (final code):** `Harbour Mural.pdf` saved in 2.7 s (1 page, PDF 1.4). The temporary copy was removed, the note was unchanged, and the command palette still opens, so `Modal.prototype.open` was restored. Exporting to the case variant `harbour mural.PDF` is refused.
+- **Found — Siri AI does not connect on macOS:** with Siri AI turned on, Connect fails with "Siri AI: Private Cloud Compute is unavailable: Private Cloud Compute is not available in this context. Please use the Terminal app." `/usr/bin/fm quota-usage --model pcc` run from a non-Terminal shell gives the same refusal. On this Mac, Apple's `fm` serves Private Cloud Compute only to processes started from Terminal. Since 3.8.0 made Siri AI Private-Cloud-Compute-only, Siri AI cannot connect from Obsidian here. OWLA shows the cause clearly, and nothing crashes. The owner needs to decide on this before release.
+- **Windows evidence (reported by the Windows session, 2026-11-25, Windows 11, non-root, Obsidian 1.15.1):** on the PR #20 tip `a559c3a`, whose tree matches `main` `35875f2`: `npm test` 926 pass, 1 skipped, plus `check`, `lint`, `build` and `check:release`. CI `platform-tests` (windows-latest, macos-latest) and `check` passed on `35875f2`. Live in a disposable vault with Codex `gpt-6.2-sol`, web search off: chat about the open note, an attached image, vault search with cited notes, a staged edit shown as editor highlights with Accept and with Decline (Decline restored the note), the General and Codex settings tabs, and Connect Codex. A separate session reproduced the `web.run` bug and confirmed the fix live with `codex-cli 0.171.0` on Windows 11.
+- **Still required on Windows before tagging** (from "Windows release checks still required" and the release-preparation entry above; not covered by the evidence above):
+  - Codex cancellation and reconnect.
+  - Claude Code connect, tool turn, cancellation and reconnect, including multi-line instructions through a real npm `claude.cmd` shim.
+  - OpenCode connect, tool turn, cancellation and reconnect.
+  - Hermes connect, tool turn, cancellation and reconnect, and confirming that Hermes uses its private home.
+  - Undo of an accepted edit.
+  - Detached-view cleanup, and raw drawing/Canvas/Base safety in the running app.
+  - PDF continuation reuse, external modification, Stop/new chat/close, and password/failure paths in the running app.
+- **Not verified on macOS here:** OpenCode and Hermes turns, Automatic selection, layouts at 240/280/360/600 px, and a screenshot of the editor highlights. The highlights were checked through the DOM, because the background window did not repaint for `dev:screenshot`.
+
 ## 3.8.0 — release preparation (2026-11-25, Linux cloud container, root)
 
 This run is **not release verification**: it ran on Linux as root, without Obsidian, providers or a vault. It only shows that the release tree passes the CI gates against the test stubs.
