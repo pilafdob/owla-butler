@@ -93,6 +93,7 @@ body:
         - OpenCode
         - Claude Code
         - Hermes Agent
+        - Siri AI (macOS 27)
         - Apple Foundation Models (automatic selection)
         - Not sure / happens with every provider
     validations:

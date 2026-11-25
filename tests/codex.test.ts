@@ -49,7 +49,8 @@ test('disconnect during connection discovery cannot start a background agent',as
   writeFileSync(file,'#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then sleep 0.1; echo \"codex-cli 0.162.1\"; else touch \"'+marker+'\"; fi\n',{mode:0o700});
  }
  try{const pending=b.connect(file,folder);await new Promise(resolve=>setTimeout(resolve,20));b.disconnect();await assert.rejects(pending,/cancelled/);assert.equal(existsSync(marker),false);}
- finally{b.disconnect();rmSync(folder,{recursive:true,force:true});}
+ // On Windows the cancelled cmd.exe launcher can hold codex.cmd for a moment after disconnect; retry EBUSY.
+ finally{b.disconnect();rmSync(folder,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 });
 
 test('integration overrides preserve dotted IDs without copying credentials to process arguments',async()=>{const {integrationOverrides}=await import('../src/codex');const args=integrationOverrides({mcp_servers:{'com.example.tool':{enabled:true,env:{SECRET:'private'}},disabled:{enabled:false}},plugins:{'tool@vendor.example':{enabled:true}}});assert.equal(args[0],'mcp_servers={"com.example.tool"={enabled=false}}');assert.equal(args[1],'plugins={"tool@vendor.example"={enabled=false}}');assert.equal(args.join('').includes('private'),false);});
@@ -553,7 +554,7 @@ test('invalid protocol lines are quoted in the disconnect status; handler failur
 // ---------------------------------------------------------------- Code Mode tool routing (3.7.2)
 test('directToolCatalog clears tool_mode on every model, and leaves a direct catalog alone',()=>{
  const cache={fetched_at:'x',models:[{slug:'a',tool_mode:'code_mode_only',supports_search_tool:true},{slug:'b'}]};
- assert.deepEqual(directToolCatalog(cache),{models:[{slug:'a',tool_mode:null,supports_search_tool:true},{slug:'b',tool_mode:null}]});
+ assert.deepEqual(directToolCatalog(cache),{models:[{slug:'a',tool_mode:null,supports_search_tool:true,experimental_supported_tools:[]},{slug:'b',tool_mode:null,experimental_supported_tools:[]}]});
  assert.equal(directToolCatalog({models:[{slug:'a',tool_mode:null},{slug:'b'}]}),null);
  for(const bad of [null,'x',{models:'x'},{}])assert.equal(directToolCatalog(bad),null);
 });
@@ -580,6 +581,32 @@ test('a code_mode_only catalog is replaced by a direct-tool copy with one restar
   await fake.bridge.connect(fake.file,fake.cwd,true);
   assert.equal(fake.spawns().length,3);
   assert.ok(catalogPath(fake.spawns()[2]));
+ }finally{await fake.cleanup();}
+});
+
+test('with web search on, the direct-tool copy drops experimental tools so gpt-6.2 is not sent a clashing web.run function',async()=>{
+ // Codex 0.171 sends gpt-6.2's literature_search_query as a direct `web.run`
+ // function once tool_mode is cleared; the model reserves that name and every
+ // turn failed with 400 "Function 'web.run' is reserved for use by this model".
+ const {readFileSync}=await import('node:fs');
+ const fake=await fakeCodex({defaults:PROBE_0169_FEATURES_330_OVERRIDES,catalog:[
+  {slug:'gpt-6.2-sol',tool_mode:'code_mode_only',web_search_tool_type:'text_and_image',supports_search_tool:true,experimental_supported_tools:['request_user_input_async','send_message_to_user_async','clock','literature_search_query','multi_agent_v2_in_code_mode']},
+  {slug:'gpt-6.1-sol',tool_mode:'code_mode_only',web_search_tool_type:'text_and_image',supports_search_tool:true,experimental_supported_tools:['send_user_message_async','clock']},
+ ]});
+ try{
+  await fake.bridge.connect(fake.file,fake.cwd,true);
+  assert.equal(fake.bridge.ready,true);
+  const second=fake.spawns()[1];
+  assert.ok(second.includes('web_search="live"'));
+  const arg=catalogPath(second);assert.ok(arg);
+  const written=JSON.parse(readFileSync(JSON.parse(arg!.slice('model_catalog_json='.length)),'utf8'));
+  for(const model of written.models){
+   assert.equal(model.tool_mode,null);
+   assert.deepEqual(model.experimental_supported_tools,[]);
+   // Web search itself stays declared, so the built-in web tool is still offered.
+   assert.equal(model.web_search_tool_type,'text_and_image');
+   assert.equal(model.supports_search_tool,true);
+  }
  }finally{await fake.cleanup();}
 });
 

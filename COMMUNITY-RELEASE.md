@@ -8,6 +8,33 @@ The 1.0.0 release and initial listing instructions below are historical. The com
 
 The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
 
+## 3.8.0 — release status
+
+The version bump is on `main`. On 2026-11-25 the macOS gates and live checks
+passed, Siri AI was fixed to fall back to the on-device model (Apple's `fm`
+serves Private Cloud Compute only to Terminal), and the owner confirmed the
+Windows checks and approved the release. Details are in `TESTING.md` ("3.8.0 —
+release check on `main`"). The merge commit of the fix pull request gets the
+plain `3.8.0` tag, followed by the tag workflow, the asset hash comparison
+against a local build and `gh attestation verify`, as for 3.7.2.
+
+Verified so far (details in `TESTING.md`):
+- macOS live release-candidate check on 2026-11-23 (before the export-copy
+  and Private-Cloud-Compute-only changes), including a real Codex turn with
+  the new PDF tools.
+- Windows 11 audit and live check on 2026-11-25 on the final export code, as a
+  non-root user, without a provider or model turn: 925 tests, 924 pass,
+  0 fail, 1 designed skip.
+- Linux release-preparation gates on the release tree (cloud, root; not a
+  release verification).
+
+Required before tagging: the local macOS and Windows runs and live checks in
+CLAUDE.md ("Before any release") on the merged tree, recorded in
+`TESTING.md`; then the tag workflow, the asset hash comparison against a local
+build and `gh attestation verify`, as for 3.7.2. Open review question: whether
+Community review accepts the scoped `Modal.prototype.open` capture used by the
+PDF export.
+
 ## 3.7.2 — release status
 
 3.7.2 is a patch release: Codex calls OWLA's vault tools again. Codex's
@@ -87,13 +114,15 @@ macOS-only. Security and data-integrity scope is in [`AUDIT.md`](AUDIT.md) and
 
 Description (matches manifest):
 
-> Bring Codex, OpenCode or Claude Code into Obsidian: chat with your open note, attach images and PDFs, search your vault and the web, and review every edit before it lands.
+> Chat with an AI assistant in your sidebar using Codex, OpenCode, Claude Code or Hermes Agent: ask about your open note, attach images and PDFs, search your vault and the web, and review every edit.
 
 Suggested repository description:
 
-> Obsidian sidebar assistant for Codex, OpenCode and Claude Code: current note context, attachments, vault search and reviewed edits.
+> AI assistant sidebar for Obsidian, powered by Codex, OpenCode, Claude Code or Hermes Agent: current note context, attachments, vault search and reviewed edits.
 
-Suggested topics: `obsidian-plugin`, `obsidian`, `codex`, `opencode`, `claude-code`, `markdown`, `ai-assistant`.
+Suggested topics: `obsidian-plugin`, `obsidian`, `ai`, `ai-assistant`, `ai-chat`, `chatbot`, `sidebar`, `copilot`, `llm`, `agent`, `codex`, `opencode`, `claude-code`, `hermes-agent`, `markdown`.
+
+Listing screenshots (1200×800, light theme, disposable demo vault): `assets/screenshots/01-chat.png` to `05-providers.png`; README demo: `assets/demo.gif`.
 
 ## Preparation checks
 

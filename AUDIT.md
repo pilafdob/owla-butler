@@ -1,5 +1,13 @@
 # OWLA Butler cumulative audit
 
+## 3.8.0 — feature review, Windows audit and release preparation (2026-11-23 to 2026-11-25)
+
+| Pass | Result | Evidence |
+|---|---|---|
+| Independent feature review | One blocker (PDF export not wired) and three should-fixes (over-broad Excalidraw detection, untested PDF-selection wiring, coarse ink clusters), all resolved; three nits remain and are listed in the changelog | [REVIEW-3.8.0.md](audits/3.8.0/REVIEW-3.8.0.md) |
+| Windows audit | W1–W10: Siri socket path on Windows, export overwrite race, journal lock retries, Win32 device names, popout realm checks, crash leftovers of export copies, popout PDF selection and menu, ZIP packaging without `zip`, two test flakes (one fixed, one instrumented) | [07-windows-audit.md](audits/3.8.0/07-windows-audit.md) |
+| Release preparation | The system prompt told models to stage page breaks in the note before an export, contrary to both tool descriptions; corrected with a regression test. `npm audit`: 0 vulnerabilities; no dependency updates taken (see the changelog) | `TESTING.md`, 3.8.0 release preparation |
+
 ## 3.7.0 RC — Windows hardening and independent follow-up (2026-11-20)
 
 **Scope:** the Windows hardening working tree against `81540fb`, not a new

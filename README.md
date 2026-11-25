@@ -3,13 +3,14 @@
 <h1 align="center">OWLA Butler</h1>
 
 <p align="center">
-  <strong>Your Codex, OpenCode, Claude Code or Hermes Agent assistant, inside Obsidian.</strong><br>
+  <strong>An AI assistant chat in your Obsidian sidebar, powered by Codex, OpenCode, Claude Code or Hermes Agent.</strong><br>
   Chat with your open note, attach images and PDFs, search your vault and the web,<br>
   and review every edit before it lands.
 </p>
 
 <p align="center">
   <a href="https://github.com/pilafdob/owla-butler/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/pilafdob/owla-butler?label=release&color=blue"></a>
+  <a href="https://github.com/pilafdob/owla-butler/releases"><img alt="Latest pre-release" src="https://img.shields.io/github/v/release/pilafdob/owla-butler?include_prereleases&label=pre-release&color=orange"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://obsidian.md"><img alt="Obsidian 1.14.5+" src="https://img.shields.io/badge/Obsidian-1.14.5%2B-7c3aed"></a>
   <img alt="macOS and Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey">
@@ -19,7 +20,11 @@
   <a href="#quick-start">Quick start</a> · <a href="#features">Features</a> · <a href="#how-it-works">How it works</a> · <a href="https://github.com/pilafdob/owla-butler/releases/latest">Download</a>
 </p>
 
-OWLA Butler is a native Obsidian sidebar assistant that runs on an assistant CLI you already installed and signed in to — **Codex**, **OpenCode**, **Claude Code** or **Hermes Agent**. There are no chat modes to pick and no separate OWLA account: it reuses your existing login, models and plan limits. Every change it proposes is applied provisionally and waits for your **Accept** or **Decline**.
+<p align="center">
+  <img src="assets/demo.gif" alt="OWLA Butler proposing an edit to the open note in the Obsidian sidebar: the change is highlighted in the note, then accepted from the chat" width="720">
+</p>
+
+OWLA Butler is a native Obsidian AI assistant sidebar (AI chat for your notes) that runs on an assistant CLI you already installed and signed in to — **Codex**, **OpenCode**, **Claude Code** or **Hermes Agent**. There are no chat modes to pick and no separate OWLA account: it reuses your existing login, models and plan limits. Every change it proposes is applied provisionally and waits for your **Accept** or **Decline**.
 
 ### Why OWLA Butler?
 
@@ -39,7 +44,7 @@ OWLA Butler is a native Obsidian sidebar assistant that runs on an assistant CLI
 ## Requirements and cost
 
 - **Desktop Obsidian 1.14.5 or newer on macOS or Windows.** Linux and mobile are not yet supported.
-- **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, Claude Code 2.1.322 or newer, or Hermes Agent**, installed separately, and an eligible account. An internet connection is required for answers, sign-in, model discovery and quota checks.
+- **Codex CLI 0.162.1 or newer, OpenCode 2.2 or newer, Claude Code 2.1.322 or newer, or Hermes Agent**, installed separately, and an eligible account. On macOS 27, **Siri AI** can be used instead or as a fallback; it needs Apple's `fm` tool and uses Private Cloud Compute where Apple allows it, otherwise the on-device model. An internet connection is required for answers, sign-in, model discovery and quota checks.
 - OWLA is free and MIT licensed. OpenAI may require a paid plan or credits for your chosen model or usage; access and limits depend on your account. OpenCode may serve free models and may charge for the providers you connect there. Anthropic applies the limits of your Claude plan. There is no OWLA subscription or API-key billing integration. Check [current Codex access and pricing](https://learn.chatgpt.com/docs/pricing).
 
 OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or Anthropic. Install **OWLA Butler** from Community plugins, or use the three files from the [latest GitHub release](https://github.com/pilafdob/owla-butler/releases/latest).
@@ -54,7 +59,7 @@ OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or 
 - Choose models and reasoning effort; see provider-reported usage limits.
 - Ask about your vault's structure: backlinks, broken links, orphan notes, tags and properties come straight from Obsidian's own metadata, without reading every note.
 - Change properties and headings as reviewed edits: rename, add or remove properties (comments, order and value types are kept), and rename, promote, demote, move or insert headings with their sections. Proposed links that would not resolve are caught before you review them, and cited blocks (`[[note#^id]]`) can be read exactly.
-- Export a note to PDF with Obsidian's own exporter after you confirm it in chat. OWLA checks the print layout first, can stage page breaks for you to review, and reads the PDF back to confirm that no heading is stranded (desktop).
+- Export a note to PDF with Obsidian's own exporter after you confirm it in chat. OWLA prints a temporary copy with the layout fixed (images sized to the page, the title printed once, page breaks before stranded headings and split tables), reads the PDF back to fix headings that still ended up stranded, and deletes the copy. The note itself is not changed, and an existing PDF is never overwritten (desktop).
 - Switch between Codex, OpenCode, Claude Code and Hermes Agent, with the same features, skills and review flow on all of them.
 - Keep the same chat while the backend automatically stops between replies.
 - Optional Developer mode: record chats with their tool calls, save developer sessions and download a full diagnostics report.
@@ -68,9 +73,13 @@ OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or 
    - **Codex**: choose **Connect Codex** once per vault. OWLA waits for this action before starting Codex. It detects the CLI, reuses the existing ChatGPT login and loads the available models. If Codex is signed out, choose **Sign in** when it appears and complete the browser login.
    - **OpenCode**: nothing else is needed. OWLA detects the installed OpenCode, starts it on demand and reads the models and providers you connected there. Choose **Verify connection** to check it early.
    - **Claude Code**: nothing else is needed. OWLA detects the installed Claude Code, reuses your Claude login and reads the models your plan allows. Choose **Verify connection** to check it early.
-   - **Siri AI** (macOS 27): switch it on in its tab, run `fm license` in Terminal once to accept Apple's terms, then choose **Connect Siri AI**. OWLA uses Apple Foundation Models on Private Cloud Compute, or the on-device model when Private Cloud Compute is unavailable, through a private `fm serve` that reaches your vault only through OWLA's tools. Siri AI reads text only and does not search the web.
+   - **Siri AI** (macOS 27): switch it on in its tab, run `fm license` in Terminal once to accept Apple's terms, then choose **Connect Siri AI**. OWLA uses Apple Foundation Models on Private Cloud Compute, under your Apple Account's usage limits, through a private `fm serve` that reaches your vault only through OWLA's tools. The on-device model's context window is too small for chat, so it is not used for replies; if Private Cloud Compute is unavailable, Siri AI does not connect and the tab shows Apple's reason. Siri AI reads text only and does not search the web.
    - **Hermes Agent**: choose **Connect Hermes** once per vault. OWLA detects the installed Hermes Agent, reuses the providers you connected in Hermes (run `hermes setup` or `hermes model` first if you have not) and reads the models they offer. Choose **Verify connection** to check it early.
 4. Open the bird sidebar and send a message. OWLA remembers the connection across reloads and starts the assistant on demand. A green sidebar dot means the assistant's process is running in the background; it turns grey again when the process rests. Claude Code runs only while a reply or check is under way. Hover over the dot for its status.
+
+<p align="center">
+  <img src="assets/screenshots/05-providers.png" alt="OWLA Butler settings, General tab: tabs for Codex, Claude, OpenCode and Hermes, with the primary and secondary provider pickers and the web search switch" width="720">
+</p>
 
 The assistant settings are kept separately for each operating system: the provider order, the provider switches, **Automatic model and reasoning effort**, the Siri AI fallback, each provider's model and effort, web search, the Codex connection and the executable paths. When a vault is synced between a Mac and a Windows PC, changing them on one computer leaves the other unchanged. Each computer starts from the settings saved before 3.1.1. Excluded folders, the storage folder, the review view and Plugin Interconnectivity stay shared by the vault.
 
@@ -82,9 +91,21 @@ On Windows, OWLA can discover and launch native executables and npm `.cmd` launc
 
 The sidebar starts with a clean message area. Choose the **model** and **reasoning effort** beside the composer; options come from the selected provider, not a hard-coded list. Reply headings say **OWLA**. Send with Enter; Shift–Enter inserts a newline. Sending clears the text and attachments from the composer immediately. Expand **Working** for details during a reply. Afterward, the **Copy Markdown** icon sits beside **Sources & activity**. You can also copy your sent messages. Vault links in replies open in Obsidian. Stop or a failed request restores the original draft and attachments if the composer is empty. If you have started a newer draft, **Restore draft** on the failed reply lets you recover the earlier one after sending or clearing the newer draft.
 
+<p align="center">
+  <img src="assets/screenshots/01-chat.png" alt="OWLA Butler sidebar answering a question about the open note: it totals the note's budget and checks its open questions against a linked note" width="720">
+</p>
+
 Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. A selection you add stays in the composer as a chip, and the sent message shows it as a card with the excerpt it carries, so you can see that it went with the prompt. A selection added while a reply is still running is marked **next message** and waits for the message after that. The assistant can search and read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
 
+<p align="center">
+  <img src="assets/screenshots/04-vault-search.png" alt="OWLA Butler answering from other notes in the vault: open tasks from a meeting note and a permit detail from a reference note, each with a link to its source" width="720">
+</p>
+
 Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. The assistant reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page, or highlight text and choose **Add selection to OWLA** to send the text with its page citation. Models that read images also get that page as a background image, to check text the PDF text layer misread. For transcription, ask it to preserve visible symbols and mark uncertainty.
+
+<p align="center">
+  <img src="assets/screenshots/03-attachments.png" alt="An attached garden sketch image in the OWLA Butler chat, with the answer comparing the sketch to the plan in the open note" width="720">
+</p>
 
 Web search is enabled by default so the assistant can check current facts when needed. Turn it off in settings if unwanted. Selected note contents, attachments and recent chat are processed by the selected provider; web queries may draw on that context. Responses expose readable activity, used note/page sources and linked web references. Source links do not guarantee that every interpretation is correct.
 
@@ -100,7 +121,7 @@ OpenCode combines several separate sources of usage, and one of them running dry
 
 On a supported macOS 27 Mac, open Terminal and run `fm license`. Review and accept Apple’s Foundation Models terms when prompted. You can check your acceptance with `fm license --status` or with **Check automatic selection** in OWLA settings. Then enable **Automatic model and reasoning effort** in the **Automatic** tab of OWLA settings. This Apple Foundation Models option is hidden on Windows and Linux.
 
-OWLA replaces the manual selectors with the model and effort chosen for each turn. By default the on-device router receives a token-budgeted workspace inventory: attachment fingerprints (kind, extension, page and size bucket), note heading outlines, recent chat topic tags, and local complexity counts. Enable **Thorough automatic selection** in settings to always invoke the on-device classifier with chain-of-thought reasoning, bounded attachment names and raw excerpts. Enable **Automatic selection privacy mode** to keep note excerpts, heading outlines, recent chat topic tags and filenames out of the on-device classifier. It still reads your request, locally on this Mac, so it can judge the task; the chosen assistant receives your full request as usual. Use **Automatic selection priority** (**Cost**, **Balanced** or **Intelligence**) to tune how strongly selection favours free/low-cost tiers versus frontier capability, and **Show automatic selection details** to inspect the top three candidate models and their scores under each reply. If local selection is unavailable or times out, OWLA uses task-aware heuristic fallback and shows a one-time notice. To tune the routing rules, copy `assets/routing-calibration.json` from the repository into OWLA’s private storage folder for the vault and run **Reload automatic selection calibration**; the notice shows the exact path. Click the automatic selection text to choose a model and reasoning effort for one message. The next message after that returns to automatic selection. Turn the setting off to restore manual selection. [OpenAI model guidance](https://learn.chatgpt.com/docs/models)
+OWLA replaces the manual selectors with the model and effort chosen for each turn. By default the on-device router receives a token-budgeted workspace inventory: attachment fingerprints (kind, extension, page and size bucket), note heading outlines, recent chat topic tags, and local complexity counts. Enable **Thorough automatic selection** in settings to always invoke the on-device classifier with chain-of-thought reasoning, bounded attachment names and raw excerpts. Enable **Automatic selection privacy mode** to keep note excerpts, heading outlines, recent chat topic tags and filenames out of the on-device classifier. It still reads your request, locally on this Mac, so it can judge the task; the chosen assistant receives your full request as usual. Use **Automatic selection priority** (**Cost**, **Balanced** or **Intelligence**) to tune how strongly selection favours free/low-cost tiers versus frontier capability, and **Show automatic selection details** to inspect the top three candidate models and their scores under each reply. If local selection is unavailable or times out, OWLA uses task-aware heuristic fallback and shows a one-time notice. To tune the routing rules, copy `assets/routing-calibration.json` from the repository into OWLA’s private storage folder for the vault and run **Reload automatic selection calibration**; the notice shows the exact path. Click the automatic selection text to choose a model and reasoning effort for one message; type any part of a provider, model or effort (for example `sonnet high`) to filter the list. The next message after that returns to automatic selection. Turn the setting off to restore manual selection. [OpenAI model guidance](https://learn.chatgpt.com/docs/models)
 
 The router runs on your own Mac through Apple’s Foundation Models CLI, never in the cloud. It receives your prompt text, a list of the models the provider currently offers, and a small inventory of what you attached — names, types and selected PDF page numbers. Your note text, image data, file contents and the conversation are not part of that request. OpenAI’s model guidance is used for Codex; for OpenCode, whose models come from many providers with no published roles, the router only weighs what OpenCode itself reports, and never assumes a quality the catalogue does not state.
 
@@ -169,9 +190,13 @@ Token counts in the report are estimates (~3.5 characters per token): providers 
 
 Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. Vault sources in **Sources & activity** open the exact PDF page or note heading when OWLA has one. Change cards above **Sources & activity** show affected files and folders. Open an existing file, reveal a folder in File Explorer, or preview a new note draft. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
 
+<p align="center">
+  <img src="assets/screenshots/02-review.png" alt="A proposed note edit under review: removed lines highlighted red and added lines green in the editor, with Accept, Decline and View diff in the chat" width="720">
+</p>
+
 OWLA stores each pending decision and a private recovery snapshot before writing. Pending decisions return when you reopen the sidebar or restart Obsidian. Decline only restores a note that still matches the applied text. If you edit the note while deciding, you can accept the current text. The Undo command for an accepted edit also checks the applied snapshot before restoring. Snapshots retain at most 20 entries within 5 MB per vault. The pending record is capped at 10 MB.
 
-Hidden/configuration files, excluded paths, traversal and symlinks escaping the vault are denied. Configure excluded vault-relative folders in settings. Shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions on every provider.
+Hidden/configuration files, excluded paths, traversal, symlinks escaping the vault and, on Windows, device names such as `NUL` or `CON.md` are denied. Configure excluded vault-relative folders in settings. Shell execution, native filesystem access, inherited MCP integrations/connectors and direct writes are disabled for OWLA sessions on every provider.
 
 ### Organize files and folders
 
@@ -226,7 +251,7 @@ See audits/1.0.0/CAPABILITY-CHECKLIST.md and TESTING.md for the eight requested 
 
 Disable OWLA, copy updated packaged files into the existing plugin folder, preserve `data.json`, then re-enable. For earlier local-inference development builds → 1.0, settings migrate to Codex and retain exclusions/storage; local-model configuration is removed. From 3.0 the chosen provider, its executable, its model and the exhaustion fallback are kept, and each provider keeps its own model and reasoning effort. Original backups and saved work are preserved.
 
-Stop cancels the request. Disconnect is also available in settings. To uninstall, disable and remove the plugin folder. Keep or separately remove external saved chats/recovery files after reviewing them. OWLA does not uninstall Codex, OpenCode or Claude Code, erase their logins or change their global configuration.
+Stop cancels the request. Disconnect is also available in settings. To uninstall, disable and remove the plugin folder. Keep or separately remove external saved chats/recovery files after reviewing them. OWLA does not uninstall Codex, OpenCode, Claude Code, Hermes Agent or Apple's `fm` tool, erase their logins or change their global configuration.
 
 ## Install the dev version
 
@@ -283,6 +308,6 @@ Ask OWLA to create a note from the conversation. If you leave the location unspe
 
 Attach or drop a PDF to give the assistant access to the whole document. Each PDF appears as a file chip. The assistant can search the PDF’s text layer, read page ranges or request a rendered image of a scan or diagram. For a single page, use **Add page to OWLA** in the PDF viewer or include a reference such as `[[Books/Study.pdf#page=3]]`. OCR uses the provider’s visual input and leaves the PDF unchanged.
 
-Right-click a PDF page in the Obsidian viewer to add it to OWLA, copy its page link, or copy selected text. This plugin menu provides those actions for PDF pages. The ordinary PDF toolbar remains available.
+Right-click a PDF page in the Obsidian viewer to add it to OWLA, copy its page link, add highlighted text with its page (**Add selection to OWLA**), or copy selected text. These actions also work in popout windows. This plugin menu provides those actions for PDF pages. The ordinary PDF toolbar remains available.
 
 PDF comments follow a stricter review path than Markdown. Suggested comments are grouped per PDF and shown with page numbers. Review and accept them to create a separate annotated copy, or Decline to discard them. No PDF annotations are applied before acceptance. The source bytes are checked again before saving. Resolve PDF proposals before sending the next message. Annotation proposals stay in memory until resolved or the plugin is unloaded. Comments use standard PDF text annotations. They do not yet support arbitrary ink drawings, redactions or editing PDF text.

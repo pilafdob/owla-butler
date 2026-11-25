@@ -47,6 +47,8 @@ Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
 
 ## 3.8.0
 
+3.8.0 collects the work of the 3.8.0 dev builds: PDF export, PDF text selections, richer note context, reviewed outline and property edits, tabbed settings with per-provider switches and an ordered fallback list, the Siri AI provider (macOS 27), Excalidraw handwriting handling, and a Windows data-safety audit. Settings from 3.7.x migrate automatically (see **Upgrade notes**). What was and was not verified is listed under **Verification** and **Known limits**.
+
 ### New features
 
 - **Export notes to PDF:** ask OWLA for a PDF of a note and it uses Obsidian's own Export to PDF (desktop only). OWLA first estimates the print layout: a heading stranded at the bottom of a page, a title alone on page 1, a table or code block split across pages. It then offers an export card in chat, and nothing is written until you confirm it there. OWLA prints a temporary copy of the note, written next to it so links and embeds resolve the same way and deleted afterwards; the note itself is never changed for an export. Layout is fixed in that copy only: images are sized to fit inside the page border (width and height, read from the image files), the file-name title is printed once and a first heading that already matches it is not repeated, a too-tall first image under the title is made smaller so the title is not alone on page 1, and page breaks go before stranded headings and split tables or code blocks. The PDF is saved next to the note (or at another allowed vault path) and never replaces an existing file. After printing, OWLA reads the PDF back; headings that really ended up stranded get page breaks in the copy and the copy is printed again (at most twice). What remains is reported to the assistant with your next message. If Obsidian's internal exporter is unavailable, OWLA opens Obsidian's Export to PDF dialog for the note itself, without the fixes.
@@ -67,11 +69,11 @@ Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
 ### Siri AI (macOS 27)
 
 - **New provider:** Siri AI uses Apple Foundation Models through the `fm` tool in macOS 27. OWLA starts a private `fm serve` on a Unix socket only you can write to, and talks to it with the Chat Completions protocol and OWLA's own vault tools. `fm` gets no file, shell, MCP or built-in tools of its own, and OWLA never uses a custom model provider from `~/.fm/config.json`. The server rests after 90 seconds without a reply.
-- **Model:** chat always uses `Siri AI · Private Cloud Compute` (Apple Account usage limits), in Automatic mode and when chosen by hand. The on-device model's context window is too small for day-to-day work, so it is not offered for chat; Automatic selection's own classifier still runs on the on-device model. If Private Cloud Compute is unavailable, Siri AI does not connect and settings show Apple's reason.
+- **Models:** chat uses `Siri AI · Private Cloud Compute` (Apple Account usage limits) where Apple allows it. Apple's `fm` serves Private Cloud Compute only to programs started from Terminal, so inside Obsidian Siri AI normally connects to the on-device model (no usage limits, small context window) and the connection status says why.
 - **Global fallback:** **Siri AI as global fallback** (General) lets Siri AI answer once every other enabled provider has reached its usage limit, both with a fixed provider order and with Automatic selection. Automatic selection otherwise leaves Siri AI out.
 - **Usage limits:** the Siri AI tab shows the Private Cloud Compute quota reported by `fm quota-usage`. A quota error marks Siri AI as exhausted and retries after 15 minutes.
 - **Limits:** text only (attached images are not sent, with a notice), no web search, and one reasoning setting chosen by Apple.
-- **Tested in a running Obsidian on macOS 27.3 (before the Private Cloud Compute-only change):** Apple refused Private Cloud Compute to Obsidian ("not available in this context. Please use the Terminal app"), and OWLA used the on-device model there. Where Apple still refuses it, Siri AI now does not connect in Obsidian at all; this has not been re-tested.
+- **Tested in a running Obsidian on macOS 27.3:** Apple refuses Private Cloud Compute to Obsidian ("not available in this context. Please use the Terminal app"); the same `fm` call from Terminal.app reports it available. A Private-Cloud-Compute-only build made in the dev cycle therefore could not connect at all; 3.8.0 keeps the on-device fallback, and Siri AI connects and answers in Obsidian with the on-device model.
 - **Robust tool use:** a schema `fm` cannot express (a map with typed values, as in `propose_properties`) is sent as a free-form object instead of failing every request; a refused tool call (bad arguments, a missing heading) goes back to the model so it can correct itself instead of ending the reply; the on-device model gets the core note tools only, and its transcript stays bounded (long tool results shortened, earlier rounds collapsed). A context-size error is reported as such, not as a usage limit.
 - **One-message override:** Siri AI is listed with the other providers when it is switched on and connected; Automatic selection still picks it only as the last resort.
 - **One-message override picker:** the override is a search field now. Type any part of a provider, model name, model id or reasoning effort ("sonnet high", "luna") and matching choices are suggested as you type; each choice is one model with one effort, the current choice is listed first and **Automatic selection** clears the override. An override on another provider no longer fails when the provider that was active is out of usage or not connected: that provider is not contacted for the overridden message.
@@ -91,8 +93,66 @@ Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
 ### Fixes
 
 - Adding properties to a large note without frontmatter no longer fails at the proposal size limit: only the changed lines are staged.
+- Codex with web search on works again on GPT-6.2 Sol and GPT-6.2 Astra. Every message failed with `Function 'web.run' is reserved for use by this model`: OWLA's direct-tool copy of the Codex model catalog cleared `tool_mode` but kept the models' experimental tools, and outside Code Mode Codex 0.171 sends `literature_search_query` as a `web.run` function that clashes with the model's own web tool. The copy now also clears `experimental_supported_tools` (none of them are OWLA tools). Reproduced and verified with `codex-cli 0.171.0` on Windows 11; regression test in `tests/codex.test.ts`.
 - Shortening attached selections to fit a model's context window also works when a PDF selection is attached.
 - A moved outline section keeps a blank line before the next heading, and the note keeps a single line break at its end.
+- The system prompt no longer tells the model to stage page breaks in the note before an export. It contradicted the `export_pdf` and `propose_page_breaks` descriptions and could lead a model to propose edits to the note for an export, which fixes layout in a temporary copy. Found in the release review; regression test in `tests/pdf-export-wiring.test.ts`.
+
+### Windows data safety and reliability
+
+From the Windows audit of the 3.8.0 tree (`audits/3.8.0/07-windows-audit.md`, run on Windows 11 as a non-root user).
+
+- **An export never overwrites a file:** the PDF output path is checked again when the export runs, not only when the card is confirmed. A file created there in between (another export, a sync), or a case variant of it on NTFS, is refused and left byte-identical.
+- **Journals survive transient file locks:** the organization journal and the pending-edit journal replace their files with bounded retries (two 25 ms waits) when Defender, OneDrive or the indexer briefly lock them (`EBUSY`, `EPERM`, `EACCES`). One lock used to abort and roll back a whole move batch. Saved chats use the same shared helper (`src/fs-retry.ts`). Live: a 40-move batch (about 80 journal rewrites under real Defender) finished in 2.5 s with no temp files left.
+- **Windows device names are refused in vault paths:** `CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, `CONIN$` and `CONOUT$`, with any extension and in any folder, so a write to `NUL.md` or `Notes/CON.pdf` can no longer disappear into a device. Windows only.
+- **Export copies left by a crash are cleaned up safely:** the temporary export copy's path and SHA-256 are recorded in OWLA's private storage before it is created and after each fix round. On the next load, OWLA deletes only recorded copies whose text is unchanged. A copy you edited, or one OWLA never recorded, is kept; nothing is deleted by file-name pattern.
+- **Popout windows:** **Add PDF selection to OWLA** and OWLA's PDF context menu work in popout windows (each PDF view reads its own window's selection, and the menu is registered on every popout). Reveal-line highlighting and the reply checkbox guard no longer fail for elements of a popout window.
+
+### Security and privacy
+
+- **PDF export writes nothing without confirmation and never changes the note:** the export prints a temporary copy and deletes it afterwards. Excluded notes and excluded or hidden output folders are refused, and output paths containing `..`, a backslash or a colon (NTFS alternate data streams) are refused. The internal exporter is reached through a capture of `Modal.prototype.open` that is scoped to the export and restored afterwards.
+- **New context stays inside your exclusions:** the note context block (properties, outline, links, backlinks) never lists notes from excluded folders, counts included. PDF selections and their page images come only from allowed PDFs, and the PDF is checked again when the page image is rendered.
+- **Siri AI is confined like the other providers:** `fm` gets no file, shell, MCP or built-in tools, reaches the vault only through OWLA's tools, and never uses a custom model provider from `~/.fm/config.json`. Its socket is removed on disconnect.
+- **Every new write path is reviewed:** `propose_outline`, `propose_page_breaks` and property renames go through the same read-snapshot, excluded-folder and accept/decline checks as other note edits, and decline restores the exact bytes (CRLF included).
+- **Drawing data stays out of the chat:** `read_note` and `search_vault` never return an Excalidraw drawing's compressed scene data, so it cannot fill the model's context or the chat.
+
+### Build, CI and packaging
+
+- **Windows and macOS tests run on every pull request:** CI gains a `platform-tests` job that runs `npm test` on `windows-latest` and `macos-latest`, so the NTFS/APFS case-folding, npm-shim, `SystemRoot` and launcher tests that are skipped on Linux now run before a merge. It found a Siri AI socket-path test that failed on Windows (`siriSocketPath` now uses POSIX paths) and four tests that compared Windows 8.3 short paths incorrectly. This job does not replace the live release checks in `TESTING.md`.
+- **The manual-install ZIP builds on Windows:** `scripts/package.mjs` builds the ZIP with `fflate` (already a dependency) instead of a `zip` binary, with fixed timestamps so the same tree gives the same ZIP. Checksum files contain only file names, and the private-data guard also catches Windows home-folder paths. The ZIP has 44 files (3.7.0 had 43; the new one is the `owla-obsidian-guide` skill).
+- **Flaky Windows tests:** the provider-lifecycle test waits up to about 10 s for its temp folder instead of failing with `EPERM` while a detached `taskkill` finishes (3 of 25 runs failed before, 10 of 10 passed after). The ComSpec shim test now reports which step failed and the `ComSpec`/`SystemRoot` values; that flake (1 in 25 runs) is not masked.
+- **Lint:** popout-safe element checks removed the remaining `instanceof` warnings. Four sentence-case warnings on existing UI strings remain (0 errors).
+- **Bundle size:** `main.js` is about 1.1 MB minified (3.7.0: about 1 MB).
+
+### Dependencies
+
+- `npm audit` reports 0 vulnerabilities in runtime and development dependencies. The bundled runtime dependencies (`cross-spawn` 7.0.6, `diff` 9.0.0, `fflate` 0.8.3, `pdf-lib` 1.17.1) are their latest published versions.
+- The `obsidian` type package is pinned to `1.14.4` instead of `latest`, so a fresh `npm install` cannot pull a newer API package whose exact `@codemirror/*` peer versions disagree with the pinned `@codemirror/view` 6.43.13. The lockfile already resolved 1.14.4, so the build is unchanged.
+- No other updates were taken. The newer versions available on 2026-11-25 (`typescript-eslint` 8.74.0, `@types/node` 22.20.7, `@codemirror/view` 6.44.0) are development-only, are not part of `main.js`, and were published zero to two days before this release. `@codemirror/view` must match Obsidian's exact peer version. TypeScript 7 is a major version and was not adopted for this release.
+
+### Verification
+
+Test counts are snapshots of different trees and hosts, not one progression.
+
+- **Automated suite:** Windows 11, non-root, on the tree of the Windows audit: 925 tests, 924 pass, 0 fail, 1 designed skip, with 10 consecutive green full runs. Linux (cloud container, root) on the release tree, which adds one prompt regression test: 926 tests, 915 pass, 0 fail, 11 skipped (Windows- and macOS-gated tests, and the unreadable-journal test, which root cannot exercise). 3.7.2 had 790 tests.
+- **Live, macOS (Obsidian 1.15.1, test vault, 2026-11-23, before the export-copy and Private-Cloud-Compute-only changes):** PDF export through Obsidian's own exporter (2-page PDF in 2.4 s, the predicted stranded heading found on read-back and fixed by an accepted page break), the confirmation card and Cancel, a real Codex turn that called `export_pdf` and `propose_page_breaks`, PDF selection rendering, cache reuse and the encrypted-PDF notice, real-YAML property and outline edits, and the 289-element Excalidraw drawing (13 located clusters, all 274 strokes removed in one operation).
+- **Live, Windows 11 (Obsidian 1.15.1, disposable vault, 2026-11-25, final export-copy code, no provider or model turn):** a 5-page CRLF note exported in 0.85 s with the note unchanged and the copy deleted; taken and case-variant output paths refused; crash leftovers cleaned up after a real reload; the 40-move journal batch; popout PDF selection and menu; CRLF reviewed edits, Decline and stale-text refusal; case-alias, excluded-folder and device-name guards; Automatic and Siri AI absent from Windows settings; reproducible ZIP.
+- Full details are in `TESTING.md`, `audits/3.8.0/REVIEW-3.8.0.md` and `audits/3.8.0/07-windows-audit.md`.
+
+### Known limits
+
+- Not verified live: Claude Code, OpenCode and Hermes model turns with the new tools (`export_pdf`, `propose_page_breaks`, `propose_outline`, `delete_cluster`; exposure is covered by unit tests only); any provider connect, tool turn, cancellation or reconnect on Windows; the dialog fallback for PDF export in the real app; a Siri AI turn on Private Cloud Compute inside Obsidian (Apple does not offer it there).
+- Where Apple refuses Private Cloud Compute to Obsidian, as it does on macOS 27.3, Siri AI uses the on-device model, whose context window is small: long notes and many tool rounds are shortened.
+- Whether Obsidian's Community review accepts the scoped `Modal.prototype.open` capture used for the internal exporter is not known.
+- Automatic selection and Siri AI remain macOS-only. Linux and mobile are unsupported.
+- From the 3.8.0 review, left as documented: when a PDF selection is dropped to fit the context window, its page image is still attached for that turn; "Wie sieht das besser aus?" does not trigger the formatting guide; `move under` places a section as the last subsection; the outline is included even for short notes (at most about 2,500 characters per message).
+
+### Upgrade notes
+
+- Update through Community plugins, or replace `main.js`, `manifest.json` and `styles.css` together and keep `data.json`.
+- A single fallback provider becomes the **Secondary provider** (`fallbacks` in `data.json`, per platform; `fallback` stays as the first entry).
+- A setting with either the Automatic provider or automatic model selection on turns the merged **Automatic model and reasoning effort** switch on.
+- Existing providers start switched on; Siri AI starts off.
 
 ## 3.7.2
 
