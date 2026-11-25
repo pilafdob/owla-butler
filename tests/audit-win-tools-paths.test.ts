@@ -56,3 +56,11 @@ test('graph and path gates refuse Windows absolute, UNC and backslash forms',()=
  assert.equal(allowedPath('Dr./A.md','',null,'win32'),false);
  assert.equal(allowedPath('Dr./A.md','',null,'darwin'),true);
 });
+
+test('Windows device names are refused in any segment and with any extension; similar names stay allowed',()=>{
+ for(const path of ['NUL.md','con.md','Notes/aux.pdf','COM1.canvas','lpt9.base','Prn/x.md','NUL.tar.md','nul .md','CONOUT$.md'])
+  assert.equal(allowedPath(path,'',null,'win32'),false,path);
+ for(const path of ['Console.md','Null.md','COM.md','Aux notes.md','Notes/LPT.md','con-notes.md'])
+  assert.equal(allowedPath(path,'',null,'win32'),true,path);
+ assert.equal(allowedPath('NUL.md','',null,'darwin'),true,'only Win32 maps these names to devices');
+});

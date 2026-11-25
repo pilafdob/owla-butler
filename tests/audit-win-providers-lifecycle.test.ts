@@ -77,7 +77,21 @@ function setup(mode:string){
  else{writeFileSync(executable,'#!/bin/sh\nexport FAKE_STARTUP_MODE="'+mode+'"\nexec "'+process.execPath+'" "'+serverFile+'" "$@"\n',{mode:0o700});chmodSync(executable,0o700);}
  return {root,workdir,executable,
   attempts:()=>existsSync(join(workdir,'startup-attempts.log'))?Number(readFileSync(join(workdir,'startup-attempts.log'),'utf8')):0,
-  cleanup:()=>rmSync(root,{recursive:true,force:true})};
+  // Windows: the bridge's taskkill /T runs detached, so under load the fake
+  // server (a cmd.exe grandchild) can hold the folder for a few seconds after
+  // the bridge closes. Wait for it, bounded; a temp folder still held after
+  // that is left for the OS and is not a lifecycle failure.
+  cleanup:async()=>{
+   for(let attempt=0;;attempt++){
+    try{rmSync(root,{recursive:true,force:true});return;}
+    catch(error){
+     const code=(error as NodeJS.ErrnoException).code;
+     if(code!=='EPERM'&&code!=='EBUSY'&&code!=='ENOTEMPTY')throw error;
+     if(attempt>=40){console.warn('left temporary folder '+root+' ('+code+')');return;}
+     await new Promise(resolve=>setTimeout(resolve,250));
+    }
+   }
+  }};
 }
 async function withBridge(mode:string,body:(bridge:OpencodeBridge,executable:string,workdir:string,attempts:()=>number)=>Promise<void>){
  const {workdir,executable,attempts,cleanup}=setup(mode);
@@ -86,7 +100,7 @@ async function withBridge(mode:string,body:(bridge:OpencodeBridge,executable:str
  finally{
   bridge.disconnect();
   await (bridge as unknown as {closing:Promise<void>}).closing;
-  cleanup();
+  await cleanup();
  }
 }
 const runOptions=(executable:string,workdir:string)=>({

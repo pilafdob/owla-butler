@@ -1,18 +1,6 @@
 import {record,list} from './validation';
 import {mkdirSync,writeFileSync,readdirSync,readFileSync,renameSync,unlinkSync,statSync} from 'node:fs';import {join} from 'node:path';import {randomUUID} from 'node:crypto';
-/** Windows Defender/OneDrive/the indexer briefly lock freshly written files
- * (EBUSY/EPERM/EACCES). A short bounded retry rides out the transient lock
- * instead of failing the save or delete; other errors propagate at once. */
-function retryLocked<T>(fn:()=>T):T{
- for(let attempt=0;;attempt++){
-  try{return fn();}
-  catch(e){const code=record(e).code;if(attempt>=2||(code!=='EBUSY'&&code!=='EPERM'&&code!=='EACCES'))throw e;
-   // Atomics.wait throws on Electron's renderer main thread — where Obsidian
-   // plugins run — so the pause is a bounded busy-wait: at most two 25 ms
-   // spins, only on the rare transient-lock path.
-   const until=Date.now()+25;while(Date.now()<until){/* bounded spin */}}
- }
-}
+import {retryLocked} from './fs-retry';
 type SavedMessage={role:'user'|'assistant';content:string;sourcePath?:string};
 export type SavedChat={id:string;title:string;created:string;messages:SavedMessage[]};
 export class ChatStore{

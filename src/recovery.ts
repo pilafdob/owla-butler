@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {EditBatch,Proposal,allowedEditablePath} from './core';
 import {record} from './validation';
+import {retryLocked} from './fs-retry';
 export function backupEdit(root:string,edit:Proposal):void{
  const dir=join(root,'edit-backups');mkdirSync(dir,{recursive:true,mode:0o700});
  const data=JSON.stringify({created:new Date().toISOString(),path:edit.path,before:edit.before},null,2);if(Buffer.byteLength(data)>5_000_000)throw Error('This note is too large for a safe local edit backup. Edit a smaller note.');
@@ -106,7 +107,7 @@ export function savePendingEdits(root:string, edits:EditBatch[]):void {
  try {
   mkdirSync(root, {recursive:true,mode:0o700});
   writeFileSync(temp,data,{mode:0o600,flag:'wx'});
-  try { renameSync(temp,file); }
+  try { retryLocked(()=>renameSync(temp,file)); }
   catch (e) {
    // Windows refuses to replace a read-only target (EPERM) — OneDrive and
    // sync tools set that attribute. Clear it and retry once; any other

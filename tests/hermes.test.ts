@@ -159,7 +159,7 @@ test('Hermes error detail is redacted before it reaches chat',()=>{
 // and its ancestors (agent/prompt_builder.py); a storage root inside a shared
 // folder must not feed them into every turn, as Codex already refuses.
 test('Hermes refuses instruction files above the session folder, below home',()=>{
- const scratch=realpathSync(mkdtempSync(join(tmpdir(),'owla-hermes-instructions-')));
+ const scratch=realpathSync.native(mkdtempSync(join(tmpdir(),'owla-hermes-instructions-')));
  try{
   const home=join(scratch,'home'),repo=join(home,'repo'),sub=join(repo,'sub'),session=join(sub,'session');
   mkdirSync(session,{recursive:true});
@@ -653,7 +653,7 @@ test('cursor rule files are matched case-insensitively on Windows',()=>{
 // moves the chain to the target's ancestors. A file above the TARGET must be
 // refused even when the session path spells the link side.
 test('instruction refusal follows a junction or symlink ancestor to its target',()=>{
- const scratch=realpathSync(mkdtempSync(join(tmpdir(),'owla-hermes-ancestor-')));
+ const scratch=realpathSync.native(mkdtempSync(join(tmpdir(),'owla-hermes-ancestor-')));
  try{
   const home=scratch; // the walk stops here; the target branch is below it
   mkdirSync(join(scratch,'B','target','repo','session'),{recursive:true});
@@ -680,7 +680,7 @@ test('instruction walk terminates at drive roots and UNC share roots',{timeout:1
 // same ancestors (Windows-only shapes; the host must be Windows for the FS).
 test('instruction refusal handles drive-relative and mixed-separator spellings',()=>{
  if(process.platform!=='win32')return;
- const scratch=realpathSync(mkdtempSync(join(tmpdir(),'owla-hermes-drive-')));
+ const scratch=realpathSync.native(mkdtempSync(join(tmpdir(),'owla-hermes-drive-')));
  try{
   const home=join(scratch,'home'),repo=join(home,'repo'),session=join(repo,'session');
   mkdirSync(session,{recursive:true});

@@ -23,6 +23,7 @@ import {existsSync,lstatSync,readdirSync,realpathSync,statSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {shell,webUtils} from 'electron';
 import {backupEdit,loadPendingEdits,readPendingRecord,removePendingRecord,savePendingEdits} from './recovery';
+import {forgetExportCopy,recordExportCopy,sweepExportCopies} from './export-copies';
 import {readReference,taskReference} from './knowledge';
 import {pdfPageText,pdfPageNumber,pdfSource,pdfPageReference,PdfJs,PdfDocument,PdfPage,PdfDocumentCache,PdfDocumentKey,readPdfTextRange,searchPdfText} from './pdf';
 import {PDF_SELECTION_MAX_PAGES,PDF_SELECTION_IMAGE_CACHE_MAX,PDF_SELECTION_IMAGE_NOTE,PDF_SELECTION_TEXT_ONLY_NOTE,pdfSelectionCacheKey,pdfSelectionChipLabel,pdfSelectionRenderPages,pdfSelectionTextOnlyContext,pdfSelectionAttempt,selectionContextBlock,type PdfSelectionPage,type SelectionItem} from './pdf-selection';
@@ -60,6 +61,8 @@ type ChangeCardUpdate=(status:string,activate?:(()=>void)|null)=>void;
 type ProposedRemoval={review:RemovalReview;requires?:string[]};
 type OrganizationDraft={review?:OrganizationReview;removals?:ProposedRemoval[]};
 type RelatedReview={container:HTMLElement;decisions:Map<string,'pending'|'accepted'|'declined'>};
+/** The node itself when it is an element, else its parent. A nodeType check, not instanceof: a popout window has its own Element class. */
+function elementOf(node:Node|null|undefined):Element|null{return !node?null:node.nodeType===1?node as Element:node.parentElement;}
 function pathsOverlap(first:string,second:string){
  const a=foldPath(first),b=foldPath(second);
  return a===b||a.startsWith(b+'/')||b.startsWith(a+'/');
@@ -231,9 +234,10 @@ export default class Butler extends Plugin {
   this.registerEvent(this.app.workspace.on('files-menu',(menu,files)=>{
    if(files.some(file=>this.allowedVaultFile(file.path)))this.addAttachmentMenu(menu,'Add files to OWLA chat',files);
   }));
-  this.registerDomEvent(window,'contextmenu',event=>{
-   const target=event.target;
-   if(!(target instanceof Element))return;
+  // Popout windows have their own window and Element: listen in each one.
+  const pdfMenu=(event:MouseEvent)=>{
+   const target=elementOf(event.target as Node|null);
+   if(!target)return;
    const page=target.closest<HTMLElement>('.page[data-page-number]');
    const leaf=this.app.workspace.getLeavesOfType('pdf').find(leaf=>leaf.view.containerEl.contains(target));
    if(!page||!leaf)return;
@@ -243,16 +247,28 @@ export default class Butler extends Plugin {
    const menu=new Menu().setUseNativeMenu(false),link=pdfPageReference(path,number);
    menu.addItem(item=>item.setTitle('Add page to OWLA').setIcon('file-plus').onClick(async()=>{try{const view=await this.open();view.attachVaultPdf(path+'#page='+number);}catch(error){new Notice(friendlyError(error));}}));
    menu.addItem(item=>item.setTitle('Copy link to page').setIcon('link').onClick(()=>void navigator.clipboard.writeText(link)));
-   const selection=window.getSelection(),selected=selection?.toString()??'';
-   if(selected){
+   const selection=(target.ownerDocument.defaultView??window).getSelection(),selected=selection?.toString()??'';
+   if(selection&&selected){
     const pages=pdfSelectionRangePages(selection,leaf.view.containerEl);
     // Only text highlighted inside this PDF view is cited to this PDF.
     if(selection?.anchorNode&&leaf.view.containerEl.contains(selection.anchorNode))menu.addItem(item=>item.setTitle('Add selection to OWLA').setIcon('text-select').onClick(()=>void this.pdfSelection({path,pages:pages.length?pages:[number],text:selected})));
     menu.addItem(item=>item.setTitle('Copy selected text').setIcon('copy').onClick(()=>void navigator.clipboard.writeText(selected)));
    }
    nodeTimeout(()=>menu.showAtMouseEvent(event),0);
-  },true);
-  this.app.workspace.onLayoutReady(()=>{this.last=this.app.workspace.getActiveViewOfType(MarkdownView);this.syncSplitDiff();});
+  };
+  this.registerDomEvent(window,'contextmenu',pdfMenu,true);
+  this.registerEvent(this.app.workspace.on('window-open',(_workspaceWindow,popout)=>this.registerDomEvent(popout,'contextmenu',pdfMenu,true)));
+  this.app.workspace.onLayoutReady(()=>{this.last=this.app.workspace.getActiveViewOfType(MarkdownView);this.syncSplitDiff();void this.sweepExportCopies();});
+ }
+ /** Deletes the PDF-export copies a crashed or quit session left behind, only while their text is exactly what OWLA wrote. */
+ async sweepExportCopies(){
+  try{
+   await sweepExportCopies(this.vaultStorage(),async path=>{const file=this.app.vault.getAbstractFileByPath(path);return file instanceof TFile?await this.app.vault.read(file):null;},async path=>{
+    const file=this.app.vault.getAbstractFileByPath(path);
+    // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- OWLA's own unchanged temporary file, as in exportPdf
+    if(file instanceof TFile)await this.app.vault.delete(file);
+   });
+  }catch{/* Retried on the next load. */}
  }
  private addAttachmentMenu(menu:Menu,title:string,entries:readonly TAbstractFile[]) {
   menu.addItem(item=>item.setTitle(title).setIcon('file-plus').onClick(async()=>{
@@ -700,10 +716,14 @@ export default class Butler extends Plugin {
  /** The highlighted PDF text and the pages it spans, when the current selection
   *  lives inside an allowed PDF viewer; null otherwise. */
  pdfSelectionTarget():{path:string;pages:number[];text:string}|null{
-  const selection=window.getSelection(),text=selection?.toString()??'';
-  if(!selection||!text.trim())return null;
-  const leaf=this.app.workspace.getLeavesOfType('pdf').find(leaf=>!!selection.anchorNode&&leaf.view.containerEl.contains(selection.anchorNode));
-  if(!leaf)return null;
+  // Each PDF leaf reads the selection of its own window, so a PDF in a popout works too.
+  let selection:Selection|null=null,text='';
+  const leaf=this.app.workspace.getLeavesOfType('pdf').find(leaf=>{
+   const current=(leaf.view.containerEl.ownerDocument.defaultView??window).getSelection();
+   if(!current?.anchorNode||!current.toString().trim()||!leaf.view.containerEl.contains(current.anchorNode))return false;
+   selection=current;text=current.toString();return true;
+  });
+  if(!leaf||!selection)return null;
   const state=record(leaf.view.getState()),path=state.file;
   if(typeof path!=='string'||!this.allowedPdf(path))return null;
   return {path,pages:pdfSelectionRangePages(selection,leaf.view.containerEl),text};
@@ -742,7 +762,7 @@ export default class Butler extends Plugin {
  /** Temporary export_pdf copies that exist right now; deleted after each export, and here on unload if an export was cut short. */
  readonly exportCopies=new Set<string>();
  onunload(){// eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- OWLA's own temporary export copy (see exportPdf)
-  for(const path of this.exportCopies){const copy=this.app.vault.getAbstractFileByPath(path);if(copy instanceof TFile)void this.app.vault.delete(copy).catch(()=>{});}this.exportCopies.clear();for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
+  for(const path of this.exportCopies){const copy=this.app.vault.getAbstractFileByPath(path);if(copy instanceof TFile)void this.app.vault.delete(copy).then(()=>forgetExportCopy(this.vaultStorage(),path)).catch(()=>{/* The next load sweeps it. */});}this.exportCopies.clear();for(const modal of [...this.ownedModals])modal.close();this.view?.clearWarmup();this.view?.stop();for(const provider of PROVIDER_IDS)this.bridgeFor(provider).disconnect();}
  private vaultBasePath(){const adapter=this.app.vault.adapter;return adapter instanceof FileSystemAdapter?adapter.getBasePath():null;}
  allowedNote(path:string){return this.allowedVaultFile(path,'md');}
  /** A file OWLA can propose edits to: Markdown (including Excalidraw drawing notes), `.excalidraw`, Canvas or Bases. */
@@ -1223,7 +1243,7 @@ class SplitDiffView extends ItemView {
   if(center){
    // A brief highlight shows which line was meant.
    const lineEl=cm?.domAtPos(cm.state.doc.line(number+1).from).node;
-   const row=(lineEl instanceof HTMLElement?lineEl:lineEl?.parentElement)?.closest<HTMLElement>('.cm-line');
+   const row=elementOf(lineEl)?.closest<HTMLElement>('.cm-line');
    if(row){row.addClass('owla-reveal-line');window.setTimeout(()=>row.removeClass('owla-reveal-line'),1200);}
   }
  }
@@ -1638,7 +1658,7 @@ export class ButlerView extends ItemView {
   // feed is cleared and the observers disconnected (performance audit 8).
   if(!this.replyCleanupRegistered){this.replyCleanupRegistered=true;this.register(()=>this.discardReplyObservers());}
   // Rendered task checkboxes are read-only: a click must never edit a vault note.
-  content.addEventListener('click',event=>{if(event.target instanceof Element&&event.target.closest('.task-list-item-checkbox'))event.preventDefault();},true);
+  content.addEventListener('click',event=>{if(elementOf(event.target as Node|null)?.closest('.task-list-item-checkbox'))event.preventDefault();},true);
 
   const openNote = (event:MouseEvent, anchor:HTMLElement) => {
    if (event.button !== 0 && event.button !== 1) return;
@@ -2487,11 +2507,17 @@ export class ButlerView extends ItemView {
  async exportPdf(file:TFile,output:string,options:PdfExportOptions,breaksBefore:string[]=[]):Promise<string>{
   const adapter=this.app.vault.adapter;
   if(!(adapter instanceof FileSystemAdapter))throw Error('PDF export needs the desktop vault.');
+  // The path was free when the card was confirmed; a file may have appeared since (another export, sync).
+  // Obsidian's exporter writes over whatever is there, and a fix round removes it, so refuse rather than overwrite.
+  // existsSync also catches a case-variant name on a case-insensitive (NTFS/APFS) vault.
+  if(this.app.vault.getAbstractFileByPath(output)||await adapter.exists(output)||existsSync(join(adapter.getBasePath(),output)))throw Error('A file now exists at '+output+'. Start the export again so OWLA picks a free name.');
   const text=await this.butler.currentText(file.path);
   const copy=prepareExportCopy({text,basename:file.basename,options,breaksBefore,sizeOf:await this.exportImageSizes(file,text)});
   const copyPath=this.exportCopyPath(file);
   let copyFile:TFile|null=null,fallback='';
   try{
+   // Recorded before it exists, so a crash between the two still leaves a record.
+   recordExportCopy(this.butler.vaultStorage(),copyPath,copy.text);
    copyFile=await this.app.vault.create(copyPath,copy.text);
    this.butler.exportCopies.add(copyPath);
    let copyText=copy.text,added=0,rounds=0;
@@ -2510,6 +2536,7 @@ export class ButlerView extends ItemView {
       +(check.found.length?check.found.length+' layout problem'+(check.found.length===1?'':'s')+' remain; OWLA will tell the assistant with your next message.':'Layout check: no stranded headings found ('+check.pages+' page'+(check.pages===1?'':'s')+').');
     }
     copyText=next.text;added+=next.inserted.length;rounds++;
+    recordExportCopy(this.butler.vaultStorage(),copyPath,copyText);
     await this.app.vault.modify(copyFile,copyText);
     // The PDF of the previous round is OWLA's own file from a moment ago.
     await adapter.remove(output);
@@ -2518,7 +2545,7 @@ export class ButlerView extends ItemView {
    // Deleted outright, not moved to the trash: the copy is OWLA's own temporary file, and trashing it would leave one per export.
    // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- see above
    if(copyFile){try{await this.app.vault.delete(copyFile);}catch{/* Removed on unload at the latest. */}}
-   if(!copyFile||!this.app.vault.getAbstractFileByPath(copyPath))this.butler.exportCopies.delete(copyPath);
+   if(!copyFile||!this.app.vault.getAbstractFileByPath(copyPath)){this.butler.exportCopies.delete(copyPath);try{forgetExportCopy(this.butler.vaultStorage(),copyPath);}catch{/* The next load forgets it. */}}
   }
   // Route A: Obsidian's dialog exports the note itself; the copy cannot be used there.
   const result=await this.printNote(file,output,options,true);
@@ -3687,7 +3714,7 @@ function pdfSelectionRangePages(selection:Selection|null,container:HTMLElement):
  }
  if(!pages.length){
   const node=selection.anchorNode;
-  const page=(node instanceof Element?node:node?.parentElement??null)?.closest<HTMLElement>('.page[data-page-number]');
+  const page=elementOf(node)?.closest<HTMLElement>('.page[data-page-number]');
   const number=Number(page?.dataset.pageNumber);
   if(Number.isInteger(number)&&number>=1)pages.push(number);
  }

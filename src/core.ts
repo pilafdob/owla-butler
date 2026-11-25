@@ -194,9 +194,11 @@ const excludedCache=new Map<string,string[]>();
  */
 // eslint-disable-next-line no-control-regex -- control characters must be detected in a vault path so the path can be refused
 const CONTROL=/[\u0000-\u001f\u007f]/;
+/** Win32 device names: "NUL.md" or "CON/x.pdf" open the device, not a file, so a write would vanish (Windows 10 and older; also with any extension). */
+const WINDOWS_DEVICE=/^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
 export function allowedPath(path:string,excluded='',extension:string|null='md',platform:string=process.platform):boolean {
  if(!path || path.startsWith('/') || path.includes('\\') || path.includes(':') || CONTROL.test(path))return false;
- if(path.split('/').some(p=>!p||p==='.'||p==='..'||p==='~'||p.startsWith('.')||(platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')))))return false;
+ if(path.split('/').some(p=>!p||p==='.'||p==='..'||p==='~'||p.startsWith('.')||(platform==='win32'&&(p.endsWith('.')||p.endsWith(' ')||WINDOWS_DEVICE.test(p.split('.')[0].trimEnd())))))return false;
  if(extension!==null&&!path.toLowerCase().endsWith('.'+extension))return false;
  const target=foldPath(path);
  const cacheKey=excluded;
