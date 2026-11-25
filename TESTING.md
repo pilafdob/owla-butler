@@ -1,5 +1,14 @@
 # OWLA Butler verification
 
+## 3.8.0 — release preparation (2026-11-25, Linux cloud container, root)
+
+This run is **not release verification**: it ran on Linux as root, without Obsidian, providers or a vault. It only shows that the release tree passes the CI gates against the test stubs.
+
+- **Changes on the release tree:** version 3.8.0 in `manifest.json`, `package.json`, `package-lock.json` and `versions.json`; `obsidian` type package pinned to `1.14.4` (the lockfile already resolved it); one system-prompt sentence about `propose_page_breaks` corrected, with a regression test that fails on the old text; documentation.
+- **Gates:** `npm ci`, `npm run check`, `npm run lint` (0 errors, 4 sentence-case warnings), `npm test` (**926 tests / 915 pass / 0 fail / 11 skipped**: the Windows- and macOS-gated tests and the unreadable-journal test, which root cannot exercise), `npm run guard:test`, `npm run build` (`main.js` 1,105,347 bytes), `RELEASE_TAG=3.8.0 npm run check:release`, `node scripts/package.mjs` (44 files, the same SHA-256 on two runs) and `git diff --check` pass. `npm audit` finds 0 vulnerabilities.
+- **Found by this run:** the first `scripts/package.mjs` run refused the new changelog because it quoted a Windows home-folder path pattern; the wording was changed. The tag workflow's package step would otherwise have failed.
+- **Still required before tagging (CLAUDE.md, "Before any release"):** `npm test` on macOS and on Windows as a non-root, non-Administrator user on this exact tree; the live checks in a disposable vault, in particular a macOS pass of the final export-copy code and Siri AI, real provider connect, tool turn, cancellation and reconnect on Windows, and Claude Code, OpenCode and Hermes turns with the new tools. The `platform-tests` CI job runs the suite on GitHub's Windows and macOS runners, but those runners' accounts have administrator rights and no Obsidian, so it does not replace these checks.
+
 ## 3.8.0 — Windows audit and live check (2026-11-25, Windows 11, disposable Test vault)
 
 - **Setup:** Obsidian 1.15.1 (the app's own signed updater) in an isolated profile that registers only `Documents/Coding/Test`, so no iCloud vault was opened. The built `main.js`, `manifest.json` and `styles.css` were installed together and reloaded. The checks ran against the executed plugin copy, driven over the DevTools protocol. No provider connection, model turn or account was used.

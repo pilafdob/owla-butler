@@ -13,6 +13,11 @@
 - **One Automatic switch:** **Automatic model and reasoning effort** (Automatic tab) now chooses the provider too. While it is on, the provider order is not used.
 - **Faster drawing and canvas reads:** a repeated look at an unchanged canvas or drawing reuses its picture instead of rendering it again.
 - **Siri AI (macOS 27):** a new provider for Apple Foundation Models on Private Cloud Compute. Chat always uses Private Cloud Compute; the on-device model's context window is too small for day-to-day work. It can also be the global fallback when every other provider is out of usage. Siri AI reads text only and does not search the web. Where Apple refuses Private Cloud Compute to Obsidian, Siri AI does not connect.
+- **One-message override search:** type any part of a provider, model or effort ("sonnet high") to pick the model for one message.
+- **Safer on Windows:** a PDF export never overwrites a file created after you confirmed it, move batches and pending edits survive brief Defender or OneDrive file locks instead of rolling back, Windows device names such as `NUL` are refused as note paths, and export copies left by a crash are removed only if unchanged. PDF selections and OWLA's PDF menu also work in popout windows.
+- **Tested before merge on Windows and macOS:** the automated tests now run on Windows and macOS for every pull request.
+
+Not yet verified live: Claude Code, OpenCode and Hermes turns with the new tools, provider turns on Windows, and Siri AI after the Private-Cloud-Compute-only change. Details are in the changelog under Verification and Known limits.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
 

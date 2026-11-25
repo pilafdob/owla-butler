@@ -26,6 +26,10 @@ byte-identical; only pointers in living documents were updated.
   `TESTING.md` and `AUDIT.md`; historical intermediate gate counts remain
   snapshots, not claims about the current tree.
 
+- `3.8.0/` — 3.8.0 handoffs (`01`–`05`), the independent review
+  [`REVIEW-3.8.0.md`](3.8.0/REVIEW-3.8.0.md) with its resolution addendum, and
+  the Windows audit [`07-windows-audit.md`](3.8.0/07-windows-audit.md).
+
 Living documents stay at the repo root: `AUDIT.md` (cumulative audit log),
 `TESTING.md` (verification log), `CHANGELOG.md`, `RELEASE-NOTES.md` (used by the
 release workflow), `COMMUNITY-RELEASE.md`, `THIRD-PARTY-NOTICES.md`.

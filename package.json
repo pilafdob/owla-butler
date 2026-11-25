@@ -1,6 +1,6 @@
 {
   "name": "owla-butler",
-  "version": "3.7.2",
+  "version": "3.8.0",
   "private": true,
   "description": "Obsidian sidebar assistant for Codex, OpenCode, Claude Code and Hermes Agent: current note context, attachments, vault search and reviewed edits",
   "scripts": {
@@ -20,7 +20,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
     "eslint-plugin-obsidianmd": "^0.6.0",
-    "obsidian": "latest",
+    "obsidian": "1.14.4",
     "tsx": "^4.0.0",
     "typescript": "~6.0.0",
     "typescript-eslint": "^8.73.0"
