@@ -12,13 +12,13 @@
 - **Provider order:** choose a primary, secondary, third provider and more in General. When one reaches its usage limit, OWLA moves to the next and returns as soon as the limit resets.
 - **One Automatic switch:** **Automatic model and reasoning effort** (Automatic tab) now chooses the provider too. While it is on, the provider order is not used.
 - **Faster drawing and canvas reads:** a repeated look at an unchanged canvas or drawing reuses its picture instead of rendering it again.
-- **Siri AI (macOS 27):** a new provider for Apple Foundation Models on Private Cloud Compute. Chat always uses Private Cloud Compute; the on-device model's context window is too small for day-to-day work. It can also be the global fallback when every other provider is out of usage. Siri AI reads text only and does not search the web. Where Apple refuses Private Cloud Compute to Obsidian, Siri AI does not connect.
+- **Siri AI (macOS 27):** a new provider for Apple Foundation Models. It uses Private Cloud Compute where Apple allows it; Apple currently serves Private Cloud Compute only to Terminal, so in Obsidian Siri AI uses the on-device model, which has no usage limits but a small context window. It can also be the global fallback when every other provider is out of usage. Siri AI reads text only and does not search the web.
 - **One-message override search:** type any part of a provider, model or effort ("sonnet high") to pick the model for one message.
 - **Safer on Windows:** a PDF export never overwrites a file created after you confirmed it, move batches and pending edits survive brief Defender or OneDrive file locks instead of rolling back, Windows device names such as `NUL` are refused as note paths, and export copies left by a crash are removed only if unchanged. PDF selections and OWLA's PDF menu also work in popout windows.
 - **Codex web search on GPT-6.2:** with web search on, messages to GPT-6.2 Sol and Astra no longer fail with a `web.run` error.
 - **Tested before merge on Windows and macOS:** the automated tests now run on Windows and macOS for every pull request.
 
-Not yet verified live: Claude Code, OpenCode and Hermes turns with the new tools, provider turns on Windows, and Siri AI after the Private-Cloud-Compute-only change. Details are in the changelog under Verification and Known limits.
+Not yet verified live: Claude Code, OpenCode and Hermes turns with the new tools, and a Siri AI turn on Private Cloud Compute inside Obsidian (Apple does not offer it there). Details are in the changelog under Verification and Known limits.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
 

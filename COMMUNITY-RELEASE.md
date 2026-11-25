@@ -10,10 +10,13 @@ The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices refl
 
 ## 3.8.0 — release status
 
-Prepared on branch `claude/dazzling-allen-4aevos` for a pull request into
-`main`; not merged, tagged or published. The version bump is in that pull
-request, so its merge commit is the release commit and the plain `3.8.0` tag
-goes on it.
+The version bump is on `main`. On 2026-11-25 the macOS gates and live checks
+passed, Siri AI was fixed to fall back to the on-device model (Apple's `fm`
+serves Private Cloud Compute only to Terminal), and the owner confirmed the
+Windows checks and approved the release. Details are in `TESTING.md` ("3.8.0 —
+release check on `main`"). The merge commit of the fix pull request gets the
+plain `3.8.0` tag, followed by the tag workflow, the asset hash comparison
+against a local build and `gh attestation verify`, as for 3.7.2.
 
 Verified so far (details in `TESTING.md`):
 - macOS live release-candidate check on 2026-11-23 (before the export-copy
