@@ -145,11 +145,15 @@ export const TOOL_CATALOG_MAX_AGE_MS=60*60*1000;
  * Mode and its host off, so the model sees OWLA's tools but every call fails
  * closed and the reply claims note access is unavailable. Returns the catalog
  * with `tool_mode` cleared on every model, or null when no model sets it.
+ * The copy also clears `experimental_supported_tools`: outside Code Mode, Codex
+ * sends some of them as direct functions (gpt-6.2's `literature_search_query`
+ * goes out as `web.run`, a name the model reserves for its own schema), so with
+ * web search on every turn failed with a 400. None of them are OWLA tools.
  */
 export function directToolCatalog(cache:unknown):{models:unknown[]}|null{
  const models=list(record(cache).models);
  if(!models.some(model=>{const mode=record(model).tool_mode;return mode!==undefined&&mode!==null;}))return null;
- return {models:models.map(model=>({...record(model),tool_mode:null}))};
+ return {models:models.map(model=>({...record(model),tool_mode:null,experimental_supported_tools:[]}))};
 }
 /** Writes OWLA's direct-tool copy of Codex's fetched catalog into the private home; returns its path, or '' when none is needed or it cannot be written. */
 export function writeDirectToolCatalog(home:string):string{
