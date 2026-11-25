@@ -4,6 +4,19 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never “latest�
 
 ## Dev builds
 
+### 3.8.0-dev.5
+
+Fifth prerelease of 3.8.0, from `main` after the Windows audit (pull request #17). Changes since `3.8.0-dev.4`:
+
+- **PDF export never overwrites a file:** if a file appears at the chosen PDF path after you confirm the export (another export, sync), OWLA refuses instead of writing over it. This includes a name that differs only in upper/lower case. Start the export again and OWLA picks a free name.
+- **Export copies left by a crash are cleaned up:** if Obsidian quits or crashes during an export, OWLA removes its temporary `(OWLA PDF export)` copy on the next start, but only while the copy is unchanged. A copy you edited is kept.
+- **Organizing files is sturdier on Windows:** a brief Defender, OneDrive or indexer lock on OWLA's recovery journal no longer aborts and undoes a whole organization batch. The pending-edit record retries the same way.
+- **Windows device names are refused** as note or PDF paths (`NUL`, `CON`, `COM1`, …). On Windows 10, anything written there is lost.
+- **PDFs in popout windows:** "Add PDF selection to OWLA" and the OWLA PDF context menu now work in a popout window, as they do in the main window.
+- **Release tooling:** the manual-install ZIP can now be built on Windows. CI also runs the test suite on Windows and macOS.
+
+Tested on Windows 11 in a disposable vault with Obsidian 1.15.1, without a provider or model turn; see `TESTING.md`. Not yet re-tested on macOS in Obsidian.
+
 ### 3.8.0-dev.4
 
 Fourth prerelease of 3.8.0, the first from `main` after `OWLA-RC` was retired. Changes since `3.8.0-dev.3`:

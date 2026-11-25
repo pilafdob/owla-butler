@@ -85,13 +85,18 @@ test('starting a new chat persists the rotated chat id (survives a reload)',asyn
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-test('load never follows a symlinked journal file (F8 parity with sessions)',()=>{
+test('load never follows a symlinked journal file (F8 parity with sessions)',t=>{
  const root=mkdtempSync(join(tmpdir(),'owla-review-symlink-'));
  try{
   const outside=join(root,'outside.json');
   writeFileSync(outside,JSON.stringify({version:1,chatId:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',turns:[],events:[]}));
   mkdirSync(join(root,'developer'),{recursive:true});
-  symlinkSync(outside,join(root,'developer','journal.json'));
+  try{symlinkSync(outside,join(root,'developer','journal.json'));}
+  catch(error){
+   // Windows needs Developer Mode or admin rights for a file symlink.
+   if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('file symlinks need Developer Mode or admin rights on Windows');return;}
+   throw error;
+  }
   const journal=new DevJournal();const fresh=journal.chatId;
   journal.load(root);
   assert.equal(journal.chatId,fresh,'a symlinked journal must be ignored');

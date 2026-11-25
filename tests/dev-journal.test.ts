@@ -429,14 +429,19 @@ test('session retention stays bounded against a hostile directory (F3)',()=>{
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-test('symlinked session files are skipped, never followed (F8)',()=>{
+test('symlinked session files are skipped, never followed (F8)',t=>{
  const root=tempRoot();
  try{
   const dir=sessionsDir(root);mkdirSync(dir,{recursive:true});
   const outside=join(root,'outside.json');
   writeFileSync(outside,JSON.stringify(sessionFixture(new Date().toISOString(),'target')));
   const linkId=randomUUID();
-  symlinkSync(outside,join(dir,linkId+'.json'));
+  try{symlinkSync(outside,join(dir,linkId+'.json'));}
+  catch(error){
+   // Windows needs Developer Mode or admin rights for a file symlink.
+   if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('file symlinks need Developer Mode or admin rights on Windows');return;}
+   throw error;
+  }
   const j=new DevJournal();
   assert.equal(j.listSessions(root).length,0);
   assert.equal(j.readSession(root,linkId),null);
