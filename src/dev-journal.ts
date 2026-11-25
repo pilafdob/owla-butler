@@ -295,8 +295,8 @@ export class DevJournal{
   * fits — memory keeps the full rings, disk stays bounded (audit F4/DM-12). */
  save(root:string):void{
   if(!this.enabled||(!this.turnsList.length&&!this.eventsList.length))return;
-  let turns=this.turnsList as DevTurn[];
-  let events=this.eventsList as DevEvent[];
+  let turns=this.turnsList;
+  let events=this.eventsList;
   const serialize=()=>JSON.stringify({version:1,chatId:this.chatId,turns,events});
   let data=serialize();
   if(Buffer.byteLength(data)>DEV_LIMITS.maxJournalBytes){
