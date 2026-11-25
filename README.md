@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/pilafdob/owla-butler/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/pilafdob/owla-butler?label=release&color=blue"></a>
+  <a href="https://github.com/pilafdob/owla-butler/releases"><img alt="Latest pre-release" src="https://img.shields.io/github/v/release/pilafdob/owla-butler?include_prereleases&label=pre-release&color=orange"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://obsidian.md"><img alt="Obsidian 1.14.5+" src="https://img.shields.io/badge/Obsidian-1.14.5%2B-7c3aed"></a>
   <img alt="macOS and Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey">
