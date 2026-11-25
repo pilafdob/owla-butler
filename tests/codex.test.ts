@@ -49,7 +49,8 @@ test('disconnect during connection discovery cannot start a background agent',as
   writeFileSync(file,'#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then sleep 0.1; echo \"codex-cli 0.162.1\"; else touch \"'+marker+'\"; fi\n',{mode:0o700});
  }
  try{const pending=b.connect(file,folder);await new Promise(resolve=>setTimeout(resolve,20));b.disconnect();await assert.rejects(pending,/cancelled/);assert.equal(existsSync(marker),false);}
- finally{b.disconnect();rmSync(folder,{recursive:true,force:true});}
+ // On Windows the cancelled cmd.exe launcher can hold codex.cmd for a moment after disconnect; retry EBUSY.
+ finally{b.disconnect();rmSync(folder,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 });
 
 test('integration overrides preserve dotted IDs without copying credentials to process arguments',async()=>{const {integrationOverrides}=await import('../src/codex');const args=integrationOverrides({mcp_servers:{'com.example.tool':{enabled:true,env:{SECRET:'private'}},disabled:{enabled:false}},plugins:{'tool@vendor.example':{enabled:true}}});assert.equal(args[0],'mcp_servers={"com.example.tool"={enabled=false}}');assert.equal(args[1],'plugins={"tool@vendor.example"={enabled=false}}');assert.equal(args.join('').includes('private'),false);});
