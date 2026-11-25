@@ -117,7 +117,11 @@ Suggested repository description:
 
 > Obsidian sidebar assistant for Codex, OpenCode and Claude Code: current note context, attachments, vault search and reviewed edits.
 
-Suggested topics: `obsidian-plugin`, `obsidian`, `codex`, `opencode`, `claude-code`, `markdown`, `ai-assistant`.
+Suggested topics: `obsidian-plugin`, `obsidian`, `ai`, `ai-assistant`, `ai-chat`, `chatbot`, `sidebar`, `copilot`, `llm`, `agent`, `codex`, `opencode`, `claude-code`, `hermes-agent`, `markdown`.
+
+Current manifest description (3.7.x discoverability pass):
+
+> AI assistant chat in your sidebar, powered by Codex, OpenCode, Claude Code or Hermes Agent: chat with your open note, attach images and PDFs, search your vault and the web, and review every edit.
 
 ## Preparation checks
 

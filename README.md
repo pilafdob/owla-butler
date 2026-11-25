@@ -3,7 +3,7 @@
 <h1 align="center">OWLA Butler</h1>
 
 <p align="center">
-  <strong>Your Codex, OpenCode, Claude Code or Hermes Agent assistant, inside Obsidian.</strong><br>
+  <strong>An AI assistant chat in your Obsidian sidebar, powered by Codex, OpenCode, Claude Code or Hermes Agent.</strong><br>
   Chat with your open note, attach images and PDFs, search your vault and the web,<br>
   and review every edit before it lands.
 </p>
@@ -24,7 +24,7 @@
   <img src="assets/demo.gif" alt="OWLA Butler proposing an edit to the open note in the Obsidian sidebar: the change is highlighted in the note, then accepted from the chat" width="720">
 </p>
 
-OWLA Butler is a native Obsidian sidebar assistant that runs on an assistant CLI you already installed and signed in to — **Codex**, **OpenCode**, **Claude Code** or **Hermes Agent**. There are no chat modes to pick and no separate OWLA account: it reuses your existing login, models and plan limits. Every change it proposes is applied provisionally and waits for your **Accept** or **Decline**.
+OWLA Butler is a native Obsidian AI assistant sidebar (AI chat for your notes) that runs on an assistant CLI you already installed and signed in to — **Codex**, **OpenCode**, **Claude Code** or **Hermes Agent**. There are no chat modes to pick and no separate OWLA account: it reuses your existing login, models and plan limits. Every change it proposes is applied provisionally and waits for your **Accept** or **Decline**.
 
 ### Why OWLA Butler?
 
