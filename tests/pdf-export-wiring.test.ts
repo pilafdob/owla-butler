@@ -276,3 +276,63 @@ test('PDF selection: excluded PDFs are refused; failed renders are dropped and c
  assert.deepEqual(await view.renderPdfSelectionImages([{path:'Notes/Guide.pdf',page:2}]),[{path:'Notes/Guide.pdf',page:2,url:'data:cached'}]);
  assert.equal([...view.pdfSelectionImageCache.keys()].at(-1),key,'a hit becomes most recent');
 });
+
+test('a confirmed export refuses an output path that was taken after the card was confirmed, and leaves that file intact',async()=>{
+ reset();printed=[];
+ const app=makeApp(),view=makeView(makeButler(app));
+ const options={pageSize:'A4',landscape:false,margin:'minimal',downscalePercent:100,includeName:false,open:false};
+ writeFileSync(join(vault,'Notes/Taken.pdf'),'%PDF-user');
+ try{
+  await assert.rejects(view.exportPdf(app.vault.getFileByPath('Notes/Long.md'),'Notes/Taken.pdf',options),/A file now exists at Notes\/Taken\.pdf/);
+  assert.equal(printed.length,0,'nothing was printed');
+  assert.equal(readFileSync(join(vault,'Notes/Taken.pdf'),'utf8'),'%PDF-user','the existing file is untouched');
+  assert.equal(app.vault.getAbstractFileByPath('Notes/Long (OWLA PDF export).md'),null,'no copy was created');
+ }finally{rmSync(join(vault,'Notes/Taken.pdf'),{force:true});}
+});
+
+test('an export records its copy while it exists and forgets it once deleted; a crashed copy is swept on the next load',async()=>{
+ reset();printed=[];
+ const {loadExportCopies,recordExportCopy}=await import('../src/export-copies');
+ const app=makeApp(),butler=makeButler(app),view=makeView(butler);
+ const previous=obsidian.loadPdfJs;
+ obsidian.loadPdfJs=fakePdfJs(['Report\nText']);
+ const options={pageSize:'A4',landscape:false,margin:'minimal',downscalePercent:100,includeName:false,open:false};
+ let duringPrint:any[]=[];
+ const create=app.vault.create;
+ app.vault.create=async(p:string,text:string)=>{const f=await create(p,text);duringPrint=loadExportCopies(butler.vaultStorage());return f;};
+ try{
+  await view.exportPdf(app.vault.getFileByPath('Notes/Report.md'),'Notes/Report 1.pdf',options);
+  assert.deepEqual(duringPrint.map((entry:any)=>entry.path),['Notes/Report (OWLA PDF export).md'],'recorded while the copy exists');
+  assert.deepEqual(loadExportCopies(butler.vaultStorage()),[],'forgotten once deleted');
+ }finally{obsidian.loadPdfJs=previous;rmSync(join(vault,'Notes/Report 1.pdf'),{force:true});}
+ // A crash left a copy behind, plus a note the user edited after a crash.
+ await create('Notes/Report (OWLA PDF export).md','left by a crash');
+ await create('Notes/Long (OWLA PDF export).md','edited by the user');
+ recordExportCopy(butler.vaultStorage(),'Notes/Report (OWLA PDF export).md','left by a crash');
+ recordExportCopy(butler.vaultStorage(),'Notes/Long (OWLA PDF export).md','the copy OWLA wrote');
+ await butler.sweepExportCopies();
+ assert.equal(app.vault.getAbstractFileByPath('Notes/Report (OWLA PDF export).md'),null,'the unchanged copy is removed');
+ assert.ok(app.vault.getAbstractFileByPath('Notes/Long (OWLA PDF export).md'),'the edited note is kept');
+ assert.deepEqual(loadExportCopies(butler.vaultStorage()),[]);
+ await app.vault.delete(app.vault.getAbstractFileByPath('Notes/Long (OWLA PDF export).md'));
+});
+
+test('PDF selection in a popout window: the selection of the PDF leaf\'s own window is read, with a nodeType (not instanceof) page lookup',()=>{
+ const app=makeApp(),butler=makeButler(app);
+ // A popout has its own window, document and Element class: nothing here is an instance of this realm's Element.
+ const page:any={nodeType:1,dataset:{pageNumber:'3'},closest:(selector:string)=>selector.includes('.page')?page:null};
+ const textNode:any={nodeType:3,parentElement:page};
+ const popoutSelection:any={rangeCount:1,anchorNode:textNode,toString:()=>'popout text',getRangeAt:()=>({intersectsNode:()=>false})};
+ const mainSelection:any={rangeCount:0,anchorNode:null,toString:()=>''};
+ const containerEl:any={ownerDocument:{defaultView:{getSelection:()=>popoutSelection}},contains:(node:any)=>node===textNode,querySelectorAll:()=>[]};
+ const leaf:any={view:{containerEl,getState:()=>({file:'Notes/Doc.pdf'})}};
+ app.workspace.getLeavesOfType=(type:string)=>type==='pdf'?[leaf]:[];
+ const previous=(globalThis as any).window.getSelection;
+ (globalThis as any).window.getSelection=()=>mainSelection;
+ try{
+  butler.allowedPdf=(path:string)=>path==='Notes/Doc.pdf';
+  assert.deepEqual(butler.pdfSelectionTarget(),{path:'Notes/Doc.pdf',pages:[3],text:'popout text'});
+  butler.allowedPdf=()=>false;
+  assert.equal(butler.pdfSelectionTarget(),null,'an excluded PDF is still refused');
+ }finally{(globalThis as any).window.getSelection=previous;}
+});

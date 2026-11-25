@@ -11,6 +11,11 @@ import type {ChildProcessWithoutNullStreams} from 'node:child_process';
 import {findCliExecutable,runCli,sanitizedEnv,shimInterpreterTrusted,spawnCli,terminateProcessTree,trustedComSpecPath,windowsSystemDirectory} from '../src/cli';
 
 const CRLF=String.fromCharCode(13,10);
+/** Names the failing step and the interpreter variables, so a rare load-only failure is diagnosable. */
+async function step<T>(name:string,run:()=>Promise<T>):Promise<T>{
+ try{return await run();}
+ catch(error){throw Error(name+': '+(error instanceof Error?error.message:String(error))+' (ComSpec='+JSON.stringify(process.env.ComSpec)+', SystemRoot='+JSON.stringify(process.env.SystemRoot)+')');}
+}
 function echoShim(root:string){
  const script=join(root,'echo.mjs');
  writeFileSync(script,'process.stdout.write(JSON.stringify(process.argv.slice(2)));');
@@ -104,10 +109,10 @@ test('a hijacked ComSpec refuses the shim end-to-end; unset or empty is pinned',
   assert.throws(()=>spawnCli(shim,['x']),/ComSpec/);
   await assert.rejects(runCli(shim,['x'],{timeout:5000,maxBuffer:1000}),/ComSpec/);
   delete process.env.ComSpec;
-  assert.deepEqual(JSON.parse(await runCli(shim,['pinned'],{timeout:10000,maxBuffer:10000})),['pinned']);
+  assert.deepEqual(JSON.parse(await step('unset ComSpec',()=>runCli(shim,['pinned'],{timeout:10000,maxBuffer:10000}))),['pinned']);
   assert.equal(process.env.comspec,undefined,'the pin is restored after the spawn');
   process.env.ComSpec='';
-  assert.deepEqual(JSON.parse(await runCli(shim,['empty'],{timeout:10000,maxBuffer:10000})),['empty']);
+  assert.deepEqual(JSON.parse(await step('empty ComSpec',()=>runCli(shim,['empty'],{timeout:10000,maxBuffer:10000}))),['empty']);
  }finally{
   if(saved===undefined)delete process.env.ComSpec;else process.env.ComSpec=saved;
   rmSync(root,{recursive:true,force:true});

@@ -4,6 +4,7 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,renameSync,rmSyn
 import {join} from 'node:path';
 import {allowedPath,foldPath} from './core';
 import {record} from './validation';
+import {retryLocked} from './fs-retry';
 
 export type PathMove={from:string;to:string};
 export type OrganizationReview={
@@ -114,9 +115,10 @@ export class Organization {
   const temporary=this.file()+'.'+randomUUID()+'.tmp';
   try{
    writeFileSync(temporary,data,{mode:0o600,flag:'wx'});
-   renameSync(temporary,this.file());
+   // A transient Defender/OneDrive lock must not abort (and roll back) a whole batch.
+   retryLocked(()=>renameSync(temporary,this.file()));
    this.journal=next;
-  }finally{rmSync(temporary,{force:true});}
+  }finally{try{retryLocked(()=>rmSync(temporary,{force:true}));}catch{/* A locked temp file is harmless; the next save uses a new name. */}}
  }
 
  list(folder:string,offset:number){

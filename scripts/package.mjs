@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { basename, dirname, join, resolve } from 'node:path';
+import { zipSync } from 'fflate';
 import { createHash } from 'node:crypto';
 
 const root = resolve(import.meta.dirname, '..');
@@ -42,6 +42,7 @@ try {
     /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
     /\b(?:sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{16}|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{12,}|AIza[0-9A-Za-z_-]{30,})\b/,
     /\/Users\/[^/\s"`<>]+/,
+    /\b[A-Za-z]:\\{1,2}Users\\{1,2}[^\\\s"`<>]+/,
   ];
   for (const relative of entries) {
     const body = readFileSync(join(staging, relative), 'utf8');
@@ -49,11 +50,16 @@ try {
   }
   mkdirSync(dirname(output), { recursive: true });
   rmSync(output, { force: true });
-  execFileSync('zip', ['-X', '-q', output, ...entries], { cwd: staging });
+  // fflate instead of the zip CLI: the same archive on every host, Windows included.
+  // A fixed timestamp keeps it reproducible; entries keep their sorted order.
+  const mtime = new Date('2000-01-01T00:00:00Z');
+  writeFileSync(output, zipSync(Object.fromEntries(entries.map(relative => [relative, [readFileSync(join(staging, relative)), { level: 9, mtime }]]))));
   const sha256 = createHash('sha256').update(readFileSync(output)).digest('hex');
-  writeFileSync(`${output}.sha256`, `${sha256}  ${output.split('/').at(-1)}\n`);
+  // basename, not split('/'): on Windows the output path uses backslashes.
+  const name = basename(output);
+  writeFileSync(`${output}.sha256`, `${sha256}  ${name}\n`);
   const sums = ['main.js', 'manifest.json', 'styles.css'].map(name => createHash('sha256').update(readFileSync(join(root, name))).digest('hex') + '  ' + name);
-  sums.push(sha256 + '  ' + output.split('/').at(-1));
+  sums.push(sha256 + '  ' + name);
   writeFileSync(join(dirname(output), `owla-butler-${manifest.version}-SHA256SUMS.txt`), sums.join('\n') + '\n');
   console.log(JSON.stringify({ output, sha256, files: entries.length, bytes: statSync(output).size }));
 } finally { rmSync(staging, { recursive: true, force: true }); }
