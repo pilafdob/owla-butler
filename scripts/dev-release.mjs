@@ -22,7 +22,9 @@ import { releaseSection } from './release-notes.mjs';
 
 /** Commits on the branch's first-parent line after this one are checked (earlier history predates the rule). */
 // Moved to the merge of main after OWLA-RC was retired; earlier merges came from OWLA-RC.
-export const RULES_BASELINE = '848371b63b4176174a842097432eab18db29b03e';
+// Then moved to 6ef40d8, the merge of pull request #19: it changed only workflow files
+// (allowed as a direct commit), but as a pull-request merge it failed the main-only merge rule.
+export const RULES_BASELINE = '6ef40d81928a7569e0249da7026230459d27c7ae';
 /** Paths a direct commit on Developer-Prerelease may touch: dev flags, release tooling, docs. */
 export const DEV_ONLY = [
   /^src\/dev-[^/]+\.ts$/,
