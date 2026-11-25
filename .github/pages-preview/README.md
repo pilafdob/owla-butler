@@ -1,0 +1,1 @@
+Screenshots of `site/` for the pull request that adds it (desktop at 1440 px, phone at 360 px, light and dark), taken with Playwright and Chromium on Linux. They are not deployed and can be deleted after review.

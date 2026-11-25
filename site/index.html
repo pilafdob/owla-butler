@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OWLA Butler: AI assistant sidebar for Obsidian</title>
+<meta name="description" content="An Obsidian sidebar assistant that runs on the Codex, OpenCode, Claude Code or Hermes Agent CLI you already have. Every edit is staged with a diff for Accept or Decline. Free, MIT licensed, no OWLA account.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#6d4ed8">
+<link rel="canonical" href="https://pilafdob.github.io/owla-butler/">
+<link rel="icon" href="media/bird.svg" type="image/svg+xml">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OWLA Butler">
+<meta property="og:title" content="OWLA Butler: AI assistant sidebar for Obsidian">
+<meta property="og:description" content="Runs on the Codex, OpenCode, Claude Code or Hermes Agent CLI you already have. Review every edit before it lands.">
+<meta property="og:url" content="https://pilafdob.github.io/owla-butler/">
+<meta property="og:image" content="https://pilafdob.github.io/owla-butler/media/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="OWLA Butler in Obsidian: a proposed note edit highlighted in the editor, with Accept and Decline in the sidebar chat">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="OWLA Butler: AI assistant sidebar for Obsidian">
+<meta name="twitter:description" content="Runs on the Codex, OpenCode, Claude Code or Hermes Agent CLI you already have. Review every edit before it lands.">
+<meta name="twitter:image" content="https://pilafdob.github.io/owla-butler/media/og-image.png">
+<meta name="twitter:image:alt" content="OWLA Butler in Obsidian: a proposed note edit highlighted in the editor, with Accept and Decline in the sidebar chat">
+
+<link rel="stylesheet" href="styles.css">
+<script>
+  // Apply a saved theme before first paint. Storage may be unavailable; the page works without it.
+  try { var t = localStorage.getItem('owla-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<script src="main.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="bird" viewBox="0 0 256 256"><path fill="currentColor" d="M176,68a12,12,0,1,1-12-12A12,12,0,0,1,176,68Zm64,12a8,8,0,0,1-3.56,6.66L216,100.28V120A104.11,104.11,0,0,1,112,224H24a16,16,0,0,1-12.49-26l.1-.12L96,96.63V76.89C96,43.47,122.79,16.16,155.71,16H156a60,60,0,0,1,57.21,41.86l23.23,15.48A8,8,0,0,1,240,80Zm-22.42,0L201.9,69.54a8,8,0,0,1-3.31-4.64A44,44,0,0,0,156,32h-.22C131.64,32.12,112,52.25,112,76.89V99.52a8,8,0,0,1-1.85,5.13L24,208h26.9l70.94-85.12a8,8,0,1,1,12.29,10.24L71.75,208H112a88.1,88.1,0,0,0,88-88V96a8,8,0,0,1,3.56-6.66Z"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="#top" aria-label="OWLA Butler, back to top">
+      <span class="brand-mark"><svg width="22" height="22" aria-hidden="true"><use href="#bird"/></svg></span>
+      <span>OWLA Butler</span>
+    </a>
+    <nav aria-label="Sections" class="nav">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <button class="theme-toggle" type="button" aria-label="Switch colour theme" title="Switch colour theme">
+      <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- 1. Hero -->
+<section class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">Obsidian plugin · desktop · macOS and Windows</p>
+      <h1>An AI assistant in your Obsidian sidebar that asks before it writes.</h1>
+      <p class="lede">OWLA Butler runs on the <strong>Codex</strong>, <strong>OpenCode</strong>, <strong>Claude Code</strong> or <strong>Hermes Agent</strong> CLI you already have signed in. No extra API key, no OWLA account. Every edit it proposes is staged with a diff and waits for your <strong>Accept</strong> or <strong>Decline</strong>.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://obsidian.md/plugins?id=owla-butler">Install from Obsidian Community plugins</a>
+        <a class="btn btn-ghost" href="https://github.com/pilafdob/owla-butler/releases/latest">Download from GitHub</a>
+      </div>
+      <p class="fine">Free and MIT licensed. Needs desktop Obsidian 1.14.5+ and one of the four CLIs; your provider's usage may cost money.</p>
+    </div>
+    <figure class="hero-media">
+      <div class="frame">
+        <video class="demo" muted loop playsinline preload="metadata" poster="media/demo-poster.png" width="960" height="640"
+               aria-label="Demo, 23 seconds, no sound: the user asks OWLA to change the open note, the proposed change is highlighted in the note, the user clicks Accept and the note keeps the new text.">
+          <source src="media/demo.mp4" type="video/mp4">
+        </video>
+        <button class="play-toggle" type="button" aria-pressed="false">Play demo</button>
+      </div>
+      <figcaption>Ask for an edit, see it highlighted in the note, Accept. Real capture from a demo vault, 23 s.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 2. What it does -->
+<section id="features" class="section">
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="section-lede">Real screenshots from a demo vault on Windows. Nothing here is a mock-up.</p>
+
+    <div class="feature">
+      <div class="feature-text">
+        <h3>Chat with the note you have open</h3>
+        <p>OWLA reads the note you are looking at, including unsaved text and your selection, plus a short summary of its properties, outline and links. Name another note or use <strong>Add note</strong> to bring more in.</p>
+      </div>
+      <img src="media/01-chat.png" width="1200" height="800" loading="lazy" alt="OWLA Butler sidebar answering a question about the open note: it totals the note's budget and checks its open questions against a linked note">
+    </div>
+
+    <div class="feature flip">
+      <div class="feature-text">
+        <h3>Review every edit</h3>
+        <p>Proposed changes are applied provisionally and shown in the editor: removed lines in red, added lines in green. <strong>Accept</strong> keeps them, <strong>Decline</strong> restores the previous snapshot, <strong>View diff</strong> shows the exact Markdown. Moves, renames and deletions go through the same review.</p>
+      </div>
+      <img src="media/02-review.png" width="1200" height="800" loading="lazy" alt="A proposed note edit under review: removed lines highlighted red and added lines green in the editor, with Accept, Decline and View diff in the chat">
+    </div>
+
+    <div class="feature">
+      <div class="feature-text">
+        <h3>Attach images, PDFs and documents</h3>
+        <p>Paste a screenshot, drop files or use <strong>Attach</strong>. Whole PDFs, single PDF pages, Office and OpenDocument files are prepared locally; the assistant reads what it needs.</p>
+      </div>
+      <img src="media/03-attachments.png" width="1200" height="800" loading="lazy" alt="An attached garden sketch image in the OWLA Butler chat, with the answer comparing the sketch to the plan in the open note">
+    </div>
+
+    <div class="feature flip">
+      <div class="feature-text">
+        <h3>Search your vault, with sources</h3>
+        <p>The assistant can search allowed notes and cite exact paths. The search runs locally at the moment you ask; there is no background index and no vault upload.</p>
+      </div>
+      <img src="media/04-vault-search.png" width="1200" height="800" loading="lazy" alt="OWLA Butler answering from other notes in the vault: open tasks from a meeting note and a permit detail from a reference note, each with a link to its source">
+    </div>
+
+    <div class="feature">
+      <div class="feature-text">
+        <h3>Pick your provider</h3>
+        <p>Settings have a tab per provider. Choose a primary provider and an optional fallback for when one reaches its usage limit; OWLA switches back when the limit resets.</p>
+      </div>
+      <img src="media/05-providers.png" width="1200" height="800" loading="lazy" alt="OWLA Butler settings, General tab: tabs for Codex, Claude, OpenCode and Hermes, with the primary and secondary provider pickers and the web search switch">
+    </div>
+  </div>
+</section>
+
+<!-- 3. How it works -->
+<section id="how" class="section alt">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="section-lede">What happens each time you press Send.</p>
+    <ol class="flow">
+      <li><span class="n">1</span><h3>Send</h3><p>You write a message, optionally with attachments.</p></li>
+      <li><span class="n">2</span><h3>Context</h3><p>OWLA collects the open note (with unsaved text and selection), its summary, your attachments and the last exchanges of this chat. Nothing else.</p></li>
+      <li><span class="n">3</span><h3>OWLA tools only</h3><p>The CLI starts in a private working directory. It reads, searches and proposes changes only through OWLA's tools: no shell, no paths outside the vault, no credentials.</p></li>
+      <li><span class="n">4</span><h3>Answer streams</h3><p>Text appears as it is written. Proposed edits are applied provisionally and wait for Accept or Decline.</p></li>
+      <li><span class="n">5</span><h3>Process stops</h3><p>OWLA reads the reported usage limits and stops the process. The chat context is kept for the next message.</p></li>
+    </ol>
+    <div class="diagram" role="img" aria-label="Diagram: your vault and Obsidian connect to OWLA Butler; OWLA Butler exposes only its own tools to the provider CLI; the CLI talks to the provider's cloud service.">
+      <div class="node"><strong>Your vault</strong><span>notes, PDFs, attachments</span></div>
+      <div class="edge"><span>path rules, excluded folders, review</span></div>
+      <div class="node accent"><strong>OWLA Butler</strong><span>inside Obsidian</span></div>
+      <div class="edge"><span>OWLA tools only</span></div>
+      <div class="node"><strong>Provider CLI</strong><span>Codex · OpenCode · Claude Code · Hermes Agent</span></div>
+      <div class="edge"><span>your existing login</span></div>
+      <div class="node"><strong>Provider service</strong><span>model inference (cloud)</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Why -->
+<section id="why" class="section">
+  <div class="wrap">
+    <h2>Why OWLA Butler</h2>
+    <div class="cards">
+      <div class="card"><h3>Uses the AI you already have</h3><p>Reuses your existing Codex, OpenCode, Claude Code or Hermes Agent login, models and plan limits. No separate API key or OWLA subscription.</p></div>
+      <div class="card"><h3>Review before write</h3><p>Edits, moves, renames and deletions are staged for approval, with diffs and recovery snapshots.</p></div>
+      <div class="card"><h3>No index, no upload</h3><p>Notes are read when you send a message. No background index of your vault, no whole-vault upload.</p></div>
+      <div class="card"><h3>Same flow on four providers</h3><p>Switch providers without learning a new interface. The tools, bundled Obsidian skills and review flow stay the same.</p></div>
+    </div>
+
+    <h3 class="sub">How other Obsidian AI plugins describe themselves</h3>
+    <p class="muted">Different plugins make different trade-offs, and some of them also work on mobile. Below are short quotes from each project's own README, checked on 25 November 2026. Check their pages for current details; anything not listed is simply not covered by their README, not a claim that a feature is missing.</p>
+    <div class="compare">
+      <article class="cmp">
+        <h4><a href="https://github.com/logancyang/obsidian-copilot">Copilot for Obsidian</a></h4>
+        <ul>
+          <li>Models: “Bring your own key: Add a cloud, local, or OpenAI-compatible provider”, or a paid hosted plan: “An account and payment are required for paid access.”</li>
+          <li>Existing CLIs: “Claude Code: Connect an existing installation … uses your Claude Code login” and Codex through an adapter.</li>
+          <li>Platforms: “Quick Chat, custom Commands, and Quick Ask remain available on mobile.”</li>
+          <li>Licence: AGPL-3.0.</li>
+        </ul>
+      </article>
+      <article class="cmp">
+        <h4><a href="https://github.com/brianpetro/obsidian-smart-connections">Smart Connections</a></h4>
+        <ul>
+          <li>Focus: semantic search over related notes. “A local embedding model powers semantic search. Zero setup. No API key.”</li>
+          <li>Index: “Embeddings are created locally by default.”</li>
+          <li>Platforms: “Works on mobile devices”.</li>
+          <li>Licence: “Source available core, local-first data.”</li>
+        </ul>
+      </article>
+      <article class="cmp">
+        <h4><a href="https://github.com/nhaouari/obsidian-textgenerator-plugin">Text Generator</a></h4>
+        <ul>
+          <li>Focus: “generate text content using various AI providers, including OpenAI, Anthropic, Google and local models.”</li>
+          <li>Cost: “The Text Generator Plugin is free and open source.”</li>
+          <li>Licence: MIT.</li>
+        </ul>
+      </article>
+      <article class="cmp self">
+        <h4>OWLA Butler</h4>
+        <ul>
+          <li>Models: only through a signed-in Codex, OpenCode, Claude Code or Hermes Agent CLI (Siri AI on macOS 27). No API-key or local-model setup.</li>
+          <li>Index: none; search scans allowed notes locally when asked.</li>
+          <li>Edits: always staged with a diff for Accept or Decline.</li>
+          <li>Platforms: desktop only, macOS and Windows. Licence: MIT.</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- 5. Privacy -->
+<section id="privacy" class="section alt">
+  <div class="wrap">
+    <h2>Privacy and data protection</h2>
+    <div class="callout">
+      <strong>This is a cloud-backed assistant.</strong> When you send a message, your current note snapshot (including unsaved text), selections, images, attachment references and recent chat go to the provider you selected, and are processed under that provider's terms. The assistant can then request allowed note text, document excerpts and PDF pages. Web search is on by default and its queries can include that context; you can turn it off in settings.
+    </div>
+    <div class="two-col">
+      <div>
+        <h3>What OWLA does not do</h3>
+        <ul class="checks">
+          <li>No telemetry or advertising requests. For Codex, OWLA disables analytics, feedback uploads and OpenTelemetry exporters for its own process and checks them before each conversation.</li>
+          <li>No shell and no native file access for the assistant on any provider. It reaches the vault only through OWLA's tools.</li>
+          <li>No background index, no background polling, no whole-vault upload.</li>
+          <li>Does not read or copy your provider credentials, and does not install or update any CLI.</li>
+          <li>Your own CLI plugins, MCP servers, skills and global agent instructions are not loaded into OWLA sessions.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What protects your vault</h3>
+        <ul class="checks">
+          <li>Vault containment: hidden and configuration files, traversal, symlinks escaping the vault and Windows device names such as <code>NUL</code> are refused.</li>
+          <li>Excluded folders you choose are never read, searched or summarised.</li>
+          <li>Every change is proposed for review, never written directly.</li>
+          <li>A private recovery snapshot is stored before each write (up to 20 entries within 5 MB per vault). Decline and Undo check the note still matches before restoring.</li>
+          <li>Saved chats, review records and snapshots live outside the vault, in OWLA's own folder on your computer.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="muted">Details: <a href="https://github.com/pilafdob/owla-butler#privacy-network-access-and-files-outside-the-vault">README, “Privacy, network access and files outside the vault”</a> and <a href="https://github.com/pilafdob/owla-butler/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+  </div>
+</section>
+
+<!-- 6. Numbers -->
+<section id="numbers" class="section">
+  <div class="wrap">
+    <h2>By the numbers</h2>
+    <p class="section-lede">Every figure comes from the source code, the README or a measurement of version 3.8.0. Nothing here measures speed inside Obsidian.</p>
+    <dl class="stats">
+      <div class="stat"><dt>Plugin bundle</dt><dd>1.1 MB</dd><p>main.js is 1,105,391 bytes (384,542 gzipped) plus an 18,698-byte styles.css. Measured with <code>npm run build</code> and <code>wc -c</code>.</p></div>
+      <div class="stat"><dt>Libraries to install</dt><dd>0</dd><p>Four libraries (cross-spawn, diff, fflate, pdf-lib) are bundled into main.js. No npm install, no downloaded models, no local servers. From <code>package.json</code> and the build config.</p></div>
+      <div class="stat"><dt>Idle shutdown</dt><dd>20 s</dd><p>A warm assistant process stops 20 seconds after you stop typing, and after every reply. From <code>src/main.ts</code> and the README.</p></div>
+      <div class="stat"><dt>Local vault search</dt><dd>Top 5</dd><p>Scans allowed notes up to 250 KB, returns up to five paths and excerpts from the top two. From <code>search_vault</code> in <code>src/main.ts</code>.</p></div>
+      <div class="stat"><dt>Chat context</dt><dd>6 exchanges</dd><p>Up to six recent exchanges or 64,000 characters, and the two most recent images. From the README and <code>src/codex.ts</code>.</p></div>
+      <div class="stat"><dt>Automated tests</dt><dd>927</dd><p>Test cases in 103 test files. A Linux run here: 916 pass, 0 fail, 11 skipped (macOS-, Windows- and non-root-only). Measured with <code>npm test</code>.</p></div>
+    </dl>
+  </div>
+</section>
+
+<!-- 7. Install -->
+<section id="install" class="section alt">
+  <div class="wrap">
+    <h2>Requirements and install</h2>
+    <div class="two-col">
+      <div>
+        <h3>You need</h3>
+        <ul class="plain">
+          <li>Desktop Obsidian <strong>1.14.5 or newer</strong> on <strong>macOS or Windows</strong>. Linux and mobile are not supported yet.</li>
+          <li>One provider CLI, installed and signed in: Codex 0.162.1+, OpenCode 2.2+, Claude Code 2.1.322+ or Hermes Agent.</li>
+          <li>An internet connection for answers, sign-in and model discovery.</li>
+        </ul>
+        <h3>Cost</h3>
+        <p>OWLA Butler is free. Your provider may charge for its models or usage, depending on your plan: OpenAI may require a paid plan or credits, OpenCode may serve free models and charge for providers you connect, and Anthropic applies your Claude plan's limits. There is no OWLA subscription.</p>
+      </div>
+      <div>
+        <h3>Install</h3>
+        <ol class="steps">
+          <li>Install a provider CLI and sign in. If it works in your terminal, OWLA can use it.</li>
+          <li>In Obsidian, open <strong>Settings → Community plugins</strong>, search for <strong>OWLA Butler</strong>, install and enable it. Or copy <code>main.js</code>, <code>manifest.json</code> and <code>styles.css</code> from the <a href="https://github.com/pilafdob/owla-butler/releases/latest">latest release</a> into <code>&lt;vault&gt;/.obsidian/plugins/owla-butler/</code>.</li>
+          <li>Open <strong>Settings → OWLA Butler</strong> and choose your provider. For Codex and Hermes, choose <strong>Connect</strong> once per vault.</li>
+          <li>Open the bird icon in the sidebar and send a message.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" class="section">
+  <div class="wrap narrow">
+    <h2>FAQ</h2>
+    <details><summary>Do I need an API key?</summary><p>No. OWLA uses the login of the CLI you already have. It removes <code>ANTHROPIC_API_KEY</code> and similar variables from the Claude Code process so replies always use your Claude login.</p></details>
+    <details><summary>Does it work offline or with local models?</summary><p>No. Answers come from your provider's service, so you need an internet connection. OWLA does not run Ollama or downloaded models. (OpenCode and Hermes Agent can route to the providers you connected in them.)</p></details>
+    <details><summary>Can it change my notes without asking?</summary><p>No. Every note change, move, rename or deletion is proposed and waits for Accept or Decline. Decline restores the snapshot taken before the change.</p></details>
+    <details><summary>Is my whole vault sent to the AI?</summary><p>No. The open note, your attachments and recent chat are sent with each message; the assistant can then ask for other allowed notes through OWLA's tools. Excluded folders are never available.</p></details>
+    <details><summary>Does it run in the background?</summary><p>Only while you type and while a reply is running. The process stops 20 seconds after you stop typing and after every reply. Nothing polls in the background.</p></details>
+    <details><summary>Why not Linux or mobile?</summary><p>Both are not supported yet. The plugin is desktop-only and built for macOS and Windows.</p></details>
+    <details><summary>Where do I report a bug?</summary><p>Open an issue on <a href="https://github.com/pilafdob/owla-butler/issues">GitHub</a>. Remove note content and personal paths before posting logs.</p></details>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div>
+      <a class="brand" href="#top"><span class="brand-mark"><svg width="20" height="20" aria-hidden="true"><use href="#bird"/></svg></span><span>OWLA Butler</span></a>
+      <p class="muted">MIT licence. An independent project, not affiliated with Obsidian, OpenAI, Anthropic, OpenCode or the makers of Hermes Agent. Product names belong to their owners. This site has no cookies, analytics or third-party requests.</p>
+    </div>
+    <nav aria-label="Project links" class="footer-links">
+      <a href="https://github.com/pilafdob/owla-butler">GitHub</a>
+      <a href="https://github.com/pilafdob/owla-butler/releases">Releases</a>
+      <a href="https://github.com/pilafdob/owla-butler/issues">Issues</a>
+      <a href="https://github.com/pilafdob/owla-butler/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/pilafdob/owla-butler/blob/main/LICENSE">Licence</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
