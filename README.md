@@ -227,7 +227,7 @@ To go back to the stable version, install the latest non-pre-release from the sa
 
 ## Development
 
-New features and fixes are developed on the [`OWLA-RC`](https://github.com/pilafdob/owla-butler/tree/OWLA-RC) branch and reach `main` with each release (see [Branches](#branches)).
+New features and fixes are developed on `main`, directly or on short-lived branches merged through pull requests (see [Branches](#branches)).
 
 ```sh
 npm ci
@@ -243,7 +243,7 @@ The generated ZIP includes an `owla-butler/` root, required plugin files, guides
 
 ### Branches
 
-`main` is the stable line. New features and fixes are developed on `OWLA-RC` and reach `main` only through a pull request from `OWLA-RC`; nothing is merged into `OWLA-RC`. See [CONTRIBUTING.md](CONTRIBUTING.md#owla-rc-branch).
+`main` is the development and stable line; releases are tagged on it. Feature branches are merged into `main` through a pull request and then deleted. `Developer-Prerelease` receives merges from `main` and is never merged back. See [CONTRIBUTING.md](CONTRIBUTING.md#branches).
 
 ## Licence and credits
 

@@ -1,6 +1,6 @@
 # OWLA Butler — agent instructions
 
-Follow CONTRIBUTING.md for the toolchain, gates and branch rules (`OWLA-RC` is the development line; nothing merges into it).
+Follow CONTRIBUTING.md for the toolchain, gates and branch rules (`main` is the development line; feature branches merge into it by pull request; nothing merges out of `Developer-Prerelease`).
 
 ## Cloud sessions are for writing code, not for release verification
 
