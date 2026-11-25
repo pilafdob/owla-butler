@@ -12,11 +12,12 @@ Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Report s
 
 See COMMUNITY-RELEASE.md for release and submission steps. Do not publish an untested build or claim Community approval before it is granted.
 
-## OWLA-RC branch
+## Branches
 
-`OWLA-RC` is where all new features and fixes are developed; `main` is the stable line. Commit new work directly to `OWLA-RC`.
+`main` is both the development line and the stable line. New features and fixes may be committed directly to `main`, or made on a short-lived branch, merged into `main` through a pull request and then deleted. The `Main` branch ruleset requires a pull request for everyone except repository admins, so only admins can commit directly to `main`; everyone else opens a pull request.
 
-- **One-way merges.** `OWLA-RC` is merged **into** `main` through a pull request whose head is `OWLA-RC` and whose base is `main`. Nothing is merged **into** `OWLA-RC`: the `RC branch guard` workflow fails any pull request whose base branch is `OWLA-RC`, and its `Block merges into OWLA-RC` check is a required status check in the `OWLA-RC` branch ruleset.
-- **Version numbers are bumped here.** `manifest.json`, `package.json`, `package-lock.json` and `versions.json` carry the next version on `OWLA-RC`, with a matching `CHANGELOG.md` and `RELEASE-NOTES.md` entry, so the merge into `main` is release-ready. `RELEASE-NOTES.md` is the release log: add the new `# OWLA Butler <version>` section at the top. Each GitHub release shows only its own section (`scripts/release-notes.mjs`) plus a link to the full changelog, and `npm run check:release` fails if the section is missing.
-- **CI runs on every push to `OWLA-RC`** as well as on pull requests, with the same gates as `main`.
-- **Stable releases are tagged on `main`** after the merge, with a plain semver tag (no `v` prefix), following COMMUNITY-RELEASE.md.
+- **Feature branches.** Branch from the latest `main`, open a pull request into `main`, and delete the branch once it is merged. CI runs on every pull request with the same gates as `main`.
+- **CI runs on every push to `main`.** A red `main` blocks the next release; fix it before starting other work.
+- **Releases are commits on `main`.** Bump `manifest.json`, `package.json`, `package-lock.json` and `versions.json` to the next version, with a matching `CHANGELOG.md` and `RELEASE-NOTES.md` entry, in the release commit only, right before tagging. COMMUNITY-RELEASE.md requires the default branch manifest version to match the published release files, so a version bump must not sit on `main` ahead of its release. `RELEASE-NOTES.md` is the release log: add the new `# OWLA Butler <version>` section at the top. Each GitHub release shows only its own section (`scripts/release-notes.mjs`) plus a link to the full changelog, and `npm run check:release` fails if the section is missing.
+- **Stable releases are tagged on `main`** with a plain semver tag (no `v` prefix), following COMMUNITY-RELEASE.md, after the local macOS and Windows checks in CLAUDE.md ("Before any release").
+- **Developer-Prerelease is unchanged.** It receives merges from `main` and is never merged anywhere else: the `Dev branch guard` workflow fails any pull request whose head is `Developer-Prerelease`.
