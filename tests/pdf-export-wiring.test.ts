@@ -336,3 +336,12 @@ test('PDF selection in a popout window: the selection of the PDF leaf\'s own win
   assert.equal(butler.pdfSelectionTarget(),null,'an excluded PDF is still refused');
  }finally{(globalThis as any).window.getSelection=previous;}
 });
+
+test('the system prompt does not send the model to propose_page_breaks to prepare an export',()=>{
+ // export_pdf fixes layout in a temporary copy; the tool descriptions say propose_page_breaks is never needed for an export.
+ const source=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
+ const line=source.split('\n').find(text=>text.includes('When the user asks for a PDF of a note, use export_pdf'));
+ assert.ok(line,'export instruction present');
+ assert.doesNotMatch(line,/first with propose_page_breaks/);
+ assert.match(line,/propose_page_breaks only when the user asks for page breaks saved in the note itself/);
+});

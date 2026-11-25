@@ -8,6 +8,30 @@ The 1.0.0 release and initial listing instructions below are historical. The com
 
 The 1.0.0 review’s filesystem/process/vault enumeration/clipboard notices reflect the features documented in the README. The patch removes shell-based discovery and uses the review’s source checks as a lint gate. These checks do not substitute for a new automated review of the published patch.
 
+## 3.8.0 — release status
+
+Prepared on branch `claude/dazzling-allen-4aevos` for a pull request into
+`main`; not merged, tagged or published. The version bump is in that pull
+request, so its merge commit is the release commit and the plain `3.8.0` tag
+goes on it.
+
+Verified so far (details in `TESTING.md`):
+- macOS live release-candidate check on 2026-11-23 (before the export-copy
+  and Private-Cloud-Compute-only changes), including a real Codex turn with
+  the new PDF tools.
+- Windows 11 audit and live check on 2026-11-25 on the final export code, as a
+  non-root user, without a provider or model turn: 925 tests, 924 pass,
+  0 fail, 1 designed skip.
+- Linux release-preparation gates on the release tree (cloud, root; not a
+  release verification).
+
+Required before tagging: the local macOS and Windows runs and live checks in
+CLAUDE.md ("Before any release") on the merged tree, recorded in
+`TESTING.md`; then the tag workflow, the asset hash comparison against a local
+build and `gh attestation verify`, as for 3.7.2. Open review question: whether
+Community review accepts the scoped `Modal.prototype.open` capture used by the
+PDF export.
+
 ## 3.7.2 — release status
 
 3.7.2 is a patch release: Codex calls OWLA's vault tools again. Codex's
