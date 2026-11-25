@@ -9,7 +9,7 @@ class Plugin extends Component{constructor(app,manifest){super();this.app=app;th
 class View extends Component{constructor(leaf){super();this.leaf=leaf;this.app=leaf&&leaf.app;}}
 class ItemView extends View{}
 class Modal extends Base{constructor(app){super();this.app=app;}open(){}close(){}onClose(){}}
-class FuzzySuggestModal extends Modal{setPlaceholder(){}}
+class FuzzySuggestModal extends Modal{setPlaceholder(){}setInstructions(){}}
 class PluginSettingTab extends Base{}
 class TAbstractFile{constructor(path=''){this.path=path;this.name=path.split('/').pop();}}
 class TFile extends TAbstractFile{constructor(path=''){super(path);const n=this.name;const i=n.lastIndexOf('.');this.extension=i<0?'':n.slice(i+1);this.basename=i<0?n:n.slice(0,i);}}

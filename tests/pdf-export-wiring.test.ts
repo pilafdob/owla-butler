@@ -60,7 +60,7 @@ function makeApp(options:{exporter?:boolean}={}){
  const fileMap=new Map<string,any>(files.map(f=>[f.path,f]));
  const adapter=new obsidian.FileSystemAdapter(vault);
  Object.assign(adapter,{
-  exists:async(p:string)=>existsSync(join(vault,p)),getFullPath:(p:string)=>join(vault,p),
+  exists:async(p:string)=>existsSync(join(vault,p)),remove:async(p:string)=>rmSync(join(vault,p)),getFullPath:(p:string)=>join(vault,p),
   readBinary:async(p:string)=>{const b=readFileSync(join(vault,p));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);},
  });
  const app:any={
@@ -68,14 +68,20 @@ function makeApp(options:{exporter?:boolean}={}){
    getFileByPath:(p:string)=>fileMap.get(p)??null,getAbstractFileByPath:(p:string)=>fileMap.get(p)??null,
    getFolderByPath:(p:string)=>['Notes','Private'].includes(p)?new obsidian.TFolder(p):null,
    cachedRead:async(f:any)=>raw[f.path],read:async(f:any)=>raw[f.path],
+   // The temporary export copy is written, rewritten between rounds and deleted through these.
+   create:async(p:string,text:string)=>{if(fileMap.has(p))throw Error('exists');raw[p]=text;writeFileSync(join(vault,p),text);const f=new obsidian.TFile(p);f.stat={size:text.length,mtime:1};files.push(f);fileMap.set(p,f);app.created.push(p);return f;},
+   modify:async(f:any,text:string)=>{raw[f.path]=text;writeFileSync(join(vault,f.path),text);},
+   delete:async(f:any)=>{delete raw[f.path];rmSync(join(vault,f.path),{force:true});fileMap.delete(f.path);files.splice(files.indexOf(f),1);},
+   readBinary:async(f:any)=>{const b=readFileSync(join(vault,f.path));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);},
    process:async(f:any,fn:(text:string)=>string)=>{raw[f.path]=fn(raw[f.path]);return raw[f.path];},
    getConfig:(key:string)=>key==='pdfExportSettings'?{pageSize:'A4',margin:'2',downscalePercent:100,includeName:false}:undefined,
    on:()=>({}),offref:()=>{}},
   metadataCache:{resolvedLinks:{},unresolvedLinks:{},getFileCache:()=>null,getFirstLinkpathDest:()=>null},
+  created:[] as string[],
   commands:{findCommand:(id:string)=>id==='workspace:export-pdf'?{id}:null,executeCommandById:(id:string)=>{app.dialogOpened=id;return true;}},
  };
  // Obsidian's print modal: its printToPdf writes the PDF the main process would write.
- class PrintModal extends obsidian.Modal{file:any;constructor(a:any,file:any){super(a);this.file=file;}async printToPdf(opts:any){printed.push(opts);writeFileSync(opts.filepath,'%PDF-fake');}}
+ class PrintModal extends obsidian.Modal{file:any;constructor(a:any,file:any){super(a);this.file=file;}async printToPdf(opts:any){printed.push({...opts,source:this.file.path,text:raw[this.file.path]});if(existsSync(opts.filepath))throw Error('Obsidian would overwrite');writeFileSync(opts.filepath,'%PDF-fake');}}
  const leaves:any[]=[];
  const viewFor=(file:any)=>{
   const leaf:any={detached:false,detach(){leaf.detached=true;},async openFile(f:any){leaf.view=viewFor(f).view;}};
@@ -131,11 +137,14 @@ test('export_pdf reports the estimate and stages a card without writing anything
  const result=await view.tool('export_pdf',{path:'Notes/Long.md',reason:'print'},log,new Map());
  assert.match(result,/ready for the user to confirm in chat/);
  assert.match(result,/Output: Notes\/Long\.pdf \(A4, margin minimal, 100%\)/,'defaults come from the saved export settings');
- assert.match(result,/Heading "Stranded" is at the bottom of page/);
- assert.match(result,/Fix: page break before heading "Stranded"/);
+ assert.match(result,/OWLA prints a temporary copy; the note itself is not changed/);
+ assert.match(result,/Planned fixes in the copy: added 1 page break/,'the stranded heading is fixed in the copy, not with propose_page_breaks');
+ assert.doesNotMatch(result,/call propose_page_breaks/);
+ await assert.rejects(view.tool('export_pdf',{path:'Notes/Long.md',breaksBefore:['Nope'],reason:'print'},log,new Map()),/No heading "Nope"/);
  assert.ok(log.find('Export PDF…'),'the card offers the export');
  assert.equal(printed.length,0,'nothing was exported');
  assert.ok(!existsSync(join(vault,'Notes/Long.pdf')));
+ assert.equal(raw['Notes/Long.md'],initial['Notes/Long.md'],'the note is untouched');
 });
 
 test('export_pdf refuses excluded notes and excluded or hidden output paths, and never overwrites',async()=>{
@@ -168,36 +177,78 @@ test('propose_page_breaks stages only markers, keeps CRLF and reverts byte-exact
  assert.match(again,/cancel out|Nothing was staged|removed 1/);
 });
 
-test('a confirmed export uses Obsidian\'s exporter, reads the PDF back and queues the findings',async()=>{
+test('a confirmed export prints a temporary copy with the fixes, deletes it and never touches the note',async()=>{
  reset();printed=[];
  const app=makeApp(),view=makeView(makeButler(app));
  const previous=obsidian.loadPdfJs;
  obsidian.loadPdfJs=fakePdfJs(['Long\nParagraph 0\nStranded','Tail text.']);
  try{
-  const options={pageSize:'A4',landscape:false,margin:'default',downscalePercent:100,includeName:false,open:false};
+  const options={pageSize:'A4',landscape:false,margin:'minimal',downscalePercent:100,includeName:false,open:false};
   const file=app.vault.getFileByPath('Notes/Long.md');
   const status=await view.exportPdf(file,'Notes/Long.pdf',options);
-  assert.equal(printed.length,1,'Obsidian\'s own printToPdf ran once');
+  assert.equal(printed.length,1,'printed once: the read-back finds nothing more the copy can fix');
   assert.equal(printed[0].filepath,join(vault,'Notes/Long.pdf'));
   assert.equal(printed[0].pageSize,'A4');
+  assert.equal(printed[0].source,'Notes/Long (OWLA PDF export).md','Obsidian printed the copy, not the note');
+  assert.ok(printed[0].text.includes(OWLA_PAGE_BREAK+'\n\n## Stranded'),'the copy carries the page break');
+  assert.equal(raw['Notes/Long.md'],initial['Notes/Long.md'],'the note is untouched');
+  assert.equal(app.vault.getAbstractFileByPath('Notes/Long (OWLA PDF export).md'),null,'the copy is deleted');
+  assert.ok(!existsSync(join(vault,'Notes/Long (OWLA PDF export).md')));
   assert.ok(app.tempLeaf.detached,'the temporary tab is closed');
   assert.equal(obsidian.Modal.prototype.open.toString().includes('captured'),false,'Modal.prototype.open is restored');
-  assert.match(status,/Saved Notes\/Long\.pdf\. 1 layout problem found/);
+  assert.match(status,/Saved Notes\/Long\.pdf\. Layout fixed in a temporary copy \(added 1 page break.*your note was not changed\. 1 layout problem remain/);
   const finding=view.pdfExportFindings.get('Notes/Long.md');
+  assert.match(finding,/from a temporary copy; the note itself was not changed/);
   assert.match(finding,/"Stranded" ends page 1/);
-  assert.match(finding,/Fix round 1 of 2: stage page breaks with propose_page_breaks \(headings: "Stranded"\)/);
+  assert.match(finding,/Do not add page breaks to the note unless the user asks/);
  }finally{obsidian.loadPdfJs=previous;}
 });
 
-test('without the internal exporter the export falls back to Obsidian\'s dialog',async()=>{
+test('a heading the read-back finds stranded gets a break in the copy and the copy is printed again',async()=>{
+ reset();printed=[];
+ const app=makeApp(),view=makeView(makeButler(app));
+ const previous=obsidian.loadPdfJs;
+ obsidian.loadPdfJs=fakePdfJs(['Report\nIntro text.\nMethod\nSteps.\nResults','Numbers.']);
+ try{
+  const options={pageSize:'A4',landscape:false,margin:'default',downscalePercent:100,includeName:false,open:false};
+  const status=await view.exportPdf(app.vault.getFileByPath('Notes/Report.md'),'Notes/Report 1.pdf',options);
+  assert.equal(printed.length,2,'a second print after the read-back');
+  assert.ok(!printed[0].text.includes('owla-page-break'),'the estimate saw nothing to fix');
+  assert.ok(printed[1].text.includes(OWLA_PAGE_BREAK+'\n\n## Results'),'the second print has the break before the stranded heading');
+  assert.ok(existsSync(join(vault,'Notes/Report 1.pdf')),'the final PDF exists');
+  assert.equal(raw['Notes/Report.md'],initial['Notes/Report.md'],'the note keeps its exact bytes');
+  assert.match(status,/added 1 more page break and printed again \(1 round\)/);
+  assert.deepEqual(app.created,['Notes/Report (OWLA PDF export).md']);
+  assert.equal(app.vault.getAbstractFileByPath('Notes/Report (OWLA PDF export).md'),null);
+ }finally{obsidian.loadPdfJs=previous;rmSync(join(vault,'Notes/Report 1.pdf'),{force:true});}
+});
+
+test('with the file-name title the copy prints the title itself, once',async()=>{
+ reset();printed=[];
+ const app=makeApp(),view=makeView(makeButler(app));
+ const previous=obsidian.loadPdfJs;
+ obsidian.loadPdfJs=fakePdfJs(['Report\nIntro text.']);
+ try{
+  const options={pageSize:'A4',landscape:false,margin:'default',downscalePercent:100,includeName:true,open:false};
+  await view.exportPdf(app.vault.getFileByPath('Notes/Report.md'),'Notes/Report 1.pdf',options);
+  assert.equal(printed[0].includeName,false,'the copy\'s file name is never printed as the title');
+  assert.ok(printed[0].text.startsWith('# Report\n'),'the note\'s own "# Report" serves as the title');
+  assert.ok(!printed[0].text.startsWith('# Report\n\n# Report'),'and is not repeated');
+ }finally{obsidian.loadPdfJs=previous;rmSync(join(vault,'Notes/Report 1.pdf'),{force:true});}
+});
+
+test('without the internal exporter the copy is dropped and Obsidian\'s dialog exports the note itself',async()=>{
  reset();printed=[];
  const app=makeApp({exporter:false}),view=makeView(makeButler(app));
  const options={pageSize:'A4',landscape:false,margin:'default',downscalePercent:100,includeName:false,open:false};
  const status=await view.exportPdf(app.vault.getFileByPath('Notes/Report.md'),'Notes/Report 1.pdf',options);
  assert.equal(app.dialogOpened,'workspace:export-pdf');
  assert.equal(app.activeLeaf,app.tempLeaf,'the note is shown for the dialog');
+ assert.equal(app.activeLeaf.view.file.path,'Notes/Report.md','the dialog exports the note, not the copy');
  assert.equal(app.tempLeaf.detached,false,'the tab stays open while the dialog is up');
  assert.match(status,/Opened Obsidian’s Export to PDF dialog/);
+ assert.match(status,/automatic layout fixes need Obsidian’s internal exporter/);
+ assert.equal(app.vault.getAbstractFileByPath('Notes/Report (OWLA PDF export).md'),null,'the copy is deleted');
  assert.equal(printed.length,0);
 });
 

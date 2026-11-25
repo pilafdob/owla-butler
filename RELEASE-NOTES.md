@@ -2,7 +2,7 @@
 
 # OWLA Butler 3.8.0
 
-- **Export notes to PDF:** OWLA exports a note with Obsidian's own Export to PDF after you confirm it in chat. It checks the print layout first, can fix a heading stranded at the bottom of a page with a page break you review, and reads the PDF back to confirm the fix. Desktop only.
+- **Export notes to PDF:** OWLA exports a note with Obsidian's own Export to PDF after you confirm it in chat. It prints a temporary copy of the note with the layout fixed (images sized to the page, the title printed once, page breaks before stranded headings), reads the PDF back and fixes what it finds, and deletes the copy; your note is not changed. Desktop only.
 - **Add highlighted PDF text:** select text in a PDF and choose **Add selection to OWLA**. The page is attached as an image in the background, so models that read images can correct badly extracted text.
 - **More context about your note:** OWLA now sees the active note's properties, outline, links and backlinks.
 - **Edit headings and properties through review:** rename, promote, demote, move or insert headings, and rename properties. Comments, order and value types are kept, and every change can be declined.
@@ -12,7 +12,7 @@
 - **Provider order:** choose a primary, secondary, third provider and more in General. When one reaches its usage limit, OWLA moves to the next and returns as soon as the limit resets.
 - **One Automatic switch:** **Automatic model and reasoning effort** (Automatic tab) now chooses the provider too. While it is on, the provider order is not used.
 - **Faster drawing and canvas reads:** a repeated look at an unchanged canvas or drawing reuses its picture instead of rendering it again.
-- **Siri AI (macOS 27):** a new provider for Apple Foundation Models on Private Cloud Compute, with the on-device model as backup. It can also be the global fallback when every other provider is out of usage. Siri AI reads text only and does not search the web. Inside Obsidian Apple allows only the on-device model, which is slower and less precise with edits than the other providers.
+- **Siri AI (macOS 27):** a new provider for Apple Foundation Models on Private Cloud Compute. Chat always uses Private Cloud Compute; the on-device model's context window is too small for day-to-day work. It can also be the global fallback when every other provider is out of usage. Siri AI reads text only and does not search the web. Where Apple refuses Private Cloud Compute to Obsidian, Siri AI does not connect.
 
 Update through Obsidian Community plugins or replace `main.js`, `manifest.json` and `styles.css` together. Keep `data.json` when updating manually.
 
