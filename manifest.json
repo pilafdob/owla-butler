@@ -1,7 +1,7 @@
 {
   "id": "owla-butler",
   "name": "OWLA Butler",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "minAppVersion": "1.14.5",
   "description": "Chat with an AI assistant in your sidebar using Codex, OpenCode, Claude Code or Hermes Agent: ask about your open note, attach images and PDFs, search your vault and the web, and review every edit.",
   "author": "Filip (@pilafdob)",

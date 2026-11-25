@@ -27,6 +27,11 @@ export default [
       '@typescript-eslint/no-require-imports': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/no-unused-vars': 'error',
+      // Also reported by the Community review of 3.8.0.
+      '@typescript-eslint/unbound-method': 'error',
+      '@typescript-eslint/only-throw-error': 'error',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+      '@typescript-eslint/no-this-alias': 'error',
       'obsidianmd/ui/sentence-case': ['warn', {
         brands: ['OWLA', 'OWLA Butler', 'Codex', 'ChatGPT', 'OpenAI', 'OpenCode', 'Claude', 'Claude Code', 'Hermes', 'Hermes Agent', 'Obsidian', 'Markdown', 'LaTeX', 'MathJax'],
         acronyms: ['PDF', 'PDFs', 'OCR', 'YAML', 'API', 'MB', 'PNG', 'JPEG', 'WebP']

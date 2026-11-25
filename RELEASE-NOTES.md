@@ -1,5 +1,13 @@
 <!-- Release log: one "# OWLA Butler <version>" section per release, newest first. Each GitHub release shows only its own section (scripts/release-notes.mjs), followed by a link to CHANGELOG.md. Add the new version's section at the top. -->
 
+# OWLA Butler 3.8.1
+
+A patch release for the Obsidian Community review of 3.8.0. Nothing changes in how OWLA works for you.
+
+- **Temporary PDF export copies** are removed through Obsidian's file adapter instead of `Vault.delete`. They are still removed outright rather than moved to the trash, so an export leaves no trashed copy behind.
+- **Code clean-up flagged by the review:** an unbound method, a thrown value that was not an error, unnecessary type assertions and an aliased `this`. The checks for these now run in the project's own lint.
+- **Canvas picture capture** no longer needs `!important` in `styles.css`.
+
 # OWLA Butler 3.8.0
 
 - **Export notes to PDF:** OWLA exports a note with Obsidian's own Export to PDF after you confirm it in chat. It prints a temporary copy of the note with the layout fixed (images sized to the page, the title printed once, page breaks before stranded headings), reads the PDF back and fixes what it finds, and deletes the copy; your note is not changed. Desktop only.

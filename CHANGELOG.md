@@ -4,6 +4,15 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.1-dev
+
+The stable OWLA Butler 3.8.1 patch release from `main` (tag `3.8.1`), with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.0-dev.6`, all from `main`:
+
+- **Community review fixes:** temporary PDF export copies are removed through Obsidian's file adapter instead of `Vault.delete`. They are still removed outright, not trashed. This fixes the review error on disabled `obsidianmd/prefer-file-manager-trash-file` rules.
+- **Code clean-up from the review:** an unbound method, a non-error rethrow, unnecessary type assertions, an aliased `this`, and `!important` in the canvas capture CSS. The lint now enforces these rules.
+
+Plugin code is identical to 3.8.1 apart from the dev features. The checks are recorded in `TESTING.md`.
+
 ### 3.8.0-dev.6
 
 The stable OWLA Butler 3.8.0 release build from `main` (tag `3.8.0`), with the Developer-Prerelease dev features (Developer mode and its diagnostics) added on top. Changes since `3.8.0-dev.5`, all from `main`:
@@ -54,6 +63,16 @@ Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
 - **One Automatic switch:** the Automatic provider and **Automatic model and reasoning effort** are merged into one switch on the Automatic tab; the provider order is greyed out while it is on.
 - **Siri AI (macOS 27):** new provider for Apple Foundation Models through `fm`, optionally the global fallback once every other provider is out of usage. Tested: the on-device model answers and calls OWLA's vault tools. Not yet tested: Private Cloud Compute from inside Obsidian (Apple refused it outside Terminal during testing), its quota report and its context size. If Private Cloud Compute is refused, OWLA uses the on-device model and shows Apple's reason in the Siri AI tab.
 - **Developer mode diagnostics** list Siri AI with the other providers.
+
+## 3.8.1
+
+A patch release that fixes the Obsidian Community review of 3.8.0, which failed on its source code check. No user-visible behaviour changes.
+
+- **Review error fixed:** the three `eslint-disable` comments for `obsidianmd/prefer-file-manager-trash-file` are gone. OWLA's own temporary PDF export copy (after an export, on unload, and in the start-up sweep of crash leftovers) is now removed with `vault.adapter.remove` instead of `Vault.delete`. It is still removed outright, not trashed, so exports leave no trashed copies.
+- **Review warnings fixed:** an unbound `path.join` reference (`src/cli.ts`), a possibly non-`Error` rethrow (`src/codex.ts`), unnecessary type assertions (`src/main.ts`, `src/ocr.ts`, `src/vault-graph.ts`) and an aliased `this` (`src/pdf-export-run.ts`). The lint now runs `unbound-method`, `only-throw-error`, `no-unnecessary-type-assertion` and `no-this-alias` as errors.
+- **CSS:** the canvas picture capture rule no longer uses `!important`; a more specific selector places the wrapper instead.
+- **Regression tests:** no source file may disable an `obsidianmd/` rule, `styles.css` may not use `!important`, and the export tests fail if `Vault.delete` is used for an export copy.
+- **Still reported, unchanged:** the CSS lint warns that `break-inside`/`break-after` in the print-only PDF export rules are partially supported by Obsidian; these are backstop rules and stay. The behaviour notices (filesystem, child processes, vault enumeration, clipboard) describe documented features.
 
 ## 3.8.0
 

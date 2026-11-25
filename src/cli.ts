@@ -28,7 +28,7 @@ export function findCliExecutable(name:string,path:string,directories:string[]=[
  const extensions=platform==='win32'
   ?(extname(name)?['']:windowsExtensions)
   :[''];
- const joinPath=platform==='win32'?win32.join:join;
+ const joinPath=(...parts:string[])=>platform==='win32'?win32.join(...parts):join(...parts);
  for(const directory of paths){
   for(const extension of extensions){
    const candidate=joinPath(directory,name+extension);
