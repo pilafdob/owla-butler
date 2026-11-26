@@ -35,7 +35,6 @@
 .owla-slash-item.is-active{background:var(--background-modifier-hover)}
 .owla-slash-line{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0}
 .owla-slash-id{font-family:var(--font-monospace);font-size:12px;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.owla-slash-kind{flex:none;font-size:10px;color:var(--text-faint)}
 .owla-slash-desc{font-size:11px;color:var(--text-muted);overflow-wrap:anywhere}
 .owla-slash-item.is-unavailable{cursor:default}
 .owla-slash-item.is-unavailable .owla-slash-id,.owla-slash-item.is-unavailable .owla-slash-desc{color:var(--text-faint)}
