@@ -20,7 +20,9 @@
 .owla-toolbar .owla-effort{grid-row:1;grid-column:3;width:70px}
 .owla-toolbar .owla-automatic-model{grid-row:1;grid-column:2/4;text-align:end;justify-content:flex-end}
 .owla-toolbar .owla-send{grid-row:1;grid-column:4}
-.owla-add-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:var(--radius-s);box-shadow:none;background:transparent;color:var(--text-muted)}
+/* Every control on the row has the same height and corner radius as Send. */
+.owla-toolbar .owla-add-button,.owla-toolbar .owla-model,.owla-toolbar .owla-effort,.owla-toolbar .owla-send{height:27px;border-radius:var(--button-radius)}
+.owla-add-button{display:grid;place-items:center;width:27px;height:27px;padding:0;border:0;border-radius:var(--button-radius);box-shadow:none;background:transparent;color:var(--text-muted)}
 .owla-add-button:hover:enabled{background:var(--background-modifier-hover);color:var(--text-normal)}
 .owla-add-button:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:1px}
 .owla-add-button svg{width:16px;height:16px}
@@ -334,6 +336,24 @@ button.owla-source-link {
 button.owla-source-link:hover,
 .owla-toolbar button.owla-automatic-model:hover:enabled {
  text-decoration: underline;
+}
+/* Automatic selection sits on the toolbar row like the model button: same height, radius and fill. */
+.owla-toolbar button.owla-automatic-model {
+ display: block;
+ justify-self: end;
+ max-width: 100%;
+ height: 27px;
+ line-height: 27px;
+ padding: 0 8px;
+ border-radius: var(--button-radius);
+ background: var(--interactive-normal);
+ white-space: nowrap;
+ overflow: hidden;
+ text-overflow: ellipsis;
+}
+.owla-toolbar button.owla-automatic-model:hover:enabled {
+ text-decoration: none;
+ background: var(--interactive-hover);
 }
 .owla-organization-cards { display: grid; gap: 5px; }
 
