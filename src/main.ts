@@ -38,6 +38,7 @@ import {annotatePdf,validatePdfComments,pdfLink,PdfComment} from './pdf-tools';
 import {createHash} from 'node:crypto';
 import {convertFile} from './attachments';
 import {editorDiff,refreshEditorDiff} from './editor-diff';
+import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashQueryAt,type SlashCommand,type SlashContext,type SlashMatch} from './slash-commands';
 import {Organization,OrganizationReview,RemovalReview,decodeMoves} from './organization';
 import {getAllTags,stringifyYaml} from 'obsidian';
 import {brokenLinks,editOutline,findBlock,findSection,frontmatterBlock,headingLinkBreaks,headingLinkWarning,headingOutline,linkTargets,linkWarning,noteChunk,noteContextBlock,tableAt,textHasSubpath,updateProperties,type NoteContextInput,type OutlineOp} from './note-tools';
@@ -89,6 +90,8 @@ type DocumentAttachment=PdfAttachment|TextAttachment;
 type Draft={text:string;images:Attachment[];pdfs:DocumentAttachment[];selections:SelectionItem[];notes:string[];folders:string[]};
 export default class Butler extends Plugin {
  private ownedModals=new Set<Modal>();private saveQueue:Promise<void>=Promise.resolve();prefs:ButlerSettings={...DEFAULTS};private readonly codexBridge=new CodexBridge();private readonly opencodeBridge=new OpencodeBridge();private readonly claudeBridge=new ClaudeBridge();private readonly hermesBridge=new HermesBridge();private readonly siriBridge=new SiriBridge();private fallbackProvider:ProviderId|null=null;view:ButlerView|null=null;settingsTab:ButlerSettingsTab|null=null;last:MarkdownView|null=null;
+ /** Composer slash commands. Register further commands here. */
+ readonly slashCommands=new SlashRegistry(BUILTIN_SLASH_COMMANDS);
  organization!:Organization;
  private splitSync:Promise<void>=Promise.resolve();
  private pending:EditBatch[] = [];
@@ -161,7 +164,7 @@ export default class Butler extends Plugin {
   this.addCommand({id:'add-selection',name:'Add selection to chat',editorCallback:(editor,view)=>void this.selection(editor,view.file)});
   this.addCommand({id:'select-table',name:'Select table',editorCheckCallback:(checking,editor)=>{const at=tableAt(editor.getValue(),editor.getCursor().line);if(checking)return !!at;if(!at)return;const last=editor.getLine(at.end);editor.setSelection({line:at.start,ch:0},{line:at.end,ch:last.length});editor.focus();}});
   this.addCommand({id:'add-table',name:'Add table to chat',editorCallback:(editor,view)=>void this.table(editor,view.file)});
-  this.addCommand({id:'image-to-note',name:'Turn an image into note content',callback:async()=>{const v=await this.open();v.composer.value='Transcribe the attached image into Obsidian Markdown with LaTeX math. Match the language of my note and propose where it belongs. Mark unclear symbols.';v.pickImage();}});
+  this.addCommand({id:'image-to-note',name:'Turn an image into note content',callback:async()=>{const v=await this.open();v.composer.value=this.slashCommands.get('image-to-md')?.prompt??'';v.pickImage();}});
   this.addCommand({id:'review-latest-edit',name:'Review latest suggested edit',callback:()=>this.view?.reviewLatest()});
   this.addCommand({id:'undo-latest-edit',name:'Undo last accepted edit',callback:()=>void this.view?.undoLatest()});
   this.addCommand({id:'save-chat',name:'Save recent chat',callback:()=>this.view?.saveChat()});
@@ -1140,6 +1143,9 @@ function commonChange(before:string,after:string){let start=0;while(start<before
 function noteText(text:string){return text.replace(/\r\n?/g,'\n');}
 class NotePicker extends FuzzySuggestModal<TFile>{constructor(app:App,private butler:Butler,private accept:(f:TFile)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a note as context…');}/** Obsidian asks for the items on every keystroke; the vault is checked once per opening (PERFORMANCE-AUDIT.md, finding 2). Attaching checks the chosen note again. */
 private items:TFile[]|null=null;getItems(){return this.items??=this.butler.withPathCheckCache(()=>this.app.vault.getMarkdownFiles().filter(f=>this.butler.allowedNote(f.path)));}getItemText(f:TFile){return f.path;}onChooseItem(f:TFile){this.accept(f);}}
+/** Folders the assistant may read, for the [+] menu. Attaching checks the chosen folder again. */
+class FolderPicker extends FuzzySuggestModal<TFolder>{constructor(app:App,private butler:Butler,private accept:(f:TFolder)=>void){super(app);this.butler.ownModal(this);this.setPlaceholder('Add a folder as context…');}
+private items:TFolder[]|null=null;getItems(){return this.items??=this.butler.withPathCheckCache(()=>this.app.vault.getAllFolders(false).filter(f=>this.butler.allowedVaultFile(f.path)));}getItemText(f:TFolder){return f.path;}onChooseItem(f:TFolder){this.accept(f);}}
 class ModelPicker extends FuzzySuggestModal<string>{constructor(app:App,butler:Butler,private models:string[],private accept:(m:string)=>void|Promise<void>){super(app);butler.ownModal(this);this.setPlaceholder('Choose a model…');}getItems(){return this.models;}getItemText(m:string){return m;}onChooseItem(m:string){void Promise.resolve(this.accept(m)).catch(e=>new Notice(friendlyError(e)));}}
 /**
  * The one-message override (Automatic mode): a fuzzy search over every
@@ -1283,6 +1289,11 @@ export class ButlerView extends ItemView {
   * so detached reply DOM is not retained until the view closes (performance audit 8). */
  private readonly replyStops=new Set<()=>void>();
  private replyCleanupRegistered=false;
+ private newChatHeader!:HTMLElement;private newChatButton!:HTMLButtonElement;
+ /** The open slash list: the token it completes, its matches and the highlighted row. */
+ private slashList!:HTMLElement;private slashToken:{start:number;end:number}|null=null;private slashMatches:SlashMatch[]=[];private slashActive=0;
+ /** Escape closes the list for the token that starts here until the token changes. */
+ private slashDismissed:{start:number;query:string}|null=null;
  private get awaitingReview(){return this.butler.reviewBlocked||this.annotationDrafts.size>0||this.removalDrafts.size>0||this.pluginDrafts.size>0;}
 
  private conversionAbort=new AbortController();private pdfCache=new PdfDocumentCache(2);private pdfAttachments=new Map<string,File|TFile>();private textAttachments=new Map<string,TextAttachment>();private annotationDrafts=new Map<string,{comments:PdfComment[];card:HTMLElement}>();private converting=0;private conversionQueue:Promise<void>=Promise.resolve();private pdfSelectionImageCache=new Map<string,string>();
@@ -1309,6 +1320,7 @@ export class ButlerView extends ItemView {
   reset.setAttribute('aria-label','New chat');
   setTooltip(reset, 'New chat');
   reset.onclick = () => this.confirmNewChat(header,reset);
+  this.newChatHeader=header;this.newChatButton=reset;
   const more = header.createEl('button', {cls:'owla-icon-button',attr:{'aria-haspopup':'menu'}});
   setIcon(more, 'ellipsis');
   setTooltip(more, 'Chat options');
@@ -1344,7 +1356,15 @@ export class ButlerView extends ItemView {
   this.registerDomEvent(this.contentEl.ownerDocument,'visibilitychange',()=>{
    if(this.contentEl.ownerDocument.hidden)this.clearWarmup();
   });
-  this.composer.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();void this.send();}});
+  this.composer.addEventListener('keydown',e=>{if(this.slashKey(e))return;if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();void this.send();}});
+  this.composer.addEventListener('input',()=>this.updateSlash());
+  this.composer.addEventListener('click',()=>this.updateSlash());
+  this.composer.addEventListener('keyup',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key))this.updateSlash();});
+  this.composer.addEventListener('blur',()=>this.closeSlash());
+  // The command list sits above the composer frame, inside it for positioning.
+  this.slashList=composerWrap.createDiv({cls:'owla-slash-list owla-hidden',attr:{role:'listbox',id:'owla-slash-'+randomUUID(),'aria-label':'Slash commands'}});
+  this.composer.setAttribute('aria-autocomplete','list');
+  this.composer.setAttribute('aria-controls',this.slashList.id);
   this.composer.addEventListener('paste',e=>{const files=Array.from(e.clipboardData?.files??[]);if(files.length){e.preventDefault();void this.addFiles(files);}});
   this.contentEl.addEventListener('dragover',event=>{
    const types=event.dataTransfer?.types;
@@ -1361,7 +1381,8 @@ export class ButlerView extends ItemView {
    void this.attachVaultEntries(entries,files);
   });
   this.imageInput=composerWrap.createEl('input',{attr:{type:'file',multiple:''},cls:'owla-hidden'});this.imageInput.onchange=()=>{void this.addFiles(Array.from(this.imageInput.files??[]));this.imageInput.value='';};
-  const toolbar=composerWrap.createDiv('owla-toolbar');const attach=toolbar.createEl('button',{text:'Attach',cls:'owla-small-button'});setTooltip(attach,'Attach files');attach.onclick=()=>this.pickImage();const note=toolbar.createEl('button',{text:'Add note',cls:'owla-small-button'});note.onclick=()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open();this.modelLabel=toolbar.createEl('button',{text:'Choose model',cls:'owla-model',attr:{'aria-label':'Choose model'}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':'Reasoning effort'}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:'Send',cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
+  // One row inside the composer frame: [+] menu, model and effort, Send.
+  const toolbar=composerWrap.createDiv('owla-toolbar');const add=toolbar.createEl('button',{cls:'owla-add-button',attr:{type:'button','aria-label':'Add context or command','aria-haspopup':'menu'}});setIcon(add,'plus');setTooltip(add,'Add files, notes, folders, a selection or a command');add.onclick=event=>this.showAddMenu(event,add);this.modelLabel=toolbar.createEl('button',{text:'Choose model',cls:'owla-model',attr:{'aria-label':'Choose model'}});this.modelLabel.onclick=()=>void this.chooseModel();this.effortSelect=toolbar.createEl('select',{cls:'owla-mode owla-effort',attr:{'aria-label':'Reasoning effort'}});this.effortSelect.onchange=()=>{this.butler.modelPrefs.reasoning=this.effortSelect.value;void this.butler.save();};this.sendBtn=toolbar.createEl('button',{text:'Send',cls:'mod-cta owla-send'});this.sendBtn.onclick=()=>this.controller?this.stop():void this.send();
   this.automaticLabel=toolbar.createEl('button',{text:'Automatic selection',cls:'owla-automatic-model',attr:{type:'button','aria-haspopup':'dialog'}});
   setTooltip(this.automaticLabel,'Override model and reasoning effort for one message');
   this.automaticLabel.onclick=()=>void this.chooseNextRoute();
@@ -1695,6 +1716,129 @@ export class ButlerView extends ItemView {
   if(!automaticModels)this.nextRoute=undefined;const modelPrefs=this.butler.modelPrefs;const modelLabel='Choose '+this.butler.providerName(this.butler.activeProvider)+' model';this.modelLabel?.setText(modelPrefs.model||modelLabel);if(this.modelLabel)setTooltip(this.modelLabel,modelPrefs.model?modelLabel+' · '+modelPrefs.model:modelLabel);if(this.effortSelect){this.effortSelect.empty();const model=this.butler.bridge.resolveModel(modelPrefs.model);for(const e of model?.supportedReasoningEfforts??[])this.effortSelect.createEl('option',{value:e.reasoningEffort,text:e.reasoningEffort});if(!model)this.effortSelect.createEl('option',{value:modelPrefs.reasoning,text:modelPrefs.reasoning||'Reasoning'});this.effortSelect.value=modelPrefs.reasoning;this.effortSelect.disabled=this.isBusy();}}
  isBusy(){return !!this.controller;}
  pickImage(){this.imageInput.click();}
+ /** The unified [+] menu: everything that adds context, then the command list. */
+ private showAddMenu(event:MouseEvent,trigger:HTMLElement){
+  const last=this.butler.last;
+  const file=last?.file??null;
+  const selected=!!(file&&last?.editor.getSelection());
+  const menu=new Menu();
+  menu.addItem(item=>item.setTitle('Attach file…').setIcon('paperclip').onClick(()=>this.pickImage()));
+  menu.addItem(item=>item.setTitle('Add note…').setIcon('file-text').onClick(()=>new NotePicker(this.app,this.butler,f=>void this.attachNote(f)).open()));
+  menu.addItem(item=>item.setTitle('Add folder…').setIcon('folder').onClick(()=>new FolderPicker(this.app,this.butler,folder=>void this.attachVaultEntries([folder])).open()));
+  menu.addItem(item=>item.setTitle(selected?'Add current selection':'Add current selection (select text in a note first)').setIcon('text-select').setDisabled(!selected).onClick(()=>{if(last&&file)void this.butler.selection(last.editor,file);}));
+  menu.addSeparator();
+  menu.addItem(item=>item.setTitle('Commands…').setIcon('terminal').onClick(()=>this.openSlash()));
+  if(event.detail)menu.showAtMouseEvent(event);
+  else{const bounds=trigger.getBoundingClientRect();menu.showAtPosition({x:bounds.left,y:bounds.top},trigger.ownerDocument);}
+ }
+ private slashContext():SlashContext{
+  const butler=this.butler,provider=butler.activeProvider,autoProvider=butler.prefs.automaticProvider;
+  // Automatic selection routes an image turn to a model that reads images.
+  const model=butler.automaticModels?undefined:butler.bridge.resolveModel(butler.modelPrefs.model);
+  const features=butler.visualFeatures();
+  const hasPdf=this.pdfs.length>0||this.selections.some(item=>!!item.pdf);
+  return {
+   hasNote:!!butler.last?.file,
+   hasImage:this.images.length>0,
+   hasPdf,
+   hasAttachment:hasPdf||this.images.length>0||this.selections.length>0||this.notes.size>0||this.folders.size>0,
+   readsImages:!model?.inputModalities||model.inputModalities.includes('image'),
+   webSearch:butler.prefs.webSearch&&(autoProvider||provider!=='siri'),
+   canvas:features.canvas,bases:features.bases,excalidraw:features.excalidraw,
+   busy:this.isBusy(),awaitingReview:this.awaitingReview,hasHistory:this.history.length>0,canUndo:!!this.latestUndo,
+  };
+ }
+ /** Starts a slash token at the caret, as if `/` was typed, and opens the list. */
+ private openSlash(){
+  const text=this.composer.value,at=this.composer.selectionStart??text.length;
+  const lead=at>0&&!/\s/.test(text[at-1])?' ':'';
+  this.composer.value=text.slice(0,at)+lead+'/'+text.slice(this.composer.selectionEnd??at);
+  const caret=at+lead.length+1;
+  this.composer.focus();this.composer.setSelectionRange(caret,caret);
+  this.slashDismissed=null;this.updateSlash();
+ }
+ private updateSlash(){
+  if(!this.slashList)return;
+  const caret=this.composer.selectionStart??0;
+  const token=this.composer.selectionStart===this.composer.selectionEnd?slashQueryAt(this.composer.value,caret):null;
+  if(!token){this.slashDismissed=null;this.closeSlash();return;}
+  if(this.slashDismissed&&this.slashDismissed.start===token.start&&this.slashDismissed.query===token.query){this.closeSlash();return;}
+  this.slashDismissed=null;
+  this.slashToken=token;
+  this.slashMatches=matchSlashCommands(token.query,this.butler.slashCommands.all(),this.slashContext());
+  if(!this.slashMatches.length){this.closeSlash();return;}
+  this.slashActive=Math.max(0,this.slashMatches.findIndex(match=>!match.reason));
+  this.renderSlash();
+ }
+ private renderSlash(){
+  const list=this.slashList;
+  list.empty();list.removeClass('owla-hidden');
+  this.slashMatches.forEach((match,index)=>{
+   const row=list.createDiv({cls:'owla-slash-item',attr:{role:'option',id:list.id+'-'+index,'aria-selected':String(index===this.slashActive)}});
+   if(match.reason){row.addClass('is-unavailable');row.setAttribute('aria-disabled','true');}
+   if(index===this.slashActive)row.addClass('is-active');
+   const line=row.createDiv('owla-slash-line');
+   line.createSpan({text:'/'+match.command.id,cls:'owla-slash-id'});
+   line.createSpan({text:match.command.kind==='action'?'Runs now':'Inserts a prompt',cls:'owla-slash-kind'});
+   row.createDiv({text:match.reason??match.command.description,cls:'owla-slash-desc'});
+   // Keep focus in the composer so the list does not close before the click lands.
+   row.addEventListener('mousedown',event=>event.preventDefault());
+   row.addEventListener('click',()=>{this.slashActive=index;this.chooseSlash();});
+  });
+  this.composer.setAttribute('aria-activedescendant',list.id+'-'+this.slashActive);
+  list.querySelector('.is-active')?.scrollIntoView({block:'nearest'});
+ }
+ private closeSlash(){
+  if(!this.slashList)return;
+  this.slashList.addClass('owla-hidden');this.slashList.empty();
+  this.slashToken=null;this.slashMatches=[];
+  this.composer.removeAttribute('aria-activedescendant');
+ }
+ /** Keys for the open list. Returns true when the key was used. */
+ private slashKey(event:KeyboardEvent):boolean{
+  if(!this.slashToken||!this.slashMatches.length||event.isComposing)return false;
+  const count=this.slashMatches.length;
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+   event.preventDefault();
+   this.slashActive=(this.slashActive+(event.key==='ArrowDown'?1:count-1))%count;
+   this.renderSlash();return true;
+  }
+  if((event.key==='Enter'&&!event.shiftKey)||event.key==='Tab'){event.preventDefault();this.chooseSlash();return true;}
+  if(event.key==='Escape'){
+   event.preventDefault();event.stopPropagation();
+   const token=slashQueryAt(this.composer.value,this.composer.selectionStart??0);
+   if(token)this.slashDismissed={start:token.start,query:token.query};
+   this.closeSlash();return true;
+  }
+  return false;
+ }
+ private chooseSlash(){
+  const token=this.slashToken,match=this.slashMatches[this.slashActive];
+  if(!token||!match)return;
+  // Check again: the situation may have changed while the list was open.
+  const reason=match.command.unavailable?.(this.slashContext())??null;
+  if(reason){new Notice(reason);return;}
+  const result=applySlashCommand(this.composer.value,token,match.command);
+  this.composer.value=result.text;
+  this.composer.setSelectionRange(result.caret,result.caret);
+  this.closeSlash();
+  this.runSlash(match.command);
+ }
+ private runSlash(command:SlashCommand){
+  if(command.kind==='prompt'){
+   this.composer.focus();
+   if(command.opensPicker==='image'&&!this.images.length)this.pickImage();
+   return;
+  }
+  switch(command.id){
+   case 'new':this.confirmNewChat(this.newChatHeader,this.newChatButton);break;
+   case 'save':this.saveChat();break;
+   case 'open':this.openSavedChat();break;
+   case 'undo':void this.undoLatest();break;
+   case 'model':if(this.butler.automaticModels)void this.chooseNextRoute();else void this.chooseModel();break;
+   default:new Notice('This command has no action yet: /'+command.id);
+  }
+ }
  private vaultDropEntries(uris:string):TAbstractFile[] {
   const entries:TAbstractFile[]=[];
   for(const line of uris.split(/\r?\n/)){

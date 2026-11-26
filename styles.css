@@ -5,21 +5,39 @@
 .owla-icon-button{background:transparent;border:0;box-shadow:none;padding:7px;color:var(--text-muted)}
 .owla-feed{flex:1;min-height:100px;overflow-y:auto;padding:14px 12px 20px;overscroll-behavior:contain}
 .owla-user{padding:8px 10px;margin:12px 0 14px 16px;border-radius:11px 11px 3px 11px;background:var(--background-modifier-hover);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}.owla-assistant{margin:12px 0 24px;padding:0 4px;overflow-wrap:anywhere}.owla-speaker{font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text-muted)}.owla-activity{color:var(--text-faint);font-size:11px;padding:4px 0}.owla-error{margin-top:8px;color:var(--text-error);line-height:1.6}.owla-message-image{display:block;max-width:100%;max-height:220px;object-fit:contain;border-radius:6px;margin:8px 0}
-.owla-composer-wrap{margin:0 10px 5px;padding:9px;border:1px solid var(--background-modifier-border);border-radius:12px;background:var(--background-primary)}.owla-composer-wrap:focus-within{border-color:var(--interactive-accent)}.owla-composer{display:block;width:100%;min-height:60px;max-height:240px;resize:vertical;padding:4px 3px;border:0;box-shadow:none;background:transparent;color:var(--text-normal);font-family:var(--font-interface);font-size:13px;line-height:1.5}.owla-composer:focus{box-shadow:none;border:0}.owla-small-button{font-size:11px;padding:4px 6px;height:25px;box-shadow:none;background:var(--background-primary)}.owla-model{box-shadow:none;background:transparent;border:0;height:24px;text-align:left;min-width:0;font-size:10px;line-height:1.3;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 3px}.owla-send{font-size:12px;min-width:48px;height:27px;box-shadow:none}.owla-status{font-size:10px;color:var(--text-faint);padding:3px 14px 11px;line-height:1.5;overflow-wrap:anywhere}.owla-hidden{display:none}
+.owla-composer-wrap{margin:0 10px 5px;padding:9px;border:1px solid var(--background-modifier-border);border-radius:12px;background:var(--background-primary)}.owla-composer-wrap:focus-within{border-color:var(--interactive-accent)}.owla-composer{display:block;width:100%;min-height:60px;max-height:240px;resize:vertical;padding:4px 3px;border:0;box-shadow:none;background:transparent;color:var(--text-normal);font-family:var(--font-interface);font-size:13px;line-height:1.5}.owla-composer:focus{box-shadow:none;border:0}.owla-model{box-shadow:none;background:transparent;border:0;height:24px;text-align:left;min-width:0;font-size:10px;line-height:1.3;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 3px}.owla-send{font-size:12px;min-width:48px;height:27px;box-shadow:none}.owla-status{font-size:10px;color:var(--text-faint);padding:3px 14px 11px;line-height:1.5;overflow-wrap:anywhere}.owla-hidden{display:none}
 .owla-chips{display:flex;flex-wrap:wrap;gap:5px}.owla-chip{display:flex;align-items:center;gap:5px;max-width:100%;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:6px;font-size:10px;padding:3px 5px;margin-bottom:5px;color:var(--text-muted)}.owla-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}.owla-chip img{width:28px;height:28px;object-fit:cover;border-radius:3px}.owla-chip button{border:0;box-shadow:none;padding:0 3px;height:20px;background:transparent;color:var(--text-muted)}.owla-chip-pending{color:var(--text-faint);font-style:italic;flex:none}
 .owla-edit-card{border:1px solid var(--background-modifier-border);background:var(--background-secondary);padding:11px;border-radius:9px;margin:10px 0}.owla-edit-title{font-size:12px;font-weight:600}.owla-edit-path{font-family:var(--font-monospace);color:var(--text-muted);font-size:10px;margin-top:4px}.owla-edit-card p{font-size:12px;line-height:1.5}.owla-edit-card button{font-size:11px;margin:0 5px 0 0}.owla-message-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.owla-message-actions button{font-size:10px;height:25px;padding:3px 7px;box-shadow:none;color:var(--text-muted);background:var(--background-secondary)}
 .owla-review{width:min(850px,90vw)}.owla-review-path{font-family:var(--font-monospace);font-size:12px;color:var(--text-muted)}.owla-diff{max-height:55vh;overflow:auto;border:1px solid var(--background-modifier-border);border-radius:7px;font-family:var(--font-monospace);font-size:12px}.owla-diff pre{margin:0;padding:6px 12px;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:0}.owla-added{background:rgba(40,160,80,.14);border-left:3px solid var(--color-green)}.owla-removed{background:rgba(200,65,65,.12);border-left:3px solid var(--color-red)}.owla-unchanged{color:var(--text-muted);border-left:3px solid transparent}.owla-review-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 
 .owla-mode{font-size:10px;width:70px;min-width:0;height:25px;padding:2px 3px;box-shadow:none;background:var(--background-primary)}
 
-/* Composer toolbar. Row one holds the actions, row two the model controls. */
-.owla-toolbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 76px;align-items:center;gap:5px;margin-top:6px}
+/* Composer toolbar: one row inside the composer frame. [+] menu, model and effort, Send. */
+.owla-toolbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:4px;margin-top:6px}
 .owla-toolbar>*{min-width:0;max-width:100%}
-.owla-toolbar .owla-small-button{grid-row:1}
-.owla-toolbar .owla-send{grid-row:1;grid-column:3}
-.owla-toolbar .owla-model{grid-row:2;grid-column:1/3;width:100%}
-.owla-toolbar .owla-effort{grid-row:2;grid-column:3;width:100%}
-.owla-toolbar .owla-automatic-model{grid-row:2;grid-column:1/-1}
+.owla-toolbar .owla-add-button{grid-row:1;grid-column:1}
+.owla-toolbar .owla-model{grid-row:1;grid-column:2;width:100%;text-align:end}
+.owla-toolbar .owla-effort{grid-row:1;grid-column:3;width:70px}
+.owla-toolbar .owla-automatic-model{grid-row:1;grid-column:2/4;text-align:end;justify-content:flex-end}
+.owla-toolbar .owla-send{grid-row:1;grid-column:4}
+.owla-add-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:var(--radius-s);box-shadow:none;background:transparent;color:var(--text-muted)}
+.owla-add-button:hover:enabled{background:var(--background-modifier-hover);color:var(--text-normal)}
+.owla-add-button:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:1px}
+.owla-add-button svg{width:16px;height:16px}
+
+/* Slash command list: opens above the composer frame while a /command is typed. */
+.owla-composer-wrap{position:relative}
+.owla-slash-list{position:absolute;left:0;right:0;bottom:calc(100% + 4px);z-index:var(--layer-popover);max-height:min(280px,45vh);overflow-y:auto;padding:4px;border:1px solid var(--background-modifier-border);border-radius:10px;background:var(--background-primary);box-shadow:var(--shadow-s)}
+.owla-slash-list.owla-hidden{display:none}
+.owla-slash-item{padding:5px 7px;border-radius:var(--radius-s);cursor:pointer;min-width:0}
+.owla-slash-item.is-active{background:var(--background-modifier-hover)}
+.owla-slash-line{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0}
+.owla-slash-id{font-family:var(--font-monospace);font-size:12px;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.owla-slash-kind{flex:none;font-size:10px;color:var(--text-faint)}
+.owla-slash-desc{font-size:11px;color:var(--text-muted);overflow-wrap:anywhere}
+.owla-slash-item.is-unavailable{cursor:default}
+.owla-slash-item.is-unavailable .owla-slash-id,.owla-slash-item.is-unavailable .owla-slash-desc{color:var(--text-faint)}
+.owla-slash-item.is-unavailable .owla-slash-desc{font-style:italic}
 
 /* Keep controls reachable in narrow sidebars and scroll wide Markdown locally. */
 .owla-root{container-type:inline-size;min-width:0}
@@ -319,11 +337,11 @@ button.owla-source-link:hover,
 }
 .owla-organization-cards { display: grid; gap: 5px; }
 
-/* Narrow sidebars: stack the model controls and shrink the header.
+/* Narrow sidebars: tighten the toolbar row and shrink the header.
    This block sits last so its toolbar rules win over the base grid. */
 @container (max-width:270px){
  .owla-header{padding:10px 8px;gap:5px}.owla-logo{width:27px;height:27px}.owla-title{font-size:13px}
- .owla-toolbar{grid-template-columns:1fr 1fr auto}.owla-toolbar .owla-effort{grid-row:2;grid-column:1/-1}.owla-toolbar .owla-model{grid-row:3;grid-column:1/-1}
+ .owla-toolbar{gap:3px}.owla-toolbar .owla-effort{width:66px}.owla-send{min-width:44px}
  .owla-composer-wrap{margin:0 6px 5px;padding:7px}.owla-composer{min-height:54px}
 }
 

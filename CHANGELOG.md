@@ -64,6 +64,12 @@ Second prerelease of 3.8.0 from `OWLA-RC`. Changes since `3.8.0-dev`:
 - **Siri AI (macOS 27):** new provider for Apple Foundation Models through `fm`, optionally the global fallback once every other provider is out of usage. Tested: the on-device model answers and calls OWLA's vault tools. Not yet tested: Private Cloud Compute from inside Obsidian (Apple refused it outside Terminal during testing), its quota report and its context size. If Private Cloud Compute is refused, OWLA uses the on-device model and shows Apple's reason in the Siri AI tab.
 - **Developer mode diagnostics** list Siri AI with the other providers.
 
+## Unreleased
+
+- **Composer:** the toolbar is one row inside the composer frame: a **+** button, the model and effort, and Send. **+** replaces the Attach and Add note buttons and also offers Add folder, Add current selection and Commands.
+- **Slash commands:** typing `/` opens a filtered list of commands (`src/slash-commands.ts`). Prompt commands insert an editable request; `/new`, `/save`, `/open`, `/undo` and `/model` run at once. Commands that cannot run are shown greyed out with the reason. New commands are added by registering them in `SlashRegistry`.
+- The **Turn an image into note content** palette command uses the `/image-to-md` prompt, so the two cannot drift apart.
+
 ## 3.8.1
 
 A patch release that fixes the Obsidian Community review of 3.8.0, which failed on its source code check. No user-visible behaviour changes.
