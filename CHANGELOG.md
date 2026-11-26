@@ -4,6 +4,15 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.1-dev.2
+
+A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.1-dev`, all from `main` (pull request #27):
+
+- **Composer:** the toolbar is one row inside the composer frame: a **+** button, the model and effort, and Send. **+** replaces the Attach and Add note buttons and also offers **Add folder**, **Add current selection** and **Commands**.
+- **Slash commands:** type `/` to open a filtered list of 20 commands. Prompt commands (for example `/image-to-md`, `/format`, `/mermaid`, `/links`) insert an editable request and never send on their own. `/new`, `/save`, `/open`, `/undo` and `/model` run at once with their existing checks. A command that cannot run now is shown greyed out with the reason.
+
+Not yet tried in a running Obsidian: the **+** menu, the slash list, keyboard and screen-reader behaviour, and the 240 to 600 px pane layout. Test in a disposable or backed-up vault.
+
 ### 3.8.1-dev
 
 The stable OWLA Butler 3.8.1 patch release from `main` (tag `3.8.1`), with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.0-dev.6`, all from `main`:
