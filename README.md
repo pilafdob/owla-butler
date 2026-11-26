@@ -94,19 +94,27 @@ The sidebar starts with a clean message area. Choose the **model** and **reasoni
   <img src="assets/screenshots/01-chat.png" alt="OWLA Butler sidebar answering a question about the open note: it totals the note's budget and checks its open questions against a linked note" width="720">
 </p>
 
-Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **Add note**, or name another note in your request. A selection you add stays in the composer as a chip, and the sent message shows it as a card with the excerpt it carries, so you can see that it went with the prompt. A selection added while a reply is still running is marked **next message** and waits for the message after that. The assistant can search and read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
+Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **+ → Add note** or **+ → Add current selection**, or name another note in your request. A selection you add stays in the composer as a chip, and the sent message shows it as a card with the excerpt it carries, so you can see that it went with the prompt. A selection added while a reply is still running is marked **next message** and waits for the message after that. The assistant can search and read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
 
 <p align="center">
   <img src="assets/screenshots/04-vault-search.png" alt="OWLA Butler answering from other notes in the vault: open tasks from a meeting note and a permit detail from a reference note, each with a link to its source" width="720">
 </p>
 
-Paste screenshots, drop files or use **Attach**. Add whole PDFs from the file explorer or chat. The assistant reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page, or highlight text and choose **Add selection to OWLA** to send the text with its page citation. Models that read images also get that page as a background image, to check text the PDF text layer misread. For transcription, ask it to preserve visible symbols and mark uncertainty.
+Paste screenshots, drop files or use **+ → Attach file**. Add whole PDFs from the file explorer or chat. The assistant reads the relevant text or renders specific scanned pages on demand. Use **Add page to OWLA** in the PDF viewer to attach a specific page, or highlight text and choose **Add selection to OWLA** to send the text with its page citation. Models that read images also get that page as a background image, to check text the PDF text layer misread. For transcription, ask it to preserve visible symbols and mark uncertainty.
 
 <p align="center">
   <img src="assets/screenshots/03-attachments.png" alt="An attached garden sketch image in the OWLA Butler chat, with the answer comparing the sketch to the plan in the open note" width="720">
 </p>
 
 Web search is enabled by default so the assistant can check current facts when needed. Turn it off in settings if unwanted. Selected note contents, attachments and recent chat are processed by the selected provider; web queries may draw on that context. Responses expose readable activity, used note/page sources and linked web references. Source links do not guarantee that every interpretation is correct.
+
+### The + menu and slash commands
+
+The **+** button at the left of the composer adds context: **Attach file**, **Add note**, **Add folder** and **Add current selection** (the text selected in the last focused note). **Commands** opens the slash command list.
+
+Type `/` at the start of the composer or after a space to open the same list. Keep typing to filter it (`/img` finds `/image-to-md`); Up and Down move, Enter or Tab picks, a click picks, Esc closes it. `//` and paths such as `/Users/me` stay plain text. A command that cannot run now stays in the list, greyed out with the reason, for example "Attach a PDF, a PDF page or a PDF selection first."
+
+Most commands insert a prepared request into the composer for you to edit and send; nothing is sent until you press Send. They are `/image-to-md` (opens the file picker when no image is attached), `/pdf-page-to-md`, `/table-to-md`, `/summarize`, `/format`, `/mermaid`, `/math`, `/properties`, `/links`, `/organize`, `/export-pdf`, `/canvas`, `/base` and `/excalidraw` (these three need Plugin Interconnectivity and the matching plugin) and `/web` (needs web search). Five commands run at once without the model: `/new`, `/save`, `/open`, `/undo` (undo the last accepted edit, with the same checks as the command palette) and `/model`. Changes still go through the usual review.
 
 ### Automatic provider
 
@@ -281,7 +289,7 @@ OWLA Butler: [MIT](LICENSE). The bird icon is from [Phosphor Icons](https://gith
 
 Right-click a folder or a multi-file selection in the File Explorer and choose **Add folder to OWLA chat** or **Add files to OWLA chat**. A folder appears as one attachment. Codex can list it or search allowed notes within it and its subfolders. You can also drop multiple files from Obsidian, Finder or Windows Explorer into chat.
 
-Drop files into chat or use Attach. PDFs and vault folders appear immediately as references. OWLA prepares images and converts other documents locally. PNG/JPEG/WebP images are resized on Windows and macOS, including images over 10 MB. Windows uses browser image decoding for other image formats; macOS also uses native conversion for formats such as HEIC, TIFF and BMP. Whole-PDF attachments also accept larger PDFs.
+Drop files into chat or use **+ → Attach file**. PDFs and vault folders appear immediately as references. OWLA prepares images and converts other documents locally. PNG/JPEG/WebP images are resized on Windows and macOS, including images over 10 MB. Windows uses browser image decoding for other image formats; macOS also uses native conversion for formats such as HEIC, TIFF and BMP. Whole-PDF attachments also accept larger PDFs.
 
 Word DOCX, PowerPoint PPTX, Excel XLSX and OpenDocument files provide extracted text. On macOS, Pages, Keynote and Numbers use an installed Apple app to export a temporary copy to Office format. macOS may request Automation permission. The original file is never opened for conversion. Temporary copies and exports are deleted afterward. If full extraction fails, an embedded or Quick Look preview is labelled **Preview only**. Unsupported files stay attached with **Content unavailable**, so the assistant can explain the limitation. Audio, video and arbitrary binary formats do not gain full understanding from an attachment alone.
 

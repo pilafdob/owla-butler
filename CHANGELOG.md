@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Composer:** the toolbar is one row inside the composer frame: a **+** button, the model and effort, and Send. **+** replaces the Attach and Add note buttons and also offers Add folder, Add current selection and Commands.
+- **Slash commands:** typing `/` opens a filtered list of commands (`src/slash-commands.ts`). Prompt commands insert an editable request; `/new`, `/save`, `/open`, `/undo` and `/model` run at once. Commands that cannot run are shown greyed out with the reason. New commands are added by registering them in `SlashRegistry`.
+- The **Turn an image into note content** palette command uses the `/image-to-md` prompt, so the two cannot drift apart.
+
 ## 3.8.1
 
 A patch release that fixes the Obsidian Community review of 3.8.0, which failed on its source code check. No user-visible behaviour changes.
