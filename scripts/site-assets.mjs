@@ -52,7 +52,7 @@ const post = ({ title, sub, shot, focus = 'center', zoom = 1, tag }) => `<!docty
 
 const posts = [
   { file: 'post-1-review-every-edit.png', tag: 'Free Obsidian plugin', title: 'Review every edit.', sub: 'Changes the assistant proposes are highlighted in your note and wait for Accept or Decline.', shot: '02-review.png', focus: '0% 45%', zoom: 1.3 },
-  { file: 'post-2-uses-the-ai-you-have.png', tag: 'Codex · OpenCode · Claude Code · Hermes Agent', title: 'Uses the AI you already have.', sub: 'Runs on the CLI you are already signed in to. No extra API key, no OWLA account.', shot: '05-providers.png', focus: '55% 25%', zoom: 1.45 },
+  { file: 'post-2-uses-the-ai-you-have.png', tag: 'Codex · OpenCode · Claude Code · Hermes Agent', title: 'Uses the AI you already have.', sub: 'Runs on the CLI you are already signed in to. No extra API key, no OWLA account.', shot: '05-providers.png', focus: '50% 18%', zoom: 1.3 },
   { file: 'post-3-your-vault-stays-yours.png', tag: 'Privacy by design', title: 'Your vault stays yours.', sub: 'No background index, no whole-vault upload, no telemetry. Only what a message needs goes to your provider.', shot: '04-vault-search.png', focus: '100% 32%', zoom: 2.4 },
   { file: 'post-4-chat-with-your-note.png', tag: 'AI assistant sidebar', title: 'Chat with the note you have open.', sub: 'Ask about it, attach images and PDFs, and search the rest of your vault with sources.', shot: '01-chat.png', focus: '100% 22%', zoom: 2.4 },
 ];
