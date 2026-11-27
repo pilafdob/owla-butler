@@ -2,8 +2,11 @@
  * Slash commands for the composer.
  *
  * A command is either an `action`, which OWLA runs itself without the model
- * (new chat, save chat, undo…), or a `prompt`, which inserts a prepared request
- * into the composer for the user to edit and send. Nothing here sends a message.
+ * (new chat, save chat, undo…), or a `prompt`, which puts `/<id>` into the
+ * composer. The user can add their own words after it and send. On send,
+ * `expandSlashPrompts` swaps each `/<id>` for the command's prepared request,
+ * so the model reads the full request while the chat shows only `/<id>`.
+ * Nothing here sends a message.
  *
  * The list is a registry so further commands can be added in one place: give a
  * command an id, a title, a description, a kind and, if it depends on the
@@ -215,15 +218,29 @@ export function slashActiveIndex(matches:readonly SlashMatch[]):number{
  return Math.max(0,matches.findIndex(match=>!match.reason));
 }
 
-/** The draft after a command replaces its slash token. A prompt command inserts its prompt; an action leaves the rest of the draft. */
+/** The draft after a command replaces its slash token. A prompt command leaves `/<id> ` for `expandSlashPrompts` to expand on send; an action removes its token and leaves the rest of the draft. */
 export function applySlashCommand(text:string,token:{start:number;end:number},command:SlashCommand):{text:string;caret:number}{
  const before=text.slice(0,token.start),after=text.slice(token.end);
  if(command.kind==='action'){
   const joined=(before.replace(/\s+$/,'')+(before.trim()&&after.trim()?' ':'')+after.replace(/^\s+/,''));
   return {text:joined,caret:Math.min(before.replace(/\s+$/,'').length,joined.length)};
  }
- const prompt=command.prompt??'';
+ const inserted='/'+command.id+' ';
  const rest=after.replace(/^\s+/,'');
- const inserted=prompt+(rest&&!/\s$/.test(prompt)?' ':'');
  return {text:before+inserted+rest,caret:(before+inserted).length};
+}
+
+/**
+ * The request the model reads: every `/<id>` of a prompt command, at the start
+ * of the draft or after whitespace, becomes that command's prompt. Unknown ids,
+ * action commands and paths such as `/Users/me` stay as typed.
+ */
+export function expandSlashPrompts(text:string,commands:readonly SlashCommand[]):string{
+ const prompts=new Map(commands.filter(command=>command.kind==='prompt'&&command.prompt).map(command=>[command.id,command.prompt!]));
+ return text.replace(/(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)([ \t]*)/g,(whole,lead:string,id:string,space:string)=>{
+  const prompt=prompts.get(id);
+  if(!prompt)return whole;
+  // A prompt that ends with a space (such as /web's "sources: ") takes the user's words directly.
+  return lead+prompt+(space&&!/\s$/.test(prompt)?' ':'');
+ });
 }
