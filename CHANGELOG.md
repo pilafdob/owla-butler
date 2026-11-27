@@ -4,6 +4,16 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.1-dev.3
+
+A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. It replaces `3.8.1-dev.2`, which was tagged but never released: the release workflow refused to package it because the README contained an example home-folder path. Changes since `3.8.1-dev.2`, all from `main`:
+
+- **Composer toolbar:** **+**, the model, the effort and Send now share one height and corner radius. In automatic mode, **Automatic selection** looks like the model button and ends in an ellipsis in narrow sidebars (pull request #29).
+- **Slash list:** rows no longer carry the small "Inserts a prompt" / "Runs now" label; each row shows the command and its description, or the reason it cannot run (pull request #29).
+- **README:** the slash-command example path no longer trips the release package check (pull request #28).
+
+Tried on macOS in a backed-up test vault (Obsidian 1.15.1): the **+** menu, the slash list (filtering, keyboard, mouse, Esc, greyed-out reasons), prompt and action commands, a reviewed edit with Accept, Decline and `/undo`, and the 240 to 600 px pane layout. Not yet tried: VoiceOver, a real IME input source, the light theme by eye, and Windows. Known issue: typing the full name of a greyed-out command can run a different available command that matches better (for example `/save` before the first message runs `/open`).
+
 ### 3.8.1-dev.2
 
 A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.1-dev`, all from `main` (pull request #27):
