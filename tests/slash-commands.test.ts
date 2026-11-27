@@ -1,6 +1,6 @@
 // Composer slash commands: the registry, the typed token, matching and insertion.
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashQueryAt,type SlashCommand,type SlashContext} from '../src/slash-commands';
+import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashActiveIndex,slashQueryAt,type SlashCommand,type SlashContext} from '../src/slash-commands';
 
 const ready:SlashContext={hasNote:true,hasImage:false,hasPdf:false,hasAttachment:false,readsImages:true,webSearch:true,canvas:true,bases:true,excalidraw:true,busy:false,awaitingReview:false,hasHistory:true,canUndo:true};
 const registry=new SlashRegistry(BUILTIN_SLASH_COMMANDS);
@@ -64,6 +64,27 @@ test('commands that cannot run stay listed, after the ones that can, with their 
  assert.match(reason('save',{...ready,hasHistory:false})!,/Send a message/);
  assert.match(reason('save',{...ready,busy:true})!,/Wait for the reply/);
  assert.match(reason('new',{...ready,awaitingReview:true})!,/pending changes/);
+});
+
+test('a command typed in full comes first and is highlighted even when it cannot run',()=>{
+ const empty={...ready,hasHistory:false,canUndo:false};
+ // /open matches "save" through its keyword "saved" and can run; /save cannot run before the first message.
+ const saveMatches=matchSlashCommands('save',registry.all(),empty);
+ assert.deepEqual(saveMatches.map(match=>match.command.id).slice(0,2),['save','open']);
+ assert.equal(saveMatches[0].exact,true);
+ assert.match(saveMatches[0].reason!,/Send a message/);
+ assert.equal(slashActiveIndex(saveMatches),0,'Enter shows the reason for /save instead of running /open');
+ const textOnly={...ready,readsImages:false};
+ const imageMatches=matchSlashCommands('image-to-md',registry.all(),textOnly);
+ assert.equal(imageMatches[0].command.id,'image-to-md');
+ assert.equal(slashActiveIndex(imageMatches),0);
+ // A partial query still prefers a command that can run.
+ const partial=matchSlashCommands('sav',registry.all(),empty);
+ assert.equal(partial[slashActiveIndex(partial)].command.id,'open');
+ assert.ok(partial.every(match=>!match.exact));
+ // Only unavailable matches: the first is highlighted, as before.
+ const pdf=matchSlashCommands('pdf-page',registry.all(),ready);
+ assert.equal(pdf[slashActiveIndex(pdf)].command.id,'pdf-page-to-md');
 });
 
 test('a prompt command replaces its token with the prompt and keeps the rest of the draft',()=>{

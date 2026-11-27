@@ -174,11 +174,14 @@ function subsequence(query:string,target:string):number{
 }
 
 /** Higher is better; 0 means no match. */
+/** The score of a query that is a command's full id. */
+const EXACT_SCORE=1000;
+
 export function slashScore(query:string,command:SlashCommand):number{
  const q=query.toLowerCase().replace(/\s+/g,'-');
  if(!q)return 1;
  const id=command.id;
- if(id===q)return 1000;
+ if(id===q)return EXACT_SCORE;
  if(id.startsWith(q))return 900-id.length;
  const words=[...id.split('-'),...command.title.toLowerCase().split(/\s+/),...(command.keywords??[])];
  if(words.some(word=>word.startsWith(q)))return 700;
@@ -189,15 +192,27 @@ export function slashScore(query:string,command:SlashCommand):number{
  return 0;
 }
 
-export interface SlashMatch{command:SlashCommand;reason:string|null;}
+/** exact: the query is the command's full id. */
+export interface SlashMatch{command:SlashCommand;reason:string|null;exact:boolean;}
 
-/** Matching commands, available ones first, each with the reason it cannot run (or null). */
+
+/**
+ * Matching commands, each with the reason it cannot run (or null). The command
+ * whose id is typed in full comes first even when it cannot run, so `/save`
+ * never picks `/open`; after it, available commands come before unavailable ones.
+ */
 export function matchSlashCommands(query:string,commands:readonly SlashCommand[],context:SlashContext):SlashMatch[]{
  return commands
-  .map((command,index)=>({command,index,score:slashScore(query,command),reason:command.unavailable?.(context)??null}))
+  .map((command,index)=>{const score=slashScore(query,command);return {command,index,score,exact:score===EXACT_SCORE,reason:command.unavailable?.(context)??null};})
   .filter(item=>item.score>0)
-  .sort((a,b)=>(a.reason?1:0)-(b.reason?1:0)||b.score-a.score||a.index-b.index)
-  .map(({command,reason})=>({command,reason}));
+  .sort((a,b)=>Number(b.exact)-Number(a.exact)||(a.reason?1:0)-(b.reason?1:0)||b.score-a.score||a.index-b.index)
+  .map(({command,reason,exact})=>({command,reason,exact}));
+}
+
+/** The row highlighted when the list opens: an exact match, else the first command that can run. */
+export function slashActiveIndex(matches:readonly SlashMatch[]):number{
+ if(matches[0]?.exact)return 0;
+ return Math.max(0,matches.findIndex(match=>!match.reason));
 }
 
 /** The draft after a command replaces its slash token. A prompt command inserts its prompt; an action leaves the rest of the draft. */

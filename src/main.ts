@@ -38,7 +38,7 @@ import {annotatePdf,validatePdfComments,pdfLink,PdfComment} from './pdf-tools';
 import {createHash} from 'node:crypto';
 import {convertFile} from './attachments';
 import {editorDiff,refreshEditorDiff} from './editor-diff';
-import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashQueryAt,type SlashCommand,type SlashContext,type SlashMatch} from './slash-commands';
+import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashActiveIndex,slashQueryAt,type SlashCommand,type SlashContext,type SlashMatch} from './slash-commands';
 import {Organization,OrganizationReview,RemovalReview,decodeMoves} from './organization';
 import {getAllTags,stringifyYaml} from 'obsidian';
 import {brokenLinks,editOutline,findBlock,findSection,frontmatterBlock,headingLinkBreaks,headingLinkWarning,headingOutline,linkTargets,linkWarning,noteChunk,noteContextBlock,tableAt,textHasSubpath,updateProperties,type NoteContextInput,type OutlineOp} from './note-tools';
@@ -1767,7 +1767,7 @@ export class ButlerView extends ItemView {
   this.slashToken=token;
   this.slashMatches=matchSlashCommands(token.query,this.butler.slashCommands.all(),this.slashContext());
   if(!this.slashMatches.length){this.closeSlash();return;}
-  this.slashActive=Math.max(0,this.slashMatches.findIndex(match=>!match.reason));
+  this.slashActive=slashActiveIndex(this.slashMatches);
   this.renderSlash();
  }
  private renderSlash(){
