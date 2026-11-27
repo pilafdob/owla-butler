@@ -4,6 +4,15 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.1-dev.5
+
+A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.1-dev.4`, all from `main` (pull request #31):
+
+- **Manual model selection:** the model button and effort menu can be clicked again in manual mode. Before, the hidden Automatic selection button still covered them. The model button and effort menu now match the Automatic selection button in height and style, and a long model name is cut with an ellipsis (full name in the tooltip).
+- **Slash commands:** choosing a prompt command puts `/<id> ` in the composer instead of the full prepared request. On send, the `/<id>` is expanded into the request the model reads, followed by your own words (`/summarize in two sentences`). The chat bubble and saved chats show what you typed.
+
+Tried on macOS in the Agentbrain vault (pull request #31): manual and automatic mode, pane widths 240/280/360/600 px, `/orga` + Enter and a `/summarize` send with Claude Code. Not yet tried: Windows. At a 240 px pane the model button shows only an ellipsis.
+
 ### 3.8.1-dev.4
 
 A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.1-dev.3`, all from `main` (pull request #30):
