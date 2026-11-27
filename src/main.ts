@@ -1779,7 +1779,6 @@ export class ButlerView extends ItemView {
    if(index===this.slashActive)row.addClass('is-active');
    const line=row.createDiv('owla-slash-line');
    line.createSpan({text:'/'+match.command.id,cls:'owla-slash-id'});
-   line.createSpan({text:match.command.kind==='action'?'Runs now':'Inserts a prompt',cls:'owla-slash-kind'});
    row.createDiv({text:match.reason??match.command.description,cls:'owla-slash-desc'});
    // Keep focus in the composer so the list does not close before the click lands.
    row.addEventListener('mousedown',event=>event.preventDefault());
