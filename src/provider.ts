@@ -23,6 +23,8 @@ export type FallbackChoice = ProviderId | 'none';
 export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  /** What the chat shows for a user message when it differs from `content`, such as `/summarize` for its expanded request. */
+  display?: string;
   context?: string;
   images?: string[];
   sourcePath?: string;

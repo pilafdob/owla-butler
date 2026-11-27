@@ -312,8 +312,6 @@
  overflow-wrap: anywhere;
  padding: 2px 3px;
 }
-/* Hidden toolbar controls must not claim a grid cell. */
-.owla-toolbar .owla-hidden { display: none; }
 
 .owla-toolbar button.owla-automatic-model,
 button.owla-source-link {
@@ -354,6 +352,31 @@ button.owla-source-link:hover,
  text-decoration: none;
  background: var(--interactive-hover);
 }
+/* The manual model button matches Automatic selection: same height, radius, fill and type size. A long model name is cut with an ellipsis instead of pushing the effort menu and Send aside. */
+.owla-toolbar button.owla-model {
+ display: block;
+ justify-self: end;
+ width: auto;
+ max-width: 100%;
+ height: 27px;
+ line-height: 27px;
+ padding: 0 8px;
+ border-radius: var(--button-radius);
+ background: var(--interactive-normal);
+ color: var(--text-muted);
+ font-size: var(--font-ui-smaller);
+ text-align: start;
+ white-space: nowrap;
+ overflow: hidden;
+ text-overflow: ellipsis;
+}
+.owla-toolbar button.owla-model:hover:enabled { background: var(--interactive-hover); }
+/* Hidden toolbar controls must not claim a grid cell. This sits after the
+   button rules above, which set display and would otherwise win: the
+   Automatic selection button stayed visible in manual mode and covered the
+   model and effort controls. */
+.owla-toolbar .owla-hidden,
+.owla-toolbar button.owla-hidden { display: none; }
 .owla-organization-cards { display: grid; gap: 5px; }
 
 /* Narrow sidebars: tighten the toolbar row and shrink the header.
@@ -400,3 +423,6 @@ body > .canvas-wrapper.owla-canvas-capture.is-screenshotting { position: fixed; 
   .markdown-rendered img { max-width: 100%; height: auto; break-inside: avoid; }
   .markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered h4, .markdown-rendered h5, .markdown-rendered h6 { break-after: avoid; }
 }
+/* The effort menu sits beside the model button with the same fill. */
+.owla-toolbar select.owla-effort { background-color: var(--interactive-normal); border: 0; box-shadow: none; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.owla-toolbar select.owla-effort:hover:enabled { background-color: var(--interactive-hover); }
