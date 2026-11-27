@@ -27,3 +27,5 @@ test('reopened replies retain their source note path for relative links', () => 
   rmSync(root, {recursive:true, force:true});
  }
 });
+
+test('a saved user message keeps what the chat showed, such as a slash command',()=>{const root=mkdtempSync(join(tmpdir(),'owla-chat-'));try{const store=new ChatStore(root);store.save('Slash',[{role:'user',content:'Summarize the current note.',display:'/summarize'},{role:'assistant',content:'Done.',display:'ignored'}]);const [user,reply]=store.list()[0].messages;assert.equal(user.content,'Summarize the current note.');assert.equal(user.display,'/summarize');assert.equal(reply.display,undefined);}finally{rmSync(root,{recursive:true,force:true});}});

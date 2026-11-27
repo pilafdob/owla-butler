@@ -1,6 +1,6 @@
 // Composer slash commands: the registry, the typed token, matching and insertion.
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashActiveIndex,slashQueryAt,type SlashCommand,type SlashContext} from '../src/slash-commands';
+import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,expandSlashPrompts,matchSlashCommands,slashActiveIndex,slashQueryAt,type SlashCommand,type SlashContext} from '../src/slash-commands';
 
 const ready:SlashContext={hasNote:true,hasImage:false,hasPdf:false,hasAttachment:false,readsImages:true,webSearch:true,canvas:true,bases:true,excalidraw:true,busy:false,awaitingReview:false,hasHistory:true,canUndo:true};
 const registry=new SlashRegistry(BUILTIN_SLASH_COMMANDS);
@@ -87,16 +87,28 @@ test('a command typed in full comes first and is highlighted even when it cannot
  assert.equal(pdf[slashActiveIndex(pdf)].command.id,'pdf-page-to-md');
 });
 
-test('a prompt command replaces its token with the prompt and keeps the rest of the draft',()=>{
+test('a prompt command replaces its token with /<id> and keeps the rest of the draft',()=>{
  const command=registry.get('image-to-md')!;
  const draft='Please /img';
  const result=applySlashCommand(draft,slashQueryAt(draft,draft.length)!,command);
- assert.equal(result.text,'Please '+command.prompt);
+ assert.equal(result.text,'Please /image-to-md ');
  assert.equal(result.caret,result.text.length);
  const web=registry.get('web')!;
  const mid=applySlashCommand('/we tariffs 2026',{start:0,end:3},web);
- assert.equal(mid.text,'Check this on the web and cite the sources: tariffs 2026');
- assert.equal(mid.caret,web.prompt!.length,'the caret sits after the inserted prompt');
+ assert.equal(mid.text,'/web tariffs 2026');
+ assert.equal(mid.caret,'/web '.length,'the caret sits after the inserted command');
+});
+
+test('on send, /<id> of a prompt command expands to its prompt; other text stays as typed',()=>{
+ const all=registry.all();
+ const image=registry.get('image-to-md')!.prompt!,summary=registry.get('summarize')!.prompt!;
+ assert.equal(expandSlashPrompts('/image-to-md ',all),image+' ');
+ assert.equal(expandSlashPrompts('/image-to-md',all),image);
+ assert.equal(expandSlashPrompts('/summarize in two sentences',all),summary+' in two sentences');
+ assert.equal(expandSlashPrompts('/web tariffs 2026',all),'Check this on the web and cite the sources: tariffs 2026');
+ assert.equal(expandSlashPrompts('Please /summarize\nthanks',all),'Please '+summary+'\nthanks');
+ // Actions, unknown ids, partial ids and paths are not prompts.
+ for(const text of ['/new','/nope here','/summ','see /Users/me/notes','a/summarize','/summarize/x'])assert.equal(expandSlashPrompts(text,all),text);
 });
 
 test('an action command removes its token and leaves the rest of the draft',()=>{

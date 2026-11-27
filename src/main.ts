@@ -38,7 +38,7 @@ import {annotatePdf,validatePdfComments,pdfLink,PdfComment} from './pdf-tools';
 import {createHash} from 'node:crypto';
 import {convertFile} from './attachments';
 import {editorDiff,refreshEditorDiff} from './editor-diff';
-import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,matchSlashCommands,slashActiveIndex,slashQueryAt,type SlashCommand,type SlashContext,type SlashMatch} from './slash-commands';
+import {BUILTIN_SLASH_COMMANDS,SlashRegistry,applySlashCommand,expandSlashPrompts,matchSlashCommands,slashActiveIndex,slashQueryAt,type SlashCommand,type SlashContext,type SlashMatch} from './slash-commands';
 import {Organization,OrganizationReview,RemovalReview,decodeMoves} from './organization';
 import {getAllTags,stringifyYaml} from 'obsidian';
 import {brokenLinks,editOutline,findBlock,findSection,frontmatterBlock,headingLinkBreaks,headingLinkWarning,headingOutline,linkTargets,linkWarning,noteChunk,noteContextBlock,tableAt,textHasSubpath,updateProperties,type NoteContextInput,type OutlineOp} from './note-tools';
@@ -164,7 +164,7 @@ export default class Butler extends Plugin {
   this.addCommand({id:'add-selection',name:'Add selection to chat',editorCallback:(editor,view)=>void this.selection(editor,view.file)});
   this.addCommand({id:'select-table',name:'Select table',editorCheckCallback:(checking,editor)=>{const at=tableAt(editor.getValue(),editor.getCursor().line);if(checking)return !!at;if(!at)return;const last=editor.getLine(at.end);editor.setSelection({line:at.start,ch:0},{line:at.end,ch:last.length});editor.focus();}});
   this.addCommand({id:'add-table',name:'Add table to chat',editorCallback:(editor,view)=>void this.table(editor,view.file)});
-  this.addCommand({id:'image-to-note',name:'Turn an image into note content',callback:async()=>{const v=await this.open();v.composer.value=this.slashCommands.get('image-to-md')?.prompt??'';v.pickImage();}});
+  this.addCommand({id:'image-to-note',name:'Turn an image into note content',callback:async()=>{const v=await this.open();v.composer.value='/image-to-md ';v.pickImage();}});
   this.addCommand({id:'review-latest-edit',name:'Review latest suggested edit',callback:()=>this.view?.reviewLatest()});
   this.addCommand({id:'undo-latest-edit',name:'Undo last accepted edit',callback:()=>void this.view?.undoLatest()});
   this.addCommand({id:'save-chat',name:'Save recent chat',callback:()=>this.view?.saveChat()});
@@ -1705,8 +1705,8 @@ export class ButlerView extends ItemView {
  private chatStore(){return new ChatStore(this.butler.vaultStorage());}
  /** Current chat history for the Developer mode session export. */
  chatHistoryForDev():ChatMessage[]{return this.history.map(message=>({...message}));}
- saveChat(afterSave?:()=>void){if(this.controller){new Notice('Wait for the reply or stop before saving.');return;}if(!this.history.length){new Notice('Send a message before saving.');return;}new ChatNameModal(this.app,this.butler,this.history.find(m=>m.role==='user')?.content.slice(0,60)||'Chat',title=>{try{this.chatStore().save(title,this.history);new Notice('Recent chat saved locally. Only the last three exchanges are saved; attachments are not stored.');afterSave?.();}catch(e){new Notice(friendlyError(e));}}).open();}
- openSavedChat(remove=false){if(this.controller){new Notice('Finish or stop this reply first.');return;}try{const store=this.chatStore(),chats=store.list();if(!chats.length){new Notice('No saved chats yet.');return;}new SavedChatPicker(this.app,this.butler,chats,async chat=>{if(remove){new ChatDeleteModal(this.app,this.butler,chat.title,()=>{try{store.remove(chat.id);new Notice('Saved chat deleted.');}catch(e){new Notice(friendlyError(e));}}).open();return;}if(!this.newChat())return;this.history=chat.messages.map(m=>({...m}));this.feed.empty();const epoch=this.attachmentEpoch;for(const message of this.history){if(epoch!==this.attachmentEpoch)return;if(message.role==='user')this.userMessage(message.content);else{const row=this.feed.createDiv('owla-assistant');this.replyHeading(row);await this.renderReply(row.createDiv('owla-message-content'),message.content,message.sourcePath);this.copyButton(row.createDiv('owla-reply-footer'),stripFence(message.content),'Copy Markdown');}}this.status.setText('Saved chat · attachments were not restored; your current note supplies new context');}).open();}catch(e){new Notice(friendlyError(e));}}
+ saveChat(afterSave?:()=>void){if(this.controller){new Notice('Wait for the reply or stop before saving.');return;}if(!this.history.length){new Notice('Send a message before saving.');return;}new ChatNameModal(this.app,this.butler,this.history.find(m=>m.role==='user')?.display?.slice(0,60)||this.history.find(m=>m.role==='user')?.content.slice(0,60)||'Chat',title=>{try{this.chatStore().save(title,this.history);new Notice('Recent chat saved locally. Only the last three exchanges are saved; attachments are not stored.');afterSave?.();}catch(e){new Notice(friendlyError(e));}}).open();}
+ openSavedChat(remove=false){if(this.controller){new Notice('Finish or stop this reply first.');return;}try{const store=this.chatStore(),chats=store.list();if(!chats.length){new Notice('No saved chats yet.');return;}new SavedChatPicker(this.app,this.butler,chats,async chat=>{if(remove){new ChatDeleteModal(this.app,this.butler,chat.title,()=>{try{store.remove(chat.id);new Notice('Saved chat deleted.');}catch(e){new Notice(friendlyError(e));}}).open();return;}if(!this.newChat())return;this.history=chat.messages.map(m=>({...m}));this.feed.empty();const epoch=this.attachmentEpoch;for(const message of this.history){if(epoch!==this.attachmentEpoch)return;if(message.role==='user')this.userMessage(message.display??message.content);else{const row=this.feed.createDiv('owla-assistant');this.replyHeading(row);await this.renderReply(row.createDiv('owla-message-content'),message.content,message.sourcePath);this.copyButton(row.createDiv('owla-reply-footer'),stripFence(message.content),'Copy Markdown');}}this.status.setText('Saved chat · attachments were not restored; your current note supplies new context');}).open();}catch(e){new Notice(friendlyError(e));}}
  refreshModel(){
   const automaticModels=this.butler.automaticModels;
   this.modelLabel?.toggleClass('owla-hidden',automaticModels);
@@ -3110,7 +3110,9 @@ export class ButlerView extends ItemView {
   new Notice('Accept or decline pending changes before sending another message.');
   return;
  }
- if(this.controller||this.converting)return;const draftText=request??this.composer.value;const prompt=draftText.trim()?draftText:(this.images.length?'Transcribe the attached image into Obsidian Markdown and LaTeX.':this.pdfs.length||this.notes.size||this.folders.size?'Summarise the attached files and cite their filenames.':'');if(!prompt)return;
+ if(this.controller||this.converting)return;const draftText=request??this.composer.value;const typed=draftText.trim()?draftText:(this.images.length?'Transcribe the attached image into Obsidian Markdown and LaTeX.':this.pdfs.length||this.notes.size||this.folders.size?'Summarise the attached files and cite their filenames.':'');if(!typed)return;
+ // The chat shows a slash command as typed; the model reads its prepared request.
+ const prompt=expandSlashPrompts(typed,this.butler.slashCommands.all());
  const autoProvider=this.butler.prefs.automaticProvider;
  let autoOffers:ProviderOffer[]=[];
  let autoTask:TaskClass|undefined;
@@ -3152,7 +3154,7 @@ export class ButlerView extends ItemView {
  }
  if(request===undefined||this.composer.value===draftText)this.composer.value='';
  this.images=[];this.pdfs=[];this.selections=[];this.notes.clear();this.folders.clear();this.renderAttachments();
- this.userMessage(prompt,images,sentCards(selected,folders,[...notes,...pdfs.map(file=>file.source)]));
+ this.userMessage(typed,images,sentCards(selected,folders,[...notes,...pdfs.map(file=>file.source)]));
  const answer=this.feed.createDiv('owla-assistant');
  const heading=this.replyHeading(answer,true);
  const disclosure=answer.createEl('details',{cls:'owla-working'});
@@ -3677,7 +3679,7 @@ export class ButlerView extends ItemView {
   if(dropped>0)this.butler.devJournal.event('history-trimmed',dropped+' older messages left the model context (the latest six exchanges are kept).',devTurn);
   this.butler.devJournal.endTurn(devTurn,{ok:true,reply:text,latencyMs:Date.now()-turnStartMs,estimatedOutputTokens:estimateTokens(text),provider,model:route.model,effort:route.effort,attempts:devAttempts,escalations:devEscalations,retries:devRetries});
  }
- this.history.push({role:'user',content:prompt,...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text,...(captured?{sourcePath:captured.path}:{})});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('OWLA now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);
+ this.history.push({role:'user',content:prompt,...(typed!==prompt?{display:typed}:{}),...(attachedContext?{context:attachedContext}:{}),...(images.length?{images:images.map(i=>i.url)}:{})},{role:'assistant',content:text,...(captured?{sourcePath:captured.path}:{})});let imageBudget=2;for(const message of [...this.history].reverse())if(message.images){message.images=imageBudget?message.images.slice(-imageBudget):[];imageBudget-=message.images.length;if(!message.images.length)delete message.images;}if(this.history.length>12&&!this.historyShortened){this.historyShortened=true;new Notice('OWLA now uses the latest six exchanges as chat context. Earlier messages remain visible.');}this.history=this.history.slice(-12);
  this.copyButton(footer,stripFence(text),'Copy Markdown');
  if (captured && !batches.size && !organization.review && !organization.removals?.length && !pluginChanges.length) {
   actions.createEl('button',{text:captured.start===captured.end?'Insert at cursor…':'Replace selection…'}).onclick =
