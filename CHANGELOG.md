@@ -4,6 +4,14 @@ Dev builds from `Developer-Prerelease` are GitHub prereleases (never â€œlatestâ€
 
 ## Dev builds
 
+### 3.8.1-dev.4
+
+A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. Changes since `3.8.1-dev.3`, all from `main` (pull request #30):
+
+- **Slash list:** a command typed in full now comes first and is highlighted even when it cannot run, so Enter shows its reason. Before, `/save` before the first message ran `/open`, which matches "save" through its keyword "saved". Partial names still prefer commands that can run (`/sav` highlights `/open`).
+
+Tried on macOS in a backed-up test vault (Obsidian 1.15.1) with an empty chat: `/save`, `/sav`, `/undo` and `/model`. Not yet tried: VoiceOver, a real IME input source, the light theme by eye, and Windows.
+
 ### 3.8.1-dev.3
 
 A dev build of `main` at its stable version 3.8.1, with the Developer-Prerelease dev features (Developer mode and its diagnostics) on top. It replaces `3.8.1-dev.2`, which was tagged but never released: the release workflow refused to package it because the README contained an example home-folder path. Changes since `3.8.1-dev.2`, all from `main`:
