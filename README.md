@@ -77,7 +77,7 @@ OWLA is an independent project, unaffiliated with Obsidian, OpenAI, OpenCode or 
 4. Open the bird sidebar and send a message. OWLA remembers the connection across reloads and starts the assistant on demand. A green sidebar dot means the assistant's process is running in the background; it turns grey again when the process rests. Claude Code runs only while a reply or check is under way. Hover over the dot for its status.
 
 <p align="center">
-  <img src="assets/screenshots/05-providers.png" alt="OWLA Butler settings, General tab: tabs for Codex, Claude, OpenCode and Hermes, with the primary and secondary provider pickers and the web search switch" width="720">
+  <img src="assets/screenshots/05-providers.png" alt="OWLA Butler settings, General tab: tabs for Codex, Claude, OpenCode and Hermes, with Claude Code as primary provider, the secondary provider picker and the web search switch" width="720">
 </p>
 
 The assistant settings are kept separately for each operating system: the provider order, the provider switches, **Automatic model and reasoning effort**, the Siri AI fallback, each provider's model and effort, web search, the Codex connection and the executable paths. When a vault is synced between a Mac and a Windows PC, changing them on one computer leaves the other unchanged. Each computer starts from the settings saved before 3.1.1. Excluded folders, the storage folder, the review view and Plugin Interconnectivity stay shared by the vault.
@@ -92,6 +92,10 @@ The sidebar starts with a clean message area. Choose the **model** and **reasoni
 
 <p align="center">
   <img src="assets/screenshots/01-chat.png" alt="OWLA Butler sidebar answering a question about the open note: it totals the note's budget and checks its open questions against a linked note" width="720">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/06-model-picker.png" alt="The manual model picker opened from the model button beside the composer, listing the models Claude Code offers, with the reasoning effort next to it" width="720">
 </p>
 
 Your current Markdown note includes unsaved editor text and the captured cursor/selection. Focus stays associated with that note when you move into chat. Right-click selected text → **Add selection to OWLA Butler**, use **+ → Add note** or **+ → Add current selection**, or name another note in your request. A selection you add stays in the composer as a chip, and the sent message shows it as a card with the excerpt it carries, so you can see that it went with the prompt. A selection added while a reply is still running is marked **next message** and waits for the message after that. The assistant can search and read allowed Markdown notes itself and cite exact paths. To search, OWLA lists Markdown notes through Obsidian, filters excluded paths and scans eligible notes up to 250 KB locally. The search result returns up to five matching paths and short excerpts from the top two. No vault-wide upload or index is created.
@@ -111,6 +115,10 @@ Web search is enabled by default so the assistant can check current facts when n
 ### The + menu and slash commands
 
 The **+** button at the left of the composer adds context: **Attach file**, **Add note**, **Add folder** and **Add current selection** (the text selected in the last focused note). **Commands** opens the slash command list.
+
+<p align="center">
+  <img src="assets/screenshots/07-slash-commands.png" alt="The slash command list above the OWLA Butler composer after typing a slash: image-to-md, table-to-md, summarize, format, mermaid, math and properties, each with a one-line description" width="720">
+</p>
 
 Type `/` at the start of the composer or after a space to open the same list. Keep typing to filter it (`/img` finds `/image-to-md`); Up and Down move, Enter or Tab picks, a click picks, Esc closes it. `//` and paths such as `/notes/2026` stay plain text. A command that cannot run now stays in the list, greyed out with the reason, for example "Attach a PDF, a PDF page or a PDF selection first."
 
@@ -186,7 +194,7 @@ If the assistant you are using reports that its usage limit is reached, OWLA exp
 Ask OWLA to make the changes you want in the note. Once the reply finishes, OWLA groups changes by note and applies each group provisionally. **Accept** keeps the current text, **Decline** restores the previous snapshot, and **View diff** shows the exact Markdown additions and removals. Vault sources in **Sources & activity** open the exact PDF page or note heading when OWLA has one. Change cards above **Sources & activity** show affected files and folders. Open an existing file, reveal a folder in File Explorer, or preview a new note draft. The composer unlocks after you decide on every pending group. Insert and append buttons also create provisional changes.
 
 <p align="center">
-  <img src="assets/screenshots/02-review.png" alt="A proposed note edit under review: removed lines highlighted red and added lines green in the editor, with Accept, Decline and View diff in the chat" width="720">
+  <img src="assets/screenshots/02-review.png" alt="A proposed note edit under review: the old budget lines struck through in red in the editor above the new table, with Accept, Decline and View diff in the chat" width="720">
 </p>
 
 OWLA stores each pending decision and a private recovery snapshot before writing. Pending decisions return when you reopen the sidebar or restart Obsidian. Decline only restores a note that still matches the applied text. If you edit the note while deciding, you can accept the current text. The Undo command for an accepted edit also checks the applied snapshot before restoring. Snapshots retain at most 20 entries within 5 MB per vault. The pending record is capped at 10 MB.

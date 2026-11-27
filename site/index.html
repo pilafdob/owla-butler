@@ -76,12 +76,12 @@
     <figure class="hero-media">
       <div class="frame">
         <video class="demo" muted loop playsinline controls preload="metadata" poster="media/demo-poster.png" width="960" height="640"
-               aria-label="Demo, 23 seconds, no sound: the user asks OWLA to change the open note, the proposed change is highlighted in the note, the user clicks Accept and the note keeps the new text.">
+               aria-label="Demo, 21 seconds, no sound: the user asks OWLA to change the open note, the proposed change is highlighted in the note, the user clicks Accept and the note keeps the new text.">
           <source src="media/demo.mp4" type="video/mp4">
         </video>
         <button class="play-toggle" type="button" aria-pressed="false">Play demo</button>
       </div>
-      <figcaption>Ask for an edit, see it highlighted in the note, Accept. Real capture from a demo vault, 23 s.</figcaption>
+      <figcaption>Ask for an edit, see it highlighted in the note, Accept. Real capture from a demo vault, 21 s.</figcaption>
     </figure>
   </div>
 </section>
@@ -104,7 +104,7 @@
         <h3>Review every edit</h3>
         <p>Proposed changes are applied provisionally and shown in the editor: removed lines in red, added lines in green. <strong>Accept</strong> keeps them, <strong>Decline</strong> restores the previous snapshot, <strong>View diff</strong> shows the exact Markdown. Moves, renames and deletions go through the same review.</p>
       </div>
-      <img src="media/02-review.png" width="1200" height="800" loading="lazy" alt="A proposed note edit under review: removed lines highlighted red and added lines green in the editor, with Accept, Decline and View diff in the chat">
+      <img src="media/02-review.png" width="1200" height="800" loading="lazy" alt="A proposed note edit under review: the old budget lines struck through in red in the editor above the new table, with Accept, Decline and View diff in the chat">
     </div>
 
     <div class="feature">
@@ -125,10 +125,26 @@
 
     <div class="feature">
       <div class="feature-text">
+        <h3>Choose the model and effort</h3>
+        <p>The model and reasoning effort sit beside the composer. The list comes from the provider you use, not a fixed menu. On macOS, <strong>Automatic model and reasoning effort</strong> can pick both for each message instead.</p>
+      </div>
+      <img src="media/06-model-picker.png" width="1200" height="800" loading="lazy" alt="The manual model picker opened from the model button beside the composer, listing the models Claude Code offers, with the reasoning effort next to it">
+    </div>
+
+    <div class="feature flip">
+      <div class="feature-text">
+        <h3>Slash commands</h3>
+        <p>Type <code>/</code> for ready-made requests such as <code>/summarize</code>, <code>/format</code>, <code>/mermaid</code> and <code>/math</code>, plus quick actions like <code>/new</code> and <code>/undo</code>. Keep typing to filter; nothing is sent until you press Send.</p>
+      </div>
+      <img src="media/07-slash-commands.png" width="1200" height="800" loading="lazy" alt="The slash command list above the OWLA Butler composer after typing a slash: image-to-md, table-to-md, summarize, format, mermaid, math and properties, each with a one-line description">
+    </div>
+
+    <div class="feature">
+      <div class="feature-text">
         <h3>Pick your provider</h3>
         <p>Settings have a tab per provider. Choose a primary provider and an optional fallback for when one reaches its usage limit; OWLA switches back when the limit resets.</p>
       </div>
-      <img src="media/05-providers.png" width="1200" height="800" loading="lazy" alt="OWLA Butler settings, General tab: tabs for Codex, Claude, OpenCode and Hermes, with the primary and secondary provider pickers and the web search switch">
+      <img src="media/05-providers.png" width="1200" height="800" loading="lazy" alt="OWLA Butler settings, General tab: tabs for Codex, Claude, OpenCode and Hermes, with Claude Code as primary provider, the secondary provider picker and the web search switch">
     </div>
   </div>
 </section>

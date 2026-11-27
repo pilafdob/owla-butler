@@ -132,7 +132,7 @@ Suggested repository description:
 
 Suggested topics: `obsidian-plugin`, `obsidian`, `ai`, `ai-assistant`, `ai-chat`, `chatbot`, `sidebar`, `copilot`, `llm`, `agent`, `codex`, `opencode`, `claude-code`, `hermes-agent`, `markdown`.
 
-Listing screenshots (1200×800, light theme, disposable demo vault): `assets/screenshots/01-chat.png` to `05-providers.png`; README demo: `assets/demo.gif`.
+Listing screenshots (1200×800 window captured at 2x, so 2400×1600 files; light theme, disposable demo vault): `assets/screenshots/01-chat.png` to `07-slash-commands.png`; README demo: `assets/demo.gif`.
 
 ## Preparation checks
 
